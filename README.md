@@ -1,6 +1,11 @@
 # Audio Recorder
 
-_What Audio Recorder is and who it's for: written during T1._
+A quick, unrestrictive recorder for musicians: capture a 2–3 minute song idea with several tracks, then
+trim, split and move clips on a simple timeline that works in portrait (time runs top to bottom) and landscape
+(left to right). A sketchpad, not a DAW: no software instruments. Everything stays on the device.
+
+**Needs a development build** (`npm run ios` / `npm run android`): the audio engine
+(`react-native-audio-api`) isn't part of Expo Go, so `npm run start:go` can't record or play.
 
 Created from the base template; `npm run sync-base` pulls in later base improvements (see
 [docs/new-app-checklist.md](docs/new-app-checklist.md)).

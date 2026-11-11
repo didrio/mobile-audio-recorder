@@ -1,13 +1,14 @@
-# Smoke test: the app launches, both tabs render, and a setting can be changed.
+# Smoke test: the app launches on Ideas, both tabs render, and a setting can be changed.
+# Recording isn't covered here (it triggers the microphone permission prompt).
 # Run with `npm run e2e` (see scripts/e2e.mjs). Docs: https://docs.maestro.dev
 appId: ${APP_ID}
 name: Smoke
 ---
 - runFlow: subflows/launch.yaml
 - extendedWaitUntil:
-    visible: 'Start building'
+    visible: 'Record new idea'
     timeout: 60000
-- takeScreenshot: home
+- takeScreenshot: ideas
 
 - tapOn: 'Settings'
 - assertVisible: 'Version'

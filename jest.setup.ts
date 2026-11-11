@@ -29,3 +29,14 @@ jest.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
   NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
 }));
+
+// The audio engine's native module: the library ships its own Jest mock.
+jest.mock('react-native-audio-api', () => require('react-native-audio-api/mock'));
+
+// expo-crypto's native UUID generator isn't available in Jest; produce unique, valid-looking IDs.
+jest.mock('expo-crypto', () => {
+  let counter = 0;
+  return {
+    randomUUID: () => `00000000-0000-4000-8000-${String(++counter).padStart(12, '0')}`,
+  };
+});

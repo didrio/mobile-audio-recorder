@@ -19,8 +19,8 @@ export default function TabsLayout() {
       backgroundColor={isAndroid ? theme.colors.background : undefined}
       indicatorColor={isAndroid ? theme.colors.surfacePressed : undefined}>
       <NativeTabs.Trigger name="(home)">
-        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf={{ default: 'house', selected: 'house.fill' }} md="home" />
+        <NativeTabs.Trigger.Label>Ideas</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="waveform" md="graphic_eq" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="settings">

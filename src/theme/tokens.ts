@@ -9,9 +9,10 @@
  */
 import { Platform } from 'react-native';
 
+/** Recording red. Kept distinct from `danger` so destructive actions still read differently. */
 const brand = {
-  light: '#0A7CFF',
-  dark: '#3B9BFF',
+  light: '#D92D20',
+  dark: '#FF5147',
 } as const;
 
 export const lightColors = {
@@ -100,6 +101,8 @@ export const typography = {
   footnote: { fontSize: 13, lineHeight: 18, fontWeight: '400' },
   caption: { fontSize: 12, lineHeight: 16, fontWeight: '400' },
   mono: { fontSize: 13, lineHeight: 18, fontWeight: '400', fontFamily: fonts.mono },
+  /** Transport clock (elapsed / position). Monospaced so digits don't jitter. */
+  timecode: { fontSize: 40, lineHeight: 48, fontWeight: '600', fontFamily: fonts.mono },
 } as const satisfies Record<
   string,
   {

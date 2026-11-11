@@ -1,12 +1,10 @@
-# Tickets — Base
+# Tickets — Audio Recorder
 
-Living, ordered backlog for the **base template itself** (apps created from it get a fresh file from
-`scripts/templates/TICKETS.md`). One ticket per session: `/clear` → `/start Tn` → work → `/wrap`. The agent that
-wraps a session updates this file and picks the next ticket. Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas
-any time with `/ticket`.
+Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → work → `/wrap`. The agent that wraps a
+session updates this file and picks the next ticket, so each new session starts with a small, clear context.
+Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** none queued in the base (v1.0.0). Build the first real app: `npm run create-app -- ../my-app --name "My
-App"`, then `/start T1` in the new folder. Base ideas: Backlog below, or `/ticket`.
+**Next:** T1 — Shape the app · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -14,32 +12,25 @@ _None._
 
 ## Up next
 
-_None._
+### T1 — Shape the app
+
+- **Status:** ready
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Turn the app idea into a plan and a backlog, and build the first thin slice.
+- **Done when:**
+  - [ ] The user has described the idea; screens, data (local only / backend / auth) and native capabilities
+        (and whether they need a development build) are agreed.
+  - [ ] Identity is final: name and bundle ID (not `com.example…`), brand colors in `src/theme/tokens.ts`.
+  - [ ] The starter Home is replaced by the app's first real screen, with a test, and `.maestro/smoke.yaml` checks it.
+  - [ ] T2+ written here in order, each detailed enough for a fresh session to start without re-investigating.
+- **Context:** Follow the `new-app` skill. Created from the base on 2026-11-11; everything generic (tooling,
+  design system, delivery) is already set up — see `AGENTS.md`. If there's no `origin` remote yet, offer the
+  private GitHub repo command from the skill (ask first: it's outward-facing).
 
 ## Backlog
 
-- Run Maestro flows in CI on EAS Workflows (simulator/emulator jobs) once there are flows worth gating on.
-- Exercise `npm run sync-base` on a real Expo SDK upgrade (base upgraded first, then one app) and note
-  surprises in the `sync-base` skill. Only meaningful once an app exists and the next SDK ships.
-- A neutral placeholder icon/splash for the base (currently Expo's template artwork).
-- `npm run build:preview:local` (`eas build --local`) as a documented fallback for long EAS queues when testing
-  only on your own devices (~10 min on this Mac vs ~1 h for free-plan Android). Trade-offs are in
-  `docs/releasing.md` ("What to expect").
+Ideas that aren't ready to work on yet. Promote them to "Up next" with full detail when they are.
 
 ## Done
 
-- T1 — Base setup — 2026-11-11 — Expo SDK 58 base: routing, design system, data layer, variants, EAS, tooling,
-  agent docs and skills (2d83d7f).
-- T2 — Device verification — 2026-11-11 — built and ran on the iOS 27.2 simulator and Android 16 emulator; fixed the
-  card fill, the update rows, E2E launch on dev builds, multi-device scripts; added the ticket workflow.
-- T3 — Base updates for apps — 2026-11-11 — `create-app` clones the base history (`base` remote); new
-  `npm run sync-base` + `sync-base` skill merge base improvements (keeps TICKETS.md, regenerates lockfile); tried
-  end to end on a scratch copy.
-- T4 — Cloud delivery verified — 2026-11-11 — Android + iOS (ad hoc) preview builds installed on emulator and
-  real phones, OTA via `update:preview` received on both; `updates.url` set; findings in `docs/releasing.md`
-  ("First preview build"), `release` skill, and a "First preview build" ticket in every new app (`new-app`).
-- T5 — Expo MCP tried — 2026-11-11 — docs search, EAS status and router sitemap are useful; local device automation failed ("No platform found"), so the screenshot + Maestro loop stays; documented in `run-app` and AGENTS.md.
-- T6 — Android build tools in setup-mac — 2026-11-11 — setup installs NDK (from RN catalog), CMake 3.22.1 and build-tools 36.0.0 (AGP defaults, env-overridable) so the first Gradle build is faster.
-- T7 — Pre-v1 audit — 2026-11-11 — bundle ID prefix `com.didrio`; `new-app` in an existing app only renames
-  (keeps backlog, version, EAS link; slug locked once EAS-linked); app README intro via `base-only` markers;
-  "Who does what" + private GitHub repo step; `typecheck` regenerates typed routes; tagged `v1.0.0`.
+_Nothing yet._

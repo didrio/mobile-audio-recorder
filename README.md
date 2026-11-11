@@ -1,11 +1,9 @@
-# Base
+# Audio Recorder
 
-<!-- base-only:start -->
+_What Audio Recorder is and who it's for: written during T1._
 
-A production-ready starting point for iOS + Android apps from one TypeScript codebase, built so both you and
-AI coding agents can move fast in it. Every new app idea starts here.
-
-<!-- base-only:end -->
+Created from the base template; `npm run sync-base` pulls in later base improvements (see
+[docs/new-app-checklist.md](docs/new-app-checklist.md)).
 
 **Stack:** Expo SDK 58 · React Native 0.88 (New Architecture) · React 19.3 + React Compiler · TypeScript ·
 Expo Router with native tabs · TanStack Query · zustand · zod · Jest + Testing Library · Maestro · EAS Build /
@@ -21,22 +19,6 @@ npm run start:go      # then scan the QR code with the Expo Go app on your phone
 
 With Xcode or the Android SDK installed: `npm run ios` / `npm run android`. Full guide, including real
 devices and one-command toolchain setup (`bash scripts/setup-mac.sh`): [docs/getting-started.md](docs/getting-started.md).
-
-<!-- base-only:start -->
-
-## Start a new app from this base
-
-```bash
-npm run create-app -- ../my-app --name "My App"     # clone + rename + commit + install
-```
-
-Bundle IDs default to `com.didrio.<slug>` (`config.bundleIdPrefix` in `package.json`; pass `--id` to override).
-The command prints the next steps: an optional private GitHub repo, then open the new folder in Claude Code (Opus,
-high effort, plan mode on) and run `/start T1`: describe the idea, and the agent plans it, builds the first slice
-and writes the backlog. Who does what, and the checklist: [docs/new-app-checklist.md](docs/new-app-checklist.md).
-Later improvements to the base reach the app with `npm run sync-base` (section 5 of the checklist).
-
-<!-- base-only:end -->
 
 ## How work flows
 

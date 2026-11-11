@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Base",
-    "slug": "base",
-    "scheme": "base",
+    "name": "Audio Recorder",
+    "slug": "audio-recorder",
+    "scheme": "audio-recorder",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -15,14 +15,14 @@
       "policy": "fingerprint"
     },
     "ios": {
-      "bundleIdentifier": "com.example.base",
+      "bundleIdentifier": "com.didrio.audiorecorder",
       "icon": "./assets/app.icon",
       "config": {
         "usesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.example.base",
+      "package": "com.didrio.audiorecorder",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -49,15 +49,6 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    },
-    "extra": {
-      "eas": {
-        "projectId": "7aba526b-ace6-47e7-a68a-c53026ae2d50"
-      }
-    },
-    "owner": "ididrio",
-    "updates": {
-      "url": "https://u.expo.dev/7aba526b-ace6-47e7-a68a-c53026ae2d50"
     }
   }
 }

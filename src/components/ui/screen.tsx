@@ -15,7 +15,9 @@ export type ScreenProps = ScrollViewProps & {
  * Insets are handled natively: on iOS the scroll view adjusts for the header, tab bar and safe
  * areas (`contentInsetAdjustmentBehavior="automatic"`, which also makes large titles collapse);
  * on Android the native header and tab bar take their own space.
- * For full-bleed screens (maps, camera, media) build your own layout instead.
+ * For full-bleed screens (maps, camera, media, canvases) build your own layout instead, and start it
+ * below the native header with `useHeaderHeight()` from `expo-router/react-navigation`: on iOS 26+ the
+ * header floats over the content.
  */
 export function Screen({
   children,

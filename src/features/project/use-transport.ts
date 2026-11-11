@@ -1,33 +1,49 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { randomUUID } from 'expo-crypto';
 import { useEffect, useRef, useState } from 'react';
+import { useFrameCallback, useSharedValue } from 'react-native-reanimated';
 
 import {
   ensureRecordPermission,
   play,
+  playbackAnchor,
   playbackPosition,
   startRecording,
   stopPlayback,
   type ActiveRecording,
+  type PlaybackAnchor,
   type PlayableClip,
 } from '@/features/audio/audio-engine';
 import { storeRecordedTake } from '@/features/audio/take-files';
 import type { Project } from '@/features/projects/projects-repo';
 import { useAddTake } from '@/features/projects/queries';
+import { prefetchTakePeaks } from '@/features/timeline/use-take-peaks';
 
 export type TransportStatus = 'idle' | 'starting' | 'recording' | 'stopping' | 'playing';
 
 const TICK_MS = 100;
 
 /**
- * Record / play state for the open project. T1 records onto the first track, appending each take
- * after the previous one. Leaving the screen while recording stops and saves the take.
+ * Record / play state for the open project, and the playhead.
+ *
+ * - `playhead` (seconds) is a shared value animated on the UI thread every frame from an anchor
+ *   (`{ from, startedAtMs }` on the `performance.now()` clock) while playing or recording; the
+ *   React `position` state ticks at 10 Hz for the clock text only.
+ * - Play starts at the playhead (from 0 if it's past the end). Stop leaves the playhead where it is;
+ *   reaching the end returns it to where Play started.
+ * - Recording still appends each take after the last clip on the first track (T3: at the playhead).
+ *   Leaving the screen while recording stops and saves the take.
  */
 export function useTransport(project: Project | null | undefined) {
   const addTake = useAddTake();
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<TransportStatus>('idle');
   const [position, setPosition] = useState(0);
   const [level, setLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [recordingStart, setRecordingStart] = useState<number | null>(null);
+  const playhead = useSharedValue(0);
+  const anchor = useSharedValue<PlaybackAnchor | null>(null);
   const recordingRef = useRef<{
     recording: ActiveRecording;
     takeId: string;
@@ -39,7 +55,17 @@ export function useTransport(project: Project | null | undefined) {
   const isRecording = status === 'recording';
   const isPlaying = status === 'playing';
 
-  // Clock: elapsed time while recording, timeline position while playing.
+  // Playhead: advanced on the UI thread from the anchor, without React renders.
+  const frameCallback = useFrameCallback(() => {
+    const current = anchor.get();
+    if (!current) return;
+    playhead.set(current.from + Math.max(0, performance.now() - current.startedAtMs) / 1000);
+  }, false);
+  useEffect(() => {
+    frameCallback.setActive(isPlaying || isRecording);
+  }, [frameCallback, isPlaying, isRecording]);
+
+  // Clock text: elapsed time while recording, timeline position while playing.
   useEffect(() => {
     if (!isRecording && !isPlaying) return;
     const startedAt = Date.now();
@@ -49,11 +75,18 @@ export function useTransport(project: Project | null | undefined) {
     return () => clearInterval(timer);
   }, [isRecording, isPlaying]);
 
+  const moveTo = (time: number) => {
+    anchor.set(null);
+    playhead.set(time);
+    setPosition(time);
+  };
+
   const finishRecording = async () => {
     const active = recordingRef.current;
     if (!active) return;
     recordingRef.current = null;
     const recorded = await active.recording.stop();
+    anchor.set(null);
     const path = storeRecordedTake(recorded.path, active.projectId, active.takeId);
     await addTake.mutateAsync({
       projectId: active.projectId,
@@ -67,6 +100,8 @@ export function useTransport(project: Project | null | undefined) {
         channels: recorded.channels,
       },
     });
+    // Waveform for the new take; failures surface later as a clip without a waveform.
+    void prefetchTakePeaks(queryClient, path).catch(() => {});
   };
 
   // Leaving the screen stops playback, and stops + saves a recording in progress.
@@ -95,14 +130,12 @@ export function useTransport(project: Project | null | undefined) {
       }
       const takeId = randomUUID();
       const lastClip = track.clips.at(-1);
+      const start = lastClip ? lastClip.start + lastClip.duration : 0;
       const recording = await startRecording({ fileName: takeId, onLevel: setLevel });
-      recordingRef.current = {
-        recording,
-        takeId,
-        projectId: project.id,
-        trackId: track.id,
-        start: lastClip ? lastClip.start + lastClip.duration : 0,
-      };
+      recordingRef.current = { recording, takeId, projectId: project.id, trackId: track.id, start };
+      playhead.set(start);
+      anchor.set({ from: start, startedAtMs: performance.now() });
+      setRecordingStart(start);
       setPosition(0);
       setStatus('recording');
     } catch (cause) {
@@ -112,19 +145,24 @@ export function useTransport(project: Project | null | undefined) {
   };
 
   const stopRecording = async () => {
+    const start = recordingRef.current?.start ?? 0;
     setStatus('stopping');
     try {
       await finishRecording();
     } catch (cause) {
       setError(messageOf(cause, 'The recording could not be saved.'));
     }
+    // Back to the start of the new take, so Play plays it.
+    moveTo(start);
+    setRecordingStart(null);
     setLevel(0);
     setStatus('idle');
   };
 
-  const startPlayback = async () => {
-    if (!project || status !== 'idle') return;
+  const playFrom = async (requested: number) => {
+    if (!project) return;
     setError(null);
+    const from = requested < project.duration ? requested : 0;
     const clips: PlayableClip[] = project.tracks.flatMap((track) =>
       track.clips.flatMap((clip) => {
         const take = project.takes[clip.takeId];
@@ -142,27 +180,58 @@ export function useTransport(project: Project | null | undefined) {
       }),
     );
     try {
-      setPosition(0);
+      moveTo(from);
       setStatus('playing');
       await play(clips, {
+        from,
         onEnded: () => {
+          moveTo(from);
           setStatus('idle');
-          setPosition(0);
         },
       });
+      anchor.set(playbackAnchor());
     } catch (cause) {
+      moveTo(from);
       setError(messageOf(cause, 'Playback failed.'));
       setStatus('idle');
     }
   };
 
-  const stopPlaying = () => {
-    stopPlayback();
-    setStatus('idle');
-    setPosition(0);
+  const startPlayback = async () => {
+    if (status !== 'idle') return;
+    await playFrom(playhead.get());
   };
 
-  return { status, position, level, error, record, stopRecording, startPlayback, stopPlaying };
+  const stopPlaying = () => {
+    const stoppedAt = playbackPosition() ?? playhead.get();
+    stopPlayback();
+    moveTo(stoppedAt);
+    setStatus('idle');
+  };
+
+  /** Move the playhead; while playing, playback continues from there. Ignored while recording. */
+  const seek = (time: number) => {
+    if (status === 'idle') {
+      moveTo(time);
+    } else if (status === 'playing') {
+      stopPlayback();
+      void playFrom(time);
+    }
+  };
+
+  return {
+    status,
+    position,
+    level,
+    error,
+    playhead,
+    recordingStart,
+    record,
+    stopRecording,
+    startPlayback,
+    stopPlaying,
+    seek,
+  };
 }
 
 function messageOf(cause: unknown, fallback: string): string {

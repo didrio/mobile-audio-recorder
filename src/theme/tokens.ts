@@ -35,6 +35,11 @@ export const lightColors = {
   danger: '#E5372B',
   success: '#2E9D4F',
   warning: '#C77700',
+  /** Timeline: every other track lane. */
+  laneAlt: '#F7F7FA',
+  /** Timeline: clip (region) fill and its waveform. */
+  clip: '#DCE7FB',
+  waveform: '#2F5FBF',
 } as const;
 
 export type ThemeColors = { readonly [K in keyof typeof lightColors]: string };
@@ -55,6 +60,9 @@ export const darkColors: ThemeColors = {
   danger: '#FF5A4F',
   success: '#3DD16B',
   warning: '#FFB340',
+  laneAlt: '#0E0E10',
+  clip: '#1C2940',
+  waveform: '#82A9F2',
 };
 
 /** 4pt spacing scale. Use for padding, margin and gap. */

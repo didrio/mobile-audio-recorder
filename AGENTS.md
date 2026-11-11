@@ -149,7 +149,9 @@ TICKETS.md                Ordered, living backlog; one ticket per session (/star
 2. If you touched UI and a simulator/emulator is available (`npm run doctor`): make sure the app is running
    (`npm run ios` / `npm run android`, in the background), let it reload, then `npm run screenshot` and **look
    at the image**. Check dark mode too when relevant.
-3. For user journeys, add/run a Maestro flow: `npm run e2e`.
+3. Maestro (`npm run e2e`) and the other platform's emulator are for **milestones** (preview/store builds,
+   releases, native or dependency changes), not every ticket: while iterating, the user tries changes right
+   away. Driving the simulator with a throwaway Maestro flow to see your own work is fine any time.
 4. Changed native config or dependencies? `npm run native:clean` then rebuild; also run
    `npx expo export --platform ios --platform android --output-dir /tmp/export` to prove both bundles build.
 5. Report what you verified and what you couldn't (e.g. "no Android emulator on this machine").

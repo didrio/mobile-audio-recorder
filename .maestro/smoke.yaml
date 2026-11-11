@@ -1,5 +1,5 @@
-# Smoke test: the app launches on Ideas, both tabs render, and a setting can be changed.
-# Recording isn't covered here (it triggers the microphone permission prompt).
+# Smoke test: the app launches on Ideas, both tabs render, a setting can be changed, and a quick-capture
+# recording opens the project with its timeline. The microphone prompt is accepted if it appears.
 # Run with `npm run e2e` (see scripts/e2e.mjs). Docs: https://docs.maestro.dev
 appId: ${APP_ID}
 name: Smoke
@@ -18,3 +18,21 @@ name: Smoke
 
 # Leave the app as we found it.
 - tapOn: 'System'
+
+# Quick capture: record a short idea, stop, and land on its timeline.
+- tapOn: 'Ideas'
+- tapOn: 'Record new idea'
+- runFlow:
+    when:
+      visible: 'Allow'
+    commands:
+      - tapOn: 'Allow'
+- extendedWaitUntil:
+    visible: 'Stop recording'
+    timeout: 15000
+- tapOn: 'Stop recording'
+- extendedWaitUntil:
+    visible: 'Timeline.*'
+    timeout: 15000
+- assertVisible: 'Play'
+- takeScreenshot: project-timeline

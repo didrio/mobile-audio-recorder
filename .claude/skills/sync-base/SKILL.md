@@ -51,6 +51,7 @@ Look at each conflict (`git diff <file>`) and decide by who owns the content:
 
 ## Improvements found in an app
 
-A fix that every app needs belongs in the base first: make it in the base, then sync it into apps. Because the
+A fix that every app needs belongs in the base first: make it in the base, then sync it into apps. `/wrap` does
+this at the end of every session (step 4 of the `wrap` skill). Because the
 histories are shared, an app commit can also be moved over: in the base, `git fetch <app-path> main` and
 `git cherry-pick <sha>`. Only do this for commits that contain no app-specific changes.

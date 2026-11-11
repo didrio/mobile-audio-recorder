@@ -1,7 +1,8 @@
 /**
  * Where take audio files live on disk.
  *
- * Layout: `<documents>/projects/<projectId>/takes/<takeId>.wav`. The database stores the path
+ * Layout: `<documents>/projects/<projectId>/takes/<takeId>.wav`, plus `<takeId>.peaks` (waveform
+ * overview, see `@/features/timeline/waveform-peaks`). The database stores the path
  * relative to the document directory (see `@/lib/db`), because the absolute path changes between
  * installs and app updates on iOS.
  */
@@ -14,6 +15,11 @@ export function takeRelativePath(projectId: string, takeId: string): string {
 /** Absolute `file://` URI for a path stored in the database. */
 export function takeUri(relativePath: string): string {
   return new File(Paths.document, relativePath).uri;
+}
+
+/** The waveform peaks file that belongs to a take (may not exist yet). */
+export function peaksFile(takeRelativePath: string): File {
+  return new File(Paths.document, takeRelativePath.replace(/\.wav$/, '') + '.peaks');
 }
 
 /** Plain filesystem path (no `file://`), as native audio APIs expect. */

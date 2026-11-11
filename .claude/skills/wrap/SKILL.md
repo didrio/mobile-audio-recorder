@@ -1,6 +1,6 @@
 ---
 name: wrap
-description: End a work session — final quality pass, update TICKETS.md (outcomes, handoff notes, new or reordered tickets, next pick with recommended model/effort/plan mode), commit (push if a remote exists), and print the steps for the next session. Only when the user types /wrap.
+description: End a work session — final quality pass, update TICKETS.md (outcomes, handoff notes, new or reordered tickets, next pick with recommended model/effort/plan mode), commit (push if a remote exists), backport generic improvements to the base template and sync them back, and print the steps for the next session. Only when the user types /wrap.
 disable-model-invocation: true
 ---
 
@@ -12,7 +12,10 @@ The next session starts with only `AGENTS.md`, `TICKETS.md` and git history. Mak
 
 - `npm run check` passes. Fix what it reports, or stop and tell the user why you can't.
 - UI changed and a simulator/emulator is available: screenshot the affected screens (light and dark) and look at
-  them. Run `npm run e2e` if a user journey or flow changed.
+  them. The user tries changes themselves right after the session, so keep this quick.
+- **Milestones only** (a preview/store build, a release, or native/dependency changes): also `npm run e2e`, the
+  other platform's emulator, and `npx expo export --platform ios --platform android`. While the app is being
+  iterated, these slow sessions down more than they catch; say in the hand-off that they were skipped.
 - Review `git diff`: no debug logging, stray files, commented-out code, secrets, or TODOs you meant to finish.
 - If a convention, command, script or architecture changed, update `AGENTS.md` / `docs/` / skills so they stay
   true.
@@ -54,7 +57,32 @@ Goal: the best ratio of quality to cost and time. Pick the **cheapest row that w
 - Commit on the current branch. If the branch has an upstream (`git rev-parse --abbrev-ref @{u}` succeeds), push.
   Otherwise skip pushing and say so in one line.
 
-## 4. Hand off
+## 4. Backport to the base
+
+Apps share history with the base template (`base` remote, see the `sync-base` skill). Improvements every future
+app needs go into the base, then come back through a sync, so both repos agree and later syncs stay clean.
+
+1. **Pick candidates** from this session's commits (`git diff <session start>..HEAD`):
+   - Belongs in the base: tooling and scripts, `.claude/` skills, `docs/` and `AGENTS.md` guidance that isn't
+     about this app, lint/test/TS configs and generic test mocks, CI/EAS workflows, generic fixes to
+     `src/components/ui`, `src/theme` (structure, not brand or product tokens) and `src/lib`.
+   - Stays in the app: features, routes, product tokens and copy, `app.json` identity, `TICKETS.md`, flows for
+     the app's screens, decisions about this app's stack.
+   - Unsure or mixed (e.g. a generic fix inside a feature file): ask the user in one line, don't guess.
+   - Nothing qualifies → say so in one line and skip to the hand-off.
+2. **List them for the user** (one line each: file, what, why it's generic) and what stays app-only.
+3. **Apply in the base** (path: `git remote get-url base`). Its working tree must be clean and on `main`;
+   otherwise stop and tell the user.
+   - If the base's file equals the app's file from before this session (`git diff base/main <session start> --
+<file>` is empty), copy the app's file over. Otherwise apply only the generic change by hand.
+   - Strip anything app-specific (names, bundle IDs, product terms) from what lands in the base.
+   - In the base: `npm run check` must pass, then commit `From <app name>: <summary>` with short bullets and the
+     attribution trailer. Push if the base's branch has an upstream (same rule as step 3).
+4. **Sync back into the app**: `npm run sync-base` (the app's tree is clean after step 3), resolve as the
+   `sync-base` skill says (usually nothing: the content already matches), `npm run check`, `git commit --no-edit`,
+   push if there's an upstream.
+
+## 5. Hand off
 
 End your reply with exactly this shape (fill in the values):
 
@@ -67,5 +95,6 @@ Next session:
 3. /start T6 — <title>
 ```
 
-Add at most two lines for anything the user must do before then (e.g. "install the new dev build: `npm run ios`",
+Add one line for the base backport (`Base: <short hash> — <summary>`, or `Base: nothing to backport`), and at
+most two lines for anything the user must do before then (e.g. "install the new dev build: `npm run ios`",
 "decide X — it's in T6's open questions"). Then stop: the session is over.

@@ -6,6 +6,9 @@
  *   project (see `take-files.ts`). `onLevel` gets a 0–1 peak level per input buffer.
  * - Playback: one shared `AudioContext`. Every clip becomes an `AudioBufferSourceNode` started at
  *   its timeline position: source → track gain → master gain → speakers. Decoded takes are cached.
+ * - Playhead: `playbackAnchor()` gives the moment (on the `performance.now()` clock, shared by the
+ *   JS and UI threads) when timeline position `from` is heard, so the UI can animate the playhead
+ *   per frame without calling into the engine.
  *
  * Needs a development build (not in Expo Go). Native config: the `react-native-audio-api` plugin in
  * `app.json` (microphone permission, background audio, Android foreground service).
@@ -60,7 +63,15 @@ let playback: {
   endTimer: ReturnType<typeof setTimeout>;
   startedAt: number;
   from: number;
+  startedAtMs: number;
 } | null = null;
+
+export type PlaybackAnchor = {
+  /** Timeline position (seconds) heard at `startedAtMs`. */
+  from: number;
+  /** `performance.now()` time when `from` is heard (includes output latency). */
+  startedAtMs: number;
+};
 
 function getContext(): AudioContext {
   context ??= new AudioContext();
@@ -145,7 +156,8 @@ export function peakLevel(samples: ArrayLike<number>): number {
   return Math.min(1, peak);
 }
 
-function loadTake(takePath: string): Promise<AudioBuffer> {
+/** Decoded audio of a take (cached; also used for playback). */
+export function decodeTake(takePath: string): Promise<AudioBuffer> {
   let buffer = decodedTakes.get(takePath);
   if (!buffer) {
     buffer = getContext().decodeAudioData(takeFilePath(takePath));
@@ -179,11 +191,12 @@ export async function play(
   await activateSession();
   const ctx = getContext();
   if (ctx.state === 'suspended') await ctx.resume();
-  const buffers = await Promise.all(audible.map((clip) => loadTake(clip.takePath)));
+  const buffers = await Promise.all(audible.map((clip) => decodeTake(clip.takePath)));
 
   const master = ctx.createGain();
   master.connect(ctx.destination);
   const startedAt = ctx.currentTime + SCHEDULE_AHEAD_SECONDS;
+  const startedAtMs = performance.now() + (SCHEDULE_AHEAD_SECONDS + outputLatency(ctx)) * 1000;
   let end = 0;
 
   const sources = audible.map((clip, index) => {
@@ -210,7 +223,7 @@ export async function play(
     },
     (end + SCHEDULE_AHEAD_SECONDS) * 1000,
   );
-  playback = { sources, endTimer, startedAt, from };
+  playback = { sources, endTimer, startedAt, from, startedAtMs };
 }
 
 export function stopPlayback() {
@@ -224,6 +237,17 @@ export function stopPlayback() {
     }
   }
   playback = null;
+}
+
+/** Output latency in seconds; 0 when the platform doesn't report it. */
+function outputLatency(ctx: AudioContext): number {
+  const latency = ctx.outputLatency;
+  return Number.isFinite(latency) && latency > 0 ? latency : 0;
+}
+
+/** When playback started, for animating the playhead; `null` when not playing. */
+export function playbackAnchor(): PlaybackAnchor | null {
+  return playback ? { from: playback.from, startedAtMs: playback.startedAtMs } : null;
 }
 
 export function isPlaying(): boolean {

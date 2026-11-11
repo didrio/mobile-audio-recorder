@@ -27,6 +27,7 @@ export function ProjectsScreen() {
     <Screen>
       <Pressable
         accessibilityRole="button"
+        accessibilityLabel="Record new idea"
         accessibilityState={{ busy: createProject.isPending }}
         disabled={createProject.isPending}
         onPress={recordNewIdea}

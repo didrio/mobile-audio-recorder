@@ -43,6 +43,7 @@
   },
   "dependencies": {
     "@expo/ui": "~58.0.28",
+    "@shopify/react-native-skia": "2.14.0",
     "@tanstack/react-query": "^5.107.1",
     "expo": "~58.0.24",
     "expo-application": "~58.1.2",

@@ -1,0 +1,149 @@
+/**
+ * Pure timeline geometry, shared by the JS thread and UI-thread worklets (gestures, drawing).
+ * Units: time in seconds, lengths in points, zoom in points per second.
+ * `scroll` is the time shown at the leading edge of the view.
+ */
+
+/** Most zoomed in: one second spans this many points. */
+export const MAX_ZOOM = 400;
+/** Empty time after the last clip, so there's room to scroll past the end. */
+export const TAIL_SECONDS = 10;
+/** Seconds shown when an idea is opened (unless it's shorter: then all of it). */
+const DEFAULT_VISIBLE_SECONDS = 30;
+/** Where the playhead settles while following playback: this fraction into the view. */
+export const FOLLOW_ANCHOR = 1 / 3;
+
+const LABEL_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+const TICK_STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
+const MIN_LABEL_SPACING = 56;
+const MIN_TICK_SPACING = 10;
+
+export function clamp(value: number, min: number, max: number): number {
+  'worklet';
+  return Math.min(Math.max(value, min), max);
+}
+
+/** Total scrollable time: the idea plus a tail. */
+export function contentDuration(duration: number): number {
+  'worklet';
+  return duration + TAIL_SECONDS;
+}
+
+/** Most zoomed out: the whole idea (plus tail) fits in the view. */
+export function minZoom(viewLength: number, duration: number): number {
+  'worklet';
+  return Math.min(MAX_ZOOM, viewLength / contentDuration(duration));
+}
+
+export function clampZoom(zoom: number, viewLength: number, duration: number): number {
+  'worklet';
+  return clamp(zoom, minZoom(viewLength, duration), MAX_ZOOM);
+}
+
+export function defaultZoom(viewLength: number, duration: number): number {
+  'worklet';
+  return clampZoom(viewLength / DEFAULT_VISIBLE_SECONDS, viewLength, duration);
+}
+
+export function maxScroll(viewLength: number, zoom: number, duration: number): number {
+  'worklet';
+  return Math.max(0, contentDuration(duration) - viewLength / zoom);
+}
+
+export function clampScroll(
+  scroll: number,
+  viewLength: number,
+  zoom: number,
+  duration: number,
+): number {
+  'worklet';
+  return clamp(scroll, 0, maxScroll(viewLength, zoom, duration));
+}
+
+/** Point along the time axis (relative to the view) where `time` is drawn. */
+export function timeToPoint(time: number, scroll: number, zoom: number): number {
+  'worklet';
+  return (time - scroll) * zoom;
+}
+
+export function pointToTime(point: number, scroll: number, zoom: number): number {
+  'worklet';
+  return scroll + point / zoom;
+}
+
+/** New scroll after zooming so that the time under `focalPoint` stays under it. */
+export function zoomAroundPoint(
+  scroll: number,
+  zoom: number,
+  nextZoom: number,
+  focalPoint: number,
+): number {
+  'worklet';
+  return pointToTime(focalPoint, scroll, zoom) - focalPoint / nextZoom;
+}
+
+/**
+ * Scroll that keeps a moving playhead in view: once it passes `FOLLOW_ANCHOR` of the view it stays
+ * there and the content moves under it. A playhead before the view jumps back to the anchor.
+ */
+export function followScroll(scroll: number, playhead: number, viewSeconds: number): number {
+  'worklet';
+  const anchor = viewSeconds * FOLLOW_ANCHOR;
+  if (playhead < scroll || playhead > scroll + anchor) return Math.max(0, playhead - anchor);
+  return scroll;
+}
+
+/** Ruler spacing for a zoom level: labelled ticks and the finer unlabelled ticks between them. */
+export function rulerSteps(zoom: number): { label: number; tick: number } {
+  'worklet';
+  let label = LABEL_STEPS[LABEL_STEPS.length - 1] as number;
+  for (const step of LABEL_STEPS) {
+    if (step * zoom >= MIN_LABEL_SPACING) {
+      label = step;
+      break;
+    }
+  }
+  let tick = label;
+  for (const step of TICK_STEPS) {
+    if (step >= label) break;
+    const divisions = label / step;
+    if (step * zoom >= MIN_TICK_SPACING && Math.abs(divisions - Math.round(divisions)) < 1e-6) {
+      tick = step;
+      break;
+    }
+  }
+  return { label, tick };
+}
+
+/** `m:ss` for ruler labels (whole seconds). */
+export function formatRulerTime(seconds: number): string {
+  'worklet';
+  const total = Math.round(seconds);
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return `${minutes}:${rest < 10 ? '0' : ''}${rest}`;
+}
+
+/**
+ * Index of the coarsest waveform level that still has at least one peak per half point, so paths
+ * stay light when zoomed out. Level `i` has `finestPeaksPerSecond / factor^i` peaks per second.
+ */
+export function waveformLevel(
+  finestPeaksPerSecond: number,
+  zoom: number,
+  levelCount: number,
+  factor: number,
+): number {
+  'worklet';
+  let level = 0;
+  while (level < levelCount - 1 && finestPeaksPerSecond / Math.pow(factor, level + 1) >= zoom * 2) {
+    level++;
+  }
+  return level;
+}
+
+/** Thickness of one track lane across the time axis. */
+export function laneSize(available: number, trackCount: number, min = 72, max = 240): number {
+  'worklet';
+  return clamp(available / Math.max(1, trackCount), min, max);
+}

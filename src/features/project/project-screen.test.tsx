@@ -3,7 +3,7 @@ import { render, screen, userEvent } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { ensureRecordPermission, startRecording } from '@/features/audio/audio-engine';
+import { ensureRecordPermission, play, startRecording } from '@/features/audio/audio-engine';
 import { addTakeWithClip, getProject, type Project } from '@/features/projects/projects-repo';
 
 import { ProjectScreen } from './project-screen';
@@ -13,14 +13,33 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ id: 'p1' }),
 }));
 
+jest.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => 0 }));
+
 jest.mock('@/features/audio/audio-engine', () => ({
   ensureRecordPermission: jest.fn(),
   startRecording: jest.fn(),
   play: jest.fn(),
   playbackPosition: jest.fn(() => 0),
+  playbackAnchor: jest.fn(() => null),
+  decodeTake: jest.fn(),
   stopPlayback: jest.fn(),
   forgetTakes: jest.fn(),
 }));
+
+// The Skia timeline can't render in Jest; a stand-in shows the project and exposes seeking.
+jest.mock('@/features/timeline/timeline', () => {
+  const { Pressable, Text } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    Timeline: ({ project, onSeek }: { project: Project; onSeek: (time: number) => void }) => (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Seek to 0:05"
+        onPress={() => onSeek(5)}>
+        <Text>{`Timeline of ${project.name}`}</Text>
+      </Pressable>
+    ),
+  };
+});
 
 jest.mock('@/features/audio/take-files', () => ({
   storeRecordedTake: jest.fn(
@@ -93,12 +112,11 @@ describe('ProjectScreen', () => {
     jest.mocked(getProject).mockResolvedValue(project);
   });
 
-  it('shows the track with its takes and the transport', async () => {
+  it('shows the timeline, the playhead time and the transport', async () => {
     await renderScreen();
 
-    expect(await screen.findByText('Take 1')).toBeOnTheScreen();
-    expect(screen.getByText('Track 1')).toBeOnTheScreen();
-    expect(screen.getByText('0:12.0')).toBeOnTheScreen();
+    expect(await screen.findByText('Timeline of Chorus riff')).toBeOnTheScreen();
+    expect(screen.getByText('0:00.0')).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Play' })).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Record' })).toBeOnTheScreen();
   });
@@ -114,7 +132,7 @@ describe('ProjectScreen', () => {
     const user = userEvent.setup();
     await renderScreen();
 
-    await screen.findByText('Take 1'); // Record is disabled until the project has loaded.
+    await screen.findByText('Timeline of Chorus riff'); // Record is disabled until loaded.
     await user.press(screen.getByRole('button', { name: 'Record' }));
     await user.press(await screen.findByRole('button', { name: 'Stop recording' }));
 
@@ -134,9 +152,25 @@ describe('ProjectScreen', () => {
     const user = userEvent.setup();
     await renderScreen();
 
-    await screen.findByText('Take 1'); // Record is disabled until the project has loaded.
+    await screen.findByText('Timeline of Chorus riff'); // Record is disabled until loaded.
     await user.press(screen.getByRole('button', { name: 'Record' }));
 
     expect(await screen.findByText(/Microphone access is off/)).toBeOnTheScreen();
+  });
+
+  it('plays from the playhead after seeking', async () => {
+    jest.mocked(play).mockResolvedValue();
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Seek to 0:05' }));
+    expect(screen.getByText('0:05.0')).toBeOnTheScreen();
+    await user.press(screen.getByRole('button', { name: 'Play' }));
+
+    expect(play).toHaveBeenCalledWith(
+      [expect.objectContaining({ takePath: 'projects/p1/takes/t1.wav', start: 0, duration: 12 })],
+      expect.objectContaining({ from: 5 }),
+    );
+    expect(await screen.findByRole('button', { name: 'Stop' })).toBeOnTheScreen();
   });
 });

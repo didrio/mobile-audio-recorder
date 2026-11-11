@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T2 — Timeline view (Skia, both orientations) · Opus · high effort · plan mode on
+**Next:** T3 — Multitrack overdub · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -16,34 +16,9 @@ Product in one line: a quick multitrack sketchpad for musicians (2–3 min song 
 works in portrait (time runs top→bottom, tracks are columns) and landscape (time left→right, tracks are rows).
 Not a DAW: no software instruments. Local only. Architecture and data model: `docs/decisions.md` (Audio engine,
 Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/features/audio/audio-engine.ts`.
-
-### T2 — Timeline view (Skia, both orientations)
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Replace the take list in the project screen with a real timeline: track lanes, clips drawn with
-  waveforms, a moving playhead, scroll and zoom, in both orientations.
-- **Done when:**
-  - [ ] `npx expo install @shopify/react-native-skia`; dev build rebuilt (`npm run native:clean` + `npm run ios`).
-  - [ ] Orientation-aware layout from `useWindowDimensions()`: landscape = time on x, tracks stacked as rows;
-        portrait = time on y (downwards), tracks side by side as columns. One "time axis ↔ cross axis" mapping
-        so drawing/gesture code is written once, not twice.
-  - [ ] Waveform peaks computed once per take and cached next to it (`<takeId>.peaks`, e.g. Float32 min/max per
-        N samples) — decode via the engine, never on every render. Clips draw only their window
-        (`offset`…`offset+duration`) of the take.
-  - [ ] Playhead driven by the engine's `playbackPosition()` on the UI thread (Reanimated
-        `useFrameCallback`/shared value), not React state ticks; auto-follows during playback.
-  - [ ] Scroll along the time axis, pinch to zoom (seconds per point), tap the ruler to seek; Play starts from
-        the playhead (`play(clips, { from })` already supports it).
-  - [ ] Transport bar stays reachable in both orientations; screenshots of both orientations, light + dark.
-- **Context:** Current editor: `src/features/project/project-screen.tsx` + `use-transport.ts` (status, clock,
-  record/play; T1 records onto track 1 and appends takes). Data: `useProject(id)` → `Project` with `tracks[].clips`
-  and `takes` (`src/features/projects/projects-repo.ts`). Engine: `src/features/audio/audio-engine.ts` (decoded
-  buffers cached by take path; `AudioBuffer.getChannelData(0)` gives Float32 samples). Expo skill
-  `expo:expo-animation` covers Reanimated/gesture patterns. Keep `makeStyles`/tokens for colors (Skia needs hex
-  strings: read them from `useTheme().colors`). Simulator rotation: Device → Rotate (⌘←/⌘→) before
-  `npm run screenshot`. Xcode 27's simulator window is DeviceHub: `open "devices://device/open?id=<udid>"`.
-  T1 left unverified: landscape layout, Android emulator run, Maestro smoke (see Backlog) — cover them here.
+Testing cadence while iterating: unit tests + `npm run check` + simulator screenshots per ticket, then the user
+tries it; Maestro, the Android emulator and the two-platform export only at milestones (T4, releases, native
+dependency changes). See the `wrap` skill.
 
 ### T3 — Multitrack overdub
 
@@ -60,7 +35,15 @@ Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/featu
   - [ ] Live waveform of the take being recorded (from the `onAudioReady` buffers the engine already receives).
   - [ ] Tests for the new repo functions' callers and the transport states; Maestro flow if practical.
 - **Context:** Engine: recording and playback share one session (`playAndRecord`, `defaultToSpeaker`) in
-  `audio-engine.ts`; headphones are recommended for overdubs (speaker bleed) — say so in the UI. Echo
+  `audio-engine.ts`; headphones are recommended for overdubs (speaker bleed) — say so in the UI.
+  Timeline (T2): `src/features/timeline/timeline.tsx` draws the take being recorded from the `recordingStart`
+  prop on lane 0 — pass the armed track's lane instead. Transport (`src/features/project/use-transport.ts`) owns
+  the `playhead` shared value and a `{ from, startedAtMs }` anchor on the `performance.now()` clock; recording
+  currently appends after the last clip and returns the playhead to the take's start on Stop. The playhead
+  already includes `outputLatency` (the clock text doesn't), so reuse that number for compensation. New takes
+  get waveform peaks via `prefetchTakePeaks` (`use-take-peaks.ts`). Track names are drawn in Skia per lane; a
+  track header UI (rename/delete/arm) needs RN views laid out with the same lane size (`laneSize` in
+  `timeline-math.ts`, ruler size in `RULER_SIZE`). Echo
   cancellation (`iosVoiceProcessing` / `voiceCommunication`) is deliberately **off**: it degrades music.
   Recording/playback start must be scheduled on the same `AudioContext` clock; check whether the recorder can be
   started at a context time or measure the start offset.
@@ -80,6 +63,10 @@ Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/featu
   the iOS build (Apple login). Devices registered and the distribution certificate created for an earlier app
   are reused; only the App ID and provisioning profile are new. First real-device test of recording: check the
   mic permission prompt, speaker vs. earpiece routing, and Bluetooth headphones.
+  **Milestone checks** (deferred from T2): `npm run android` on the `Pixel_API_36` emulator (first build with
+  Skia: needs a few GB of disk), timeline screenshots portrait + landscape on Android, `npm run e2e` on both
+  platforms. On devices: pinch-zoom and pan momentum feel, playhead vs. audio sync (latency), and smooth
+  playback on a 3-minute idea with several takes.
 
 ### T5 — Clip editing
 
@@ -94,8 +81,12 @@ Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/featu
   - [ ] Snap to other clip edges and the playhead (grid snapping comes with T9).
   - [ ] Orphaned takes (no clips left) are kept until the project is deleted (simple, safe for undo).
   - [ ] Unit tests for the pure edit operations (move/trim/split math).
-- **Context:** Data model is already non-destructive (`clips.start/offset/duration`, `src/lib/db.ts`). Gestures:
-  react-native-gesture-handler 3 + Reanimated 4 are installed; follow the orientation mapping from T2.
+- **Context:** Data model is already non-destructive (`clips.start/offset/duration`, `src/lib/db.ts`). Timeline
+  (T2): gestures are RNGH v3 hooks composed with `useSimultaneousGestures` in `timeline.tsx` (pan = scroll, pinch
+  = zoom, tap on the ruler = seek); taps on lanes are still free for selection. Convert touches with `toAxes`
+  (`timeline-axis.ts`) and times with `pointToTime` (`timeline-math.ts`) so both orientations work. Waveform
+  paths are cached per clip window (`waveform-path.ts`), so a trim just asks for a new window. Drawing is one
+  `createPicture` per frame: add selection/handles there, driven by shared values.
 
 ### T6 — Mixer basics
 
@@ -149,8 +140,8 @@ Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/featu
   - [ ] Click track generated in code (short buffers on the context clock — not an instrument), toggle on/off,
         not recorded into takes; count-in of one bar before recording.
   - [ ] Snap to grid while editing (extends T5's snapping).
-- **Context:** Scheduling helpers live in `audio-engine.ts`. Quantize (moving clips/notes to the grid) stays in
-  Backlog.
+- **Context:** Scheduling helpers live in `audio-engine.ts`. Grid lines go in the timeline picture next to the
+  ruler ticks (`rulerSteps` in `timeline-math.ts`). Quantize (moving clips/notes to the grid) stays in Backlog.
 
 ### T10 — Ideas library polish
 
@@ -190,10 +181,12 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - Simple effects per track (reverb, EQ) via the audio graph.
 - Backup / sync (iCloud Drive, Google Drive) — the data model uses UUIDs and relative paths to make this possible.
 - iOS Live Activity while recording (lock screen timer + stop).
-- Maestro 2.12.1 hung in T1 before connecting to the iOS 27.2 simulator (log stops after "Created execution
-  plan"; XCTest driver never started), although runs earlier the same day worked. Try `maestro` upgrade /
-  `xcrun simctl shutdown all` + reboot sim; if it's a Maestro/Xcode 27 issue, fix it in the base repo.
+- Timeline performance with many tracks × long ideas: if frames drop, cache one `SkPicture` per clip (redrawn
+  only when the clip or zoom level changes) instead of drawing every path each frame.
+- Clock text runs ~0.1–0.3 s ahead of the playhead (the playhead includes output latency). Show the clock from
+  the playhead instead once a cheap way to do it without per-frame React renders exists.
 
 ## Done
 
+- T2 — Timeline view — 2026-11-11 — Skia timeline (lanes, clips with cached waveform peaks, ruler, UI-thread playhead with follow), pan/pinch/ruler seek, Play from the playhead, portrait/landscape layouts; Maestro hang traced to NTKDaemon on port 5563 (e2e warns now); smoke flow covers quick capture
 - T1 — Shape the app — 2026-11-11 — idea agreed (multitrack song sketchpad), recording red, react-native-audio-api engine + background config, SQLite non-destructive data model, Ideas list with quick-capture record button, project screen recording/playing takes on track 1, T2–T11 written

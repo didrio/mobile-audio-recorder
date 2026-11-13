@@ -1,7 +1,7 @@
-import { axisMatrix, fromAxes, orientationOf, toAxes } from './timeline-axis';
 import {
   clampScroll,
   clampZoom,
+  DEFAULT_ZOOM,
   defaultZoom,
   followScroll,
   formatRulerTime,
@@ -12,30 +12,10 @@ import {
   pointToTime,
   rulerSteps,
   timeToPoint,
+  waveformGain,
   waveformLevel,
   zoomAroundPoint,
 } from './timeline-math';
-
-describe('timeline axes', () => {
-  it('maps time to x in landscape and y in portrait', () => {
-    expect(orientationOf(844, 390)).toBe('landscape');
-    expect(orientationOf(390, 844)).toBe('portrait');
-    expect(toAxes('landscape', 10, 20)).toEqual({ time: 10, cross: 20 });
-    expect(toAxes('portrait', 10, 20)).toEqual({ time: 20, cross: 10 });
-  });
-
-  it('round-trips points in both orientations', () => {
-    for (const orientation of ['landscape', 'portrait'] as const) {
-      const { time, cross } = toAxes(orientation, 3, 7);
-      expect(fromAxes(orientation, time, cross)).toEqual({ x: 3, y: 7 });
-    }
-  });
-
-  it('uses a transpose matrix in portrait', () => {
-    expect(axisMatrix('landscape')).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
-    expect(axisMatrix('portrait')).toEqual([0, 1, 0, 1, 0, 0, 0, 0, 1]);
-  });
-});
 
 describe('zoom', () => {
   it('fits the whole idea when zoomed out, and caps zooming in', () => {
@@ -44,9 +24,10 @@ describe('zoom', () => {
     expect(clampZoom(10_000, 400, 30)).toBe(MAX_ZOOM);
   });
 
-  it('opens on 30 seconds, or the whole idea if it is shorter', () => {
-    expect(defaultZoom(600, 120)).toBe(20);
-    expect(defaultZoom(600, 5)).toBe(40);
+  it('opens at the same scale in both orientations, or the whole idea if it fits', () => {
+    expect(defaultZoom(400, 120)).toBe(DEFAULT_ZOOM);
+    expect(defaultZoom(850, 120)).toBe(DEFAULT_ZOOM);
+    expect(defaultZoom(600, 5)).toBe(40); // 15 s with the tail fills 600 pt
   });
 
   it('keeps the time under the fingers in place', () => {
@@ -107,5 +88,19 @@ describe('laneSize', () => {
     expect(laneSize(300, 1)).toBe(240);
     expect(laneSize(300, 3)).toBe(100);
     expect(laneSize(300, 10)).toBe(72);
+  });
+});
+
+describe('waveformGain', () => {
+  it('scales the loudest take to full height and keeps the others in proportion', () => {
+    const gain = waveformGain(0.4);
+    expect(0.4 * gain).toBeCloseTo(1);
+    expect(0.2 * gain).toBeCloseTo(0.5);
+  });
+
+  it('never boosts near-silence more than 20×', () => {
+    expect(waveformGain(0.001)).toBe(20);
+    expect(waveformGain(0)).toBe(20);
+    expect(waveformGain(1)).toBe(1);
   });
 });

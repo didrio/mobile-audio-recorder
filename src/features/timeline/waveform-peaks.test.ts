@@ -3,6 +3,7 @@ import {
   createLivePeaks,
   decodePeaks,
   downsamplePeaks,
+  maxAmplitude,
   encodePeaks,
   LEVEL_COUNT,
   peakCount,
@@ -78,5 +79,13 @@ describe('createLivePeaks', () => {
     expect(first).toEqual([0, 0.5]);
     const second = live.push([-0.25, ...new Array(25).fill(0)], 48000);
     expect(second).toEqual([-0.25, 0.5]); // the carried 22 samples + 26 new ones
+  });
+});
+
+describe('maxAmplitude', () => {
+  it('is the loudest sample on either side of zero', () => {
+    const peaks = computePeaks([0.1, -0.6, 0.3, 0.5], 4, 2);
+    expect(maxAmplitude(peaks)).toBeCloseTo(0.6);
+    expect(maxAmplitude(undefined)).toBe(0);
   });
 });

@@ -240,18 +240,6 @@ describe('ProjectScreen', () => {
     expect(screen.getByText('0:05.0')).toBeOnTheScreen();
   });
 
-  it('suggests headphones when recording over other tracks', async () => {
-    jest.mocked(getProject).mockResolvedValue(twoTracks);
-    const user = userEvent.setup();
-    await renderScreen();
-
-    // Track 1 is armed and holds the only clip: nothing to record over.
-    await screen.findByText('Timeline of Chorus riff');
-    expect(screen.queryByText(/Use headphones/)).not.toBeOnTheScreen();
-    await user.press(screen.getByRole('button', { name: 'Arm Track 2' }));
-    expect(screen.getByText(/Use headphones/)).toBeOnTheScreen();
-  });
-
   it('adds a track and arms it', async () => {
     jest.mocked(addTrack).mockImplementation(async () => {
       jest.mocked(getProject).mockResolvedValue(twoTracks);
@@ -293,5 +281,16 @@ describe('ProjectScreen', () => {
       expect.objectContaining({ from: 5 }),
     );
     expect(await screen.findByRole('button', { name: 'Stop' })).toBeOnTheScreen();
+  });
+
+  it('goes back to the start', async () => {
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Seek to 0:05' }));
+    expect(screen.getByText('0:05.0')).toBeOnTheScreen();
+    await user.press(screen.getByRole('button', { name: 'Back to start' }));
+
+    expect(screen.getByText('0:00.0')).toBeOnTheScreen();
   });
 });

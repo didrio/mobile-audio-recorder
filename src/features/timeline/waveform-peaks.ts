@@ -35,6 +35,14 @@ export function peaksPerSecond(peaks: Peaks): number {
   return peaks.sampleRate / peaks.samplesPerPeak;
 }
 
+/** Loudest absolute sample of a peaks level (0 for none). */
+export function maxAmplitude(peaks: Peaks | undefined): number {
+  if (!peaks) return 0;
+  let loudest = 0;
+  for (const value of peaks.data) loudest = Math.max(loudest, Math.abs(value));
+  return loudest;
+}
+
 export function computePeaks(
   samples: ArrayLike<number>,
   sampleRate: number,

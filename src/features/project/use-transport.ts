@@ -34,6 +34,8 @@ export type LiveTake = {
   trackId: string;
   /** Interleaved `[min, max]` pairs at `peaksPerSecond`, appended as audio arrives. */
   peaks: SharedValue<number[]>;
+  /** Loudest absolute sample so far (0…1). */
+  peak: SharedValue<number>;
   peaksPerSecond: number;
 };
 
@@ -64,6 +66,7 @@ export function useTransport(project: Project | null | undefined) {
   const playhead = useSharedValue(0);
   const anchor = useSharedValue<PlaybackAnchor | null>(null);
   const livePeaks = useSharedValue<number[]>([]);
+  const livePeak = useSharedValue(0);
   const recordingRef = useRef<{
     recording: ActiveRecording;
     takeId: string;
@@ -157,7 +160,9 @@ export function useTransport(project: Project | null | undefined) {
       const from = Math.max(0, playhead.get());
       const backing = playableClips(project, (other) => other.id !== track.id);
       const peaks = createLivePeaks(LIVE_PEAKS_PER_SECOND);
+      let loudest = 0;
       livePeaks.set([]);
+      livePeak.set(0);
       const recording = await startRecording({
         fileName: takeId,
         from,
@@ -166,6 +171,9 @@ export function useTransport(project: Project | null | undefined) {
           setLevel(peakLevel(samples));
           const pairs = peaks.push(samples, sampleRate);
           if (pairs.length === 0) return;
+          const before = loudest;
+          for (const value of pairs) loudest = Math.max(loudest, Math.abs(value));
+          if (loudest > before) livePeak.set(loudest);
           livePeaks.modify((value) => {
             'worklet';
             value.push(...pairs);
@@ -254,7 +262,7 @@ export function useTransport(project: Project | null | undefined) {
     error,
     playhead,
     liveTake: liveTake
-      ? { ...liveTake, peaks: livePeaks, peaksPerSecond: LIVE_PEAKS_PER_SECOND }
+      ? { ...liveTake, peaks: livePeaks, peak: livePeak, peaksPerSecond: LIVE_PEAKS_PER_SECOND }
       : null,
     record,
     stopRecording,

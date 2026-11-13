@@ -9,16 +9,16 @@ import { Icon, Text, type IconName } from '@/components/ui';
 import { formatTimecode } from '@/features/audio/format-time';
 import { useAddTrack, useProject } from '@/features/projects/queries';
 import { Timeline } from '@/features/timeline/timeline';
-import { orientationOf } from '@/features/timeline/timeline-axis';
 import { makeStyles, useTheme } from '@/theme';
 
 import { useTransport } from './use-transport';
 
 /**
- * The project editor: clock, timeline and transport. Portrait stacks them (time runs down the
- * timeline); landscape puts the clock and transport in a column beside the timeline (time runs
- * left to right), so the controls stay reachable either way. One track is armed: Record records
- * onto it while the others play. "Add track" in the header adds a track and arms it.
+ * The project editor: clock, timeline and transport. The timeline runs left to right in both
+ * orientations; portrait stacks clock, timeline and transport, landscape puts the clock and
+ * transport in a column beside the timeline so it gets the full height. Transport: back to start,
+ * Play (the main button) and Record. One track is armed: Record records onto it while the others
+ * play. "Add track" in the header adds a track and arms it.
  */
 export function ProjectScreen() {
   const styles = useStyles();
@@ -27,8 +27,7 @@ export function ProjectScreen() {
   // The native header floats over the content (iOS 26+), so start below it.
   const headerHeight = useHeaderHeight();
   const window = useWindowDimensions();
-  const orientation = orientationOf(window.width, window.height);
-  const isLandscape = orientation === 'landscape';
+  const isLandscape = window.width > window.height;
   const params = useLocalSearchParams<{ id: string; record?: string }>();
   const router = useRouter();
   const project = useProject(params.id);
@@ -45,7 +44,6 @@ export function ProjectScreen() {
   const isBusy = transport.status === 'starting' || transport.status === 'stopping';
   const isIdle = transport.status === 'idle';
   const hasClips = tracks.some((t) => t.clips.length > 0);
-  const isOverdub = tracks.some((t) => t.id !== armedTrack?.id && t.clips.length > 0);
 
   const { record } = transport;
   const recordArmed = () => {
@@ -88,8 +86,17 @@ export function ProjectScreen() {
     </View>
   );
 
+  // Back to start | Play (main, centered) | Record. The outer two share a width so Play stays centered.
   const buttons = (
     <View style={styles.buttons}>
+      <TransportButton
+        label="Back to start"
+        icon={{ ios: 'backward.end.fill', android: 'skip_previous' }}
+        size={SIDE_BUTTON_SIZE}
+        kind="secondary"
+        disabled={isRecording || isBusy}
+        onPress={() => transport.seek(0)}
+      />
       <TransportButton
         label={isPlaying ? 'Stop' : 'Play'}
         icon={
@@ -98,7 +105,7 @@ export function ProjectScreen() {
             : { ios: 'play.fill', android: 'play_arrow' }
         }
         size={PLAY_BUTTON_SIZE}
-        kind="secondary"
+        kind="play"
         disabled={isRecording || isBusy || !hasClips}
         onPress={isPlaying ? transport.stopPlaying : () => void transport.startPlayback()}
       />
@@ -109,24 +116,18 @@ export function ProjectScreen() {
             ? { ios: 'stop.fill', android: 'stop' }
             : { ios: 'record.circle', android: 'radio_button_checked' }
         }
-        size={RECORD_BUTTON_SIZE}
+        size={SIDE_BUTTON_SIZE}
         kind="record"
         busy={isBusy}
         disabled={isBusy || isPlaying || !armedTrack}
         onPress={isRecording ? () => void transport.stopRecording() : recordArmed}
       />
-      {/* Balances the play button so the record button stays centered. */}
-      <View style={{ width: PLAY_BUTTON_SIZE }} />
     </View>
   );
 
   const errorText = transport.error ? (
     <Text color="danger" align="center" variant="footnote">
       {transport.error}
-    </Text>
-  ) : isOverdub && isIdle ? (
-    <Text color="textSecondary" align="center" variant="footnote">
-      Use headphones to record over other tracks.
     </Text>
   ) : null;
 
@@ -139,7 +140,6 @@ export function ProjectScreen() {
   ) : project.data ? (
     <Timeline
       project={project.data}
-      orientation={orientation}
       playhead={transport.playhead}
       following={isPlaying || isRecording}
       liveTake={transport.liveTake}
@@ -206,7 +206,7 @@ function TransportButton({
   label: string;
   icon: IconName;
   size: number;
-  kind: 'record' | 'secondary';
+  kind: 'play' | 'record' | 'secondary';
   busy?: boolean;
   disabled?: boolean;
   onPress: () => void;
@@ -225,21 +225,23 @@ function TransportButton({
       style={({ pressed }) => [
         styles.transportButton,
         { width: size, height: size },
-        kind === 'record' ? styles.recordButton : styles.secondaryButton,
+        kind === 'record' && styles.recordButton,
+        kind === 'play' && styles.playButton,
+        kind === 'secondary' && styles.secondaryButton,
         disabled && styles.disabled,
         pressed && styles.pressed,
       ]}>
       <Icon
         name={icon}
         size={Math.round(size * 0.42)}
-        color={kind === 'record' ? 'onPrimary' : 'primary'}
+        color={kind === 'record' ? 'onPrimary' : kind === 'play' ? 'background' : 'text'}
       />
     </Pressable>
   );
 }
 
-const RECORD_BUTTON_SIZE = 72;
-const PLAY_BUTTON_SIZE = 56;
+const PLAY_BUTTON_SIZE = 76;
+const SIDE_BUTTON_SIZE = 56;
 
 const useStyles = makeStyles((t) => ({
   root: { flex: 1, backgroundColor: t.colors.background },
@@ -281,6 +283,7 @@ const useStyles = makeStyles((t) => ({
     justifyContent: 'center',
   },
   recordButton: { backgroundColor: t.colors.primary },
+  playButton: { backgroundColor: t.colors.text },
   secondaryButton: { backgroundColor: t.colors.surfacePressed },
   disabled: { opacity: 0.4 },
   pressed: { opacity: 0.7 },

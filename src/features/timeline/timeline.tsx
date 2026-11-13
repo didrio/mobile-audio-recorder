@@ -27,11 +27,11 @@ import {
   withDecay,
   type SharedValue,
 } from 'react-native-reanimated';
+import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 
 import type { Project } from '@/features/projects/projects-repo';
 import { useTheme, type ThemeColors } from '@/theme';
 
-import { axisLengths, axisMatrix, toAxes, type Orientation } from './timeline-axis';
 import {
   clamp,
   clampScroll,
@@ -44,19 +44,25 @@ import {
   maxScroll,
   pointToTime,
   rulerSteps,
+  waveformGain,
   waveformLevel,
   zoomAroundPoint,
 } from './timeline-math';
 import { TrackHeaders } from './track-headers';
 import { useTakePeaks } from './use-take-peaks';
 import { waveformPaths } from './waveform-path';
-import { LEVEL_COUNT, LEVEL_FACTOR, peaksPerSecond } from './waveform-peaks';
+import { LEVEL_COUNT, LEVEL_FACTOR, maxAmplitude, peaksPerSecond } from './waveform-peaks';
 
-/** Thickness of the ruler band: a column in portrait (room for labels), a strip in landscape. */
-const RULER_SIZE: Record<Orientation, number> = { portrait: 44, landscape: 24 };
+/** Height of the ruler strip: tall enough to grab with a finger and drag the playhead. */
+const RULER_SIZE = 32;
+/** Touches this far below the ruler still scrub (it's a thin target). */
+const RULER_SLOP = 12;
+/** Space before 0:00, so the playhead (and its handle) at the start isn't cut off by the edge. */
+const LEADING_SPACE = 14;
 const CLIP_INSET = 3;
 const CLIP_RADIUS = 6;
 const PLAYHEAD_WIDTH = 2;
+const PLAYHEAD_HANDLE = 7;
 /** Skia resolves fonts through the system font manager, which doesn't know RN's 'System' alias. */
 const FONT_FAMILY = Platform.select({ ios: 'Helvetica', default: 'sans-serif' });
 
@@ -67,6 +73,8 @@ export type LiveTake = {
   trackId: string;
   /** Interleaved `[min, max]` pairs at `peaksPerSecond`, appended as audio arrives. */
   peaks: SharedValue<number[]>;
+  /** Loudest absolute sample so far (0…1), so all waveforms share one scale while recording. */
+  peak: SharedValue<number>;
   peaksPerSecond: number;
 };
 
@@ -80,14 +88,16 @@ type ClipShape = {
 };
 
 /**
- * The project timeline: ruler, track lanes, clips with waveforms and the playhead, drawn with Skia on
- * the UI thread. Scroll (pan, with momentum) and zoom (pinch) live in shared values; tapping the
- * ruler seeks. Works in both orientations through the time/cross mapping in `timeline-axis.ts`.
- * Track headers (arm, name) are RN views laid over the lanes (`track-headers.tsx`).
+ * The project timeline, drawn with Skia on the UI thread: time runs left to right in both
+ * orientations, tracks are rows. Ruler on top, lanes with clips and waveforms, the playhead on top.
+ *
+ * Gestures: pan scrolls (with momentum, both axes), pinch zooms around the fingers, a tap anywhere
+ * moves the playhead there, and dragging on the ruler scrubs the playhead (released: seek).
+ * Waveforms share one vertical scale per project (the loudest take fills its lane), so relative
+ * loudness between takes stays true. Track headers (arm, name) are RN views over the lanes.
  */
 export function Timeline({
   project,
-  orientation,
   playhead,
   following,
   liveTake,
@@ -97,7 +107,6 @@ export function Timeline({
   onEditTrack,
 }: {
   project: Project;
-  orientation: Orientation;
   /** Playhead position in seconds, animated by the transport. */
   playhead: SharedValue<number>;
   /** Playing or recording: keep the playhead in view until the user scrolls. */
@@ -111,17 +120,15 @@ export function Timeline({
 }) {
   const theme = useTheme();
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const { time: timeLength, cross: crossLength } = axisLengths(
-    orientation,
-    size.width,
-    size.height,
-  );
-  const rulerSize = RULER_SIZE[orientation];
+  const viewWidth = size.width;
+  // Time is laid out over the view minus the leading space: x = LEADING_SPACE + (t - scroll) * zoom.
+  const timeWidth = Math.max(0, viewWidth - LEADING_SPACE);
+  const viewHeight = size.height;
   const trackCount = project.tracks.length;
-  const lane = laneSize(crossLength - rulerSize, trackCount);
-  const maxCrossScroll = Math.max(0, rulerSize + trackCount * lane - crossLength);
+  const lane = laneSize(viewHeight - RULER_SIZE, trackCount);
+  const maxLaneScroll = Math.max(0, RULER_SIZE + trackCount * lane - viewHeight);
   const duration = project.duration;
-  const matrix = axisMatrix(orientation);
+  const isRecording = liveTake != null;
 
   const peaks = useTakePeaks(Object.values(project.takes).map((take) => take.path));
   const clips: ClipShape[] = project.tracks.flatMap((track, lane) =>
@@ -137,6 +144,11 @@ export function Timeline({
       };
     }),
   );
+  // Loudest sample over the project's takes (the coarsest level keeps every take's extremes).
+  const projectPeak = Object.values(peaks).reduce(
+    (loudest, levels) => Math.max(loudest, maxAmplitude(levels[levels.length - 1] ?? levels[0])),
+    0,
+  );
   const liveLane = liveTake
     ? project.tracks.findIndex((track) => track.id === liveTake.trackId)
     : -1;
@@ -146,21 +158,29 @@ export function Timeline({
 
   const zoom = useSharedValue(0);
   const scroll = useSharedValue(0);
-  const crossScroll = useSharedValue(0);
+  const laneScroll = useSharedValue(0);
   const follow = useSharedValue(true);
   const pinchStartZoom = useSharedValue(0);
+  /** Pan started on the ruler: it moves the playhead instead of scrolling. */
+  const scrubbing = useSharedValue(false);
+  /** Where the playhead is being dragged to, or -1. */
+  const scrubTime = useSharedValue(-1);
 
-  // Fit the zoom and scroll to the view: on first layout, rotation and when the idea grows.
+  // Fit the zoom and scroll to the view: on first layout, rotation and when the idea grows. Runs on
+  // the UI thread: scroll is moved there (gestures, following), so a JS-side read could be stale and
+  // write an old position back (seen right after recording: the view jumped away from the playhead).
   useEffect(() => {
-    if (timeLength <= 0) return;
-    const nextZoom =
-      zoom.get() > 0
-        ? clampZoom(zoom.get(), timeLength, duration)
-        : defaultZoom(timeLength, duration);
-    zoom.set(nextZoom);
-    scroll.set(clampScroll(scroll.get(), timeLength, nextZoom, duration));
-    crossScroll.set(clamp(crossScroll.get(), 0, maxCrossScroll));
-  }, [timeLength, duration, maxCrossScroll, zoom, scroll, crossScroll]);
+    if (timeWidth <= 0) return;
+    scheduleOnUI(() => {
+      'worklet';
+      const extent = Math.max(duration, playhead.get());
+      const nextZoom =
+        zoom.get() > 0 ? clampZoom(zoom.get(), timeWidth, extent) : defaultZoom(timeWidth, extent);
+      zoom.set(nextZoom);
+      scroll.set(clampScroll(scroll.get(), timeWidth, nextZoom, extent));
+      laneScroll.set(clamp(laneScroll.get(), 0, maxLaneScroll));
+    });
+  }, [timeWidth, duration, maxLaneScroll, zoom, scroll, laneScroll, playhead]);
 
   useEffect(() => {
     if (following) follow.set(true);
@@ -173,7 +193,7 @@ export function Timeline({
     (position, previous) => {
       const currentZoom = zoom.get();
       if (currentZoom <= 0) return;
-      const viewSeconds = timeLength / currentZoom;
+      const viewSeconds = timeWidth / currentZoom;
       if (following) {
         if (follow.get()) scroll.set(followScroll(scroll.get(), position, viewSeconds));
         return;
@@ -183,7 +203,7 @@ export function Timeline({
       scroll.set(
         clampScroll(
           followScroll(start, position, viewSeconds),
-          timeLength,
+          timeWidth,
           currentZoom,
           Math.max(duration, position),
         ),
@@ -191,33 +211,58 @@ export function Timeline({
     },
   );
 
+  const seekable = (x: number) => {
+    'worklet';
+    return clamp(
+      pointToTime(x - LEADING_SPACE, scroll.get(), zoom.get()),
+      0,
+      contentDuration(duration),
+    );
+  };
+
   const pan = usePanGesture({
-    onBegin: () => {
+    onBegin: (event) => {
       'worklet';
       cancelAnimation(scroll);
+      scrubbing.set(!isRecording && event.y <= RULER_SIZE + RULER_SLOP);
     },
     onUpdate: (event) => {
       'worklet';
+      if (scrubbing.get()) {
+        const time = seekable(event.x);
+        scrubTime.set(time);
+        // Idle: the playhead (and clock) follow the finger. Playing: seek once, on release.
+        if (!following) scheduleOnRN(onSeek, time);
+        return;
+      }
       follow.set(false);
-      const change = toAxes(orientation, event.changeX, event.changeY);
       const currentZoom = zoom.get();
       const extent = Math.max(duration, playhead.get());
       scroll.set(
-        clampScroll(scroll.get() - change.time / currentZoom, timeLength, currentZoom, extent),
+        clampScroll(scroll.get() - event.changeX / currentZoom, timeWidth, currentZoom, extent),
       );
-      crossScroll.set(clamp(crossScroll.get() - change.cross, 0, maxCrossScroll));
+      laneScroll.set(clamp(laneScroll.get() - event.changeY, 0, maxLaneScroll));
     },
     onDeactivate: (event) => {
       'worklet';
-      const velocity = toAxes(orientation, event.velocityX, event.velocityY);
+      if (scrubbing.get()) {
+        const time = scrubTime.get();
+        if (time >= 0) scheduleOnRN(onSeek, time);
+        return;
+      }
       const currentZoom = zoom.get();
       const extent = Math.max(duration, playhead.get());
       scroll.set(
         withDecay({
-          velocity: -velocity.time / currentZoom,
-          clamp: [0, maxScroll(timeLength, currentZoom, extent)],
+          velocity: -event.velocityX / currentZoom,
+          clamp: [0, maxScroll(timeWidth, currentZoom, extent)],
         }),
       );
+    },
+    onFinalize: () => {
+      'worklet';
+      scrubbing.set(false);
+      scrubTime.set(-1);
     },
   });
 
@@ -229,21 +274,19 @@ export function Timeline({
     onUpdate: (event) => {
       'worklet';
       const extent = Math.max(duration, playhead.get());
-      const nextZoom = clampZoom(pinchStartZoom.get() * event.scale, timeLength, extent);
-      const focal = toAxes(orientation, event.focalX, event.focalY).time;
+      const nextZoom = clampZoom(pinchStartZoom.get() * event.scale, timeWidth, extent);
+      const focal = event.focalX - LEADING_SPACE;
       const nextScroll = zoomAroundPoint(scroll.get(), zoom.get(), nextZoom, focal);
       zoom.set(nextZoom);
-      scroll.set(clampScroll(nextScroll, timeLength, nextZoom, extent));
+      scroll.set(clampScroll(nextScroll, timeWidth, nextZoom, extent));
     },
   });
 
+  // A tap anywhere moves the playhead (T5 will make taps on clips select them instead).
   const tap = useTapGesture({
-    runOnJS: true,
     onActivate: (event) => {
-      const point = toAxes(orientation, event.x, event.y);
-      if (point.cross > rulerSize) return;
-      const time = pointToTime(point.time, scroll.get(), zoom.get());
-      onSeek(clamp(time, 0, contentDuration(duration)));
+      'worklet';
+      scheduleOnRN(onSeek, seekable(event.x));
     },
   });
 
@@ -254,101 +297,106 @@ export function Timeline({
       const z = zoom.get();
       if (z <= 0) return;
       const s = scroll.get();
-      const cs = crossScroll.get();
-      const position = playhead.get();
-      const laneStart = (index: number) => rulerSize + index * lane - cs;
-
-      canvas.save();
-      canvas.concat(matrix);
+      const ls = laneScroll.get();
+      const scrubbed = scrubTime.get();
+      const position = scrubbed >= 0 ? scrubbed : playhead.get();
+      const gain = waveformGain(Math.max(projectPeak, liveTake ? liveTake.peak.get() : 0));
+      const laneTop = (index: number) => RULER_SIZE + index * lane - ls;
+      const visibleStart = s - LEADING_SPACE / z;
+      const visibleEnd = s + timeWidth / z;
+      const toX = (time: number) => LEADING_SPACE + (time - s) * z;
 
       // Lanes.
       for (let index = 0; index < trackCount; index++) {
-        const c0 = laneStart(index);
+        const top = laneTop(index);
         canvas.drawRect(
-          Skia.XYWHRect(0, c0, timeLength, lane),
+          Skia.XYWHRect(0, top, viewWidth, lane),
           index % 2 === 1 ? paints.laneAlt : paints.lane,
         );
-        canvas.drawLine(0, c0 + lane, timeLength, c0 + lane, paints.separator);
+        canvas.drawLine(0, top + lane, viewWidth, top + lane, paints.separator);
       }
 
       // Clips and their waveforms.
       for (const clip of clips) {
-        const t0 = (clip.start - s) * z;
-        const length = clip.duration * z;
-        if (t0 > timeLength || t0 + length < 0) continue;
-        const c0 = laneStart(clip.lane) + CLIP_INSET;
+        const x0 = toX(clip.start);
+        const width = clip.duration * z;
+        if (x0 > viewWidth || x0 + width < 0) continue;
+        const top = laneTop(clip.lane) + CLIP_INSET;
         const height = lane - CLIP_INSET * 2;
-        const rect = Skia.XYWHRect(t0, c0, length, height);
-        canvas.drawRRect(Skia.RRectXY(rect, CLIP_RADIUS, CLIP_RADIUS), paints.clip);
-        canvas.drawLine(t0, c0 + height / 2, t0 + length, c0 + height / 2, paints.centerLine);
+        const rect = Skia.XYWHRect(x0, top, width, height);
+        const rrect = Skia.RRectXY(rect, CLIP_RADIUS, CLIP_RADIUS);
+        canvas.drawRRect(rrect, paints.clip);
+        canvas.drawRRect(rrect, paints.clipBorder);
+        canvas.drawLine(x0, top + height / 2, x0 + width, top + height / 2, paints.centerLine);
         const path = clip.waveform
           ? clip.waveform[waveformLevel(clip.peaksPerSecond, z, LEVEL_COUNT, LEVEL_FACTOR)]
           : undefined;
         if (path) {
           canvas.save();
           canvas.clipRect(rect, ClipOp.Intersect, true);
-          canvas.translate(t0, c0 + height / 2);
-          canvas.scale(z, height / 2 - CLIP_INSET);
+          canvas.translate(x0, top + height / 2);
+          canvas.scale(z, (height / 2 - CLIP_INSET) * gain);
           canvas.drawPath(path, paints.waveform);
           canvas.restore();
         }
       }
 
-      const visibleEnd = s + timeLength / z;
-
       // The take being recorded, on its track's lane, with the waveform received so far.
       if (liveTake && liveLane >= 0 && position > liveTake.start) {
-        const t0 = (liveTake.start - s) * z;
-        const c0 = laneStart(liveLane) + CLIP_INSET;
+        const x0 = toX(liveTake.start);
+        const top = laneTop(liveLane) + CLIP_INSET;
         const height = lane - CLIP_INSET * 2;
-        const rect = Skia.XYWHRect(t0, c0, (position - liveTake.start) * z, height);
-        canvas.drawRRect(Skia.RRectXY(rect, CLIP_RADIUS, CLIP_RADIUS), paints.recording);
+        const rect = Skia.XYWHRect(x0, top, (position - liveTake.start) * z, height);
+        // It replaces what's under it on the track, so cover that up first.
+        const rrect = Skia.RRectXY(rect, CLIP_RADIUS, CLIP_RADIUS);
+        canvas.drawRRect(rrect, liveLane % 2 === 1 ? paints.laneAlt : paints.lane);
+        canvas.drawRRect(rrect, paints.recording);
         drawLivePeaks(canvas, {
           data: liveTake.peaks.get(),
           perSecond: liveTake.peaksPerSecond,
           start: liveTake.start,
-          from: s,
+          from: Math.max(liveTake.start, visibleStart),
           to: Math.min(visibleEnd, position),
+          originX: x0,
           zoom: z,
-          middle: c0 + height / 2,
-          amplitude: height / 2 - CLIP_INSET,
+          middle: top + height / 2,
+          amplitude: (height / 2 - CLIP_INSET) * gain,
+          limit: height / 2 - CLIP_INSET,
           paint: paints.liveWaveform,
         });
       }
 
-      // Ruler.
+      // Ruler: ticks along the bottom edge, labels above them.
       const steps = rulerSteps(z);
-      canvas.drawRect(Skia.XYWHRect(0, 0, timeLength, rulerSize), paints.ruler);
-      const firstTick = Math.floor(s / steps.tick);
+      canvas.drawRect(Skia.XYWHRect(0, 0, viewWidth, RULER_SIZE), paints.ruler);
+      const firstTick = Math.max(0, Math.floor(visibleStart / steps.tick));
       const lastTick = Math.ceil(visibleEnd / steps.tick);
       for (let index = firstTick; index <= lastTick; index++) {
         const time = index * steps.tick;
-        const point = (time - s) * z;
+        const x = toX(time);
         const isLabel = isMultiple(time, steps.label);
-        canvas.drawLine(point, rulerSize - (isLabel ? 10 : 5), point, rulerSize, paints.tick);
+        canvas.drawLine(x, RULER_SIZE - (isLabel ? 10 : 5), x, RULER_SIZE, paints.tick);
       }
-      canvas.drawLine(0, rulerSize, timeLength, rulerSize, paints.separator);
-
-      canvas.restore();
-
-      // Text, placed through the axis mapping but never transformed (it would be mirrored).
-      const firstLabel = Math.floor(s / steps.label);
+      canvas.drawLine(0, RULER_SIZE, viewWidth, RULER_SIZE, paints.separator);
+      const firstLabel = Math.max(0, Math.floor(visibleStart / steps.label));
       const lastLabel = Math.ceil(visibleEnd / steps.label);
+      const labelY = RULER_SIZE - 13;
       for (let index = firstLabel; index <= lastLabel; index++) {
-        const point = (index * steps.label - s) * z;
-        const at =
-          orientation === 'landscape'
-            ? { x: point + 4, y: rulerSize - 10 }
-            : { x: 4, y: point + 4 + font.getSize() };
-        canvas.drawText(formatRulerTime(index * steps.label), at.x, at.y, paints.label, font);
+        const x = toX(index * steps.label);
+        canvas.drawText(formatRulerTime(index * steps.label), x + 4, labelY, paints.label, font);
       }
 
-      // Playhead, on top of everything.
-      const playheadPoint = (position - s) * z;
-      canvas.save();
-      canvas.concat(matrix);
-      canvas.drawLine(playheadPoint, 0, playheadPoint, crossLength, paints.playhead);
-      canvas.restore();
+      // Playhead, on top of everything, with a handle on the ruler to show it can be dragged.
+      const x = toX(position);
+      canvas.drawLine(x, 0, x, viewHeight, paints.playhead);
+      const handle = Skia.PathBuilder.Make();
+      handle.moveTo(x - PLAYHEAD_HANDLE, 0);
+      handle.lineTo(x + PLAYHEAD_HANDLE, 0);
+      handle.lineTo(x + PLAYHEAD_HANDLE, RULER_SIZE - PLAYHEAD_HANDLE * 2);
+      handle.lineTo(x, RULER_SIZE - PLAYHEAD_HANDLE);
+      handle.lineTo(x - PLAYHEAD_HANDLE, RULER_SIZE - PLAYHEAD_HANDLE * 2);
+      handle.close();
+      canvas.drawPath(handle.detach(), paints.playheadHandle);
     }),
   );
 
@@ -375,13 +423,12 @@ export function Timeline({
       {size.width > 0 ? (
         <TrackHeaders
           tracks={project.tracks}
-          orientation={orientation}
-          rulerSize={rulerSize}
+          rulerSize={RULER_SIZE}
           lane={lane}
           inset={CLIP_INSET}
-          crossScroll={crossScroll}
+          laneScroll={laneScroll}
           armedTrackId={armedTrackId}
-          disabled={liveTake != null}
+          disabled={isRecording}
           onArm={onArm}
           onEdit={onEditTrack}
         />
@@ -400,11 +447,17 @@ function drawLivePeaks(
     data: number[];
     perSecond: number;
     start: number;
+    /** Visible time range to draw (seconds on the timeline). */
     from: number;
     to: number;
+    /** x of the take's start. */
+    originX: number;
     zoom: number;
     middle: number;
+    /** Points per unit of amplitude (already scaled by the shared gain). */
     amplitude: number;
+    /** Bars never reach further than this from the middle. */
+    limit: number;
     paint: SkPaint;
   },
 ) {
@@ -424,9 +477,10 @@ function drawLivePeaks(
       min = Math.min(min, live.data[i * 2] ?? 0);
       max = Math.max(max, live.data[i * 2 + 1] ?? 0);
     }
-    const point = (live.start + peak / live.perSecond - live.from) * live.zoom;
-    const top = live.middle - max * live.amplitude;
-    builder.addRect(Skia.XYWHRect(point, top, width, Math.max(1, (max - min) * live.amplitude)));
+    const point = live.originX + (peak / live.perSecond) * live.zoom;
+    const up = Math.min(live.limit, max * live.amplitude);
+    const down = Math.min(live.limit, -min * live.amplitude);
+    builder.addRect(Skia.XYWHRect(point, live.middle - up, width, Math.max(1, up + down)));
   }
   canvas.drawPath(builder.detach(), live.paint);
 }
@@ -456,6 +510,11 @@ function makePaints(colors: ThemeColors) {
     laneAlt: fill(colors.laneAlt),
     separator: stroke(colors.border, StyleSheet.hairlineWidth),
     clip: fill(colors.clip),
+    clipBorder: (() => {
+      const paint = stroke(colors.waveform, 1);
+      paint.setAlphaf(0.45);
+      return paint;
+    })(),
     centerLine: stroke(colors.waveform, StyleSheet.hairlineWidth),
     waveform: fill(colors.waveform),
     recording: fill(colors.primary, 0.2),
@@ -464,6 +523,7 @@ function makePaints(colors: ThemeColors) {
     tick: stroke(colors.textTertiary, 1),
     label: fill(colors.textSecondary),
     playhead: stroke(colors.primary, PLAYHEAD_WIDTH),
+    playheadHandle: fill(colors.primary),
   };
 }
 

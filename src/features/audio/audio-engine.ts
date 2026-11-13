@@ -27,6 +27,7 @@ import {
   FilePreset,
   type AudioBuffer,
   type AudioBufferSourceNode,
+  type GainNode,
 } from 'react-native-audio-api';
 
 import type { TakeAlignment } from './take-alignment';
@@ -74,8 +75,13 @@ let context: AudioContext | null = null;
 let recorder: AudioRecorder | null = null;
 const decodedTakes = new Map<string, Promise<AudioBuffer>>();
 
+/** Bumped by every `play` and `stopPlayback`, so a `play` still loading audio knows it was superseded. */
+let playGeneration = 0;
+
 let playback: {
   sources: AudioBufferSourceNode[];
+  /** The graph's output node; disconnecting it releases the whole graph of this playback. */
+  output: GainNode;
   endTimer: ReturnType<typeof setTimeout>;
   startedAt: number;
   from: number;
@@ -244,6 +250,7 @@ export async function play(
   options: { from?: number; onEnded?: () => void } = {},
 ): Promise<void> {
   stopPlayback();
+  const generation = playGeneration;
   const from = options.from ?? 0;
   const audible = clips.filter((clip) => clip.start + clip.duration > from);
   if (audible.length === 0) {
@@ -253,8 +260,11 @@ export async function play(
 
   await activateSession();
   const ctx = getContext();
-  if (ctx.state === 'suspended') await ctx.resume();
+  // The recorder and other apps can leave the context suspended; make sure it's running.
+  if (ctx.state !== 'running') await ctx.resume();
   const buffers = await Promise.all(audible.map((clip) => decodeTake(clip.takePath)));
+  // Stopped, or another `play` started, while the audio was loading: don't start a second playback.
+  if (generation !== playGeneration) return;
 
   const master = ctx.createGain();
   master.connect(ctx.destination);
@@ -281,15 +291,17 @@ export async function play(
 
   const endTimer = setTimeout(
     () => {
+      master.disconnect();
       playback = null;
       options.onEnded?.();
     },
     (end + SCHEDULE_AHEAD_SECONDS) * 1000,
   );
-  playback = { sources, endTimer, startedAt, from, startedAtMs };
+  playback = { sources, output: master, endTimer, startedAt, from, startedAtMs };
 }
 
 export function stopPlayback() {
+  playGeneration++;
   if (!playback) return;
   clearTimeout(playback.endTimer);
   for (const source of playback.sources) {
@@ -299,6 +311,7 @@ export function stopPlayback() {
       // Already finished.
     }
   }
+  playback.output.disconnect();
   playback = null;
 }
 

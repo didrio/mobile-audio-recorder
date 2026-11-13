@@ -8,8 +8,11 @@
 export const MAX_ZOOM = 400;
 /** Empty time after the last clip, so there's room to scroll past the end. */
 export const TAIL_SECONDS = 10;
-/** Seconds shown when an idea is opened (unless it's shorter: then all of it). */
-const DEFAULT_VISIBLE_SECONDS = 30;
+/** Zoom an idea opens at (points per second), the same in both orientations: a phone in portrait
+ * shows about 14 s, in landscape about 30 s (an idea that fits entirely is shown whole). */
+export const DEFAULT_ZOOM = 28;
+/** Quietest peak the waveforms are scaled up to fill the lane: quieter projects stay small. */
+const MIN_SCALED_PEAK = 0.05;
 /** Where the playhead settles while following playback: this fraction into the view. */
 export const FOLLOW_ANCHOR = 1 / 3;
 
@@ -42,7 +45,7 @@ export function clampZoom(zoom: number, viewLength: number, duration: number): n
 
 export function defaultZoom(viewLength: number, duration: number): number {
   'worklet';
-  return clampZoom(viewLength / DEFAULT_VISIBLE_SECONDS, viewLength, duration);
+  return clampZoom(DEFAULT_ZOOM, viewLength, duration);
 }
 
 export function maxScroll(viewLength: number, zoom: number, duration: number): number {
@@ -146,4 +149,14 @@ export function waveformLevel(
 export function laneSize(available: number, trackCount: number, min = 72, max = 240): number {
   'worklet';
   return clamp(available / Math.max(1, trackCount), min, max);
+}
+
+/**
+ * Vertical scale for every waveform of a project, from its loudest sample (0…1): the loudest take
+ * fills its lane and the others keep their true (linear amplitude) proportions, so a take at half the
+ * level draws at half the height. Near-silent projects are boosted at most 1 / `MIN_SCALED_PEAK`.
+ */
+export function waveformGain(loudestPeak: number): number {
+  'worklet';
+  return 1 / Math.max(loudestPeak, MIN_SCALED_PEAK);
 }

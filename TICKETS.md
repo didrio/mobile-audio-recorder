@@ -12,8 +12,8 @@ _None._
 
 ## Up next
 
-Product in one line: a quick multitrack sketchpad for musicians (2–3 min song ideas), with a simple timeline that
-works in portrait (time runs top→bottom, tracks are columns) and landscape (time left→right, tracks are rows).
+Product in one line: a quick multitrack sketchpad for musicians (2–3 min song ideas), with a simple horizontal
+timeline (time left→right, tracks are rows) that works well in both portrait and landscape.
 Not a DAW: no software instruments. Local only. Architecture and data model: `docs/decisions.md` (Audio engine,
 Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/features/audio/audio-engine.ts`.
 Testing cadence while iterating: unit tests + `npm run check` + simulator screenshots per ticket, then the user
@@ -37,8 +37,8 @@ dependency changes). See the `wrap` skill.
   mic permission prompt, speaker vs. earpiece routing, and Bluetooth headphones.
   **Milestone checks** (deferred from T2): `npm run android` on the `Pixel_API_36` emulator (first build with
   Skia: needs a few GB of disk), timeline screenshots portrait + landscape on Android, `npm run e2e` on both
-  platforms. On devices: pinch-zoom and pan momentum feel, playhead vs. audio sync (latency), and smooth
-  playback on a 3-minute idea with several takes.
+  platforms. On devices: pinch-zoom and pan momentum feel, tap-to-seek and dragging the playhead on the ruler,
+  playhead vs. audio sync (latency), and smooth playback on a 3-minute idea with several takes.
   **Overdub checks** (from T3, simulator-only so far): with headphones, record a clap/click against an existing
   take and play both back — they should line up; if not, tune Settings → Recording → Latency offset and note
   the value per device in `docs/releasing.md`. Also try Bluetooth headphones (much higher latency), delete a
@@ -56,11 +56,14 @@ dependency changes). See the `wrap` skill.
         SQLite on gesture end) with undo/redo.
   - [ ] Snap to other clip edges and the playhead (grid snapping comes with T9).
   - [ ] Orphaned takes (no clips left) are kept until the project is deleted (simple, safe for undo).
+  - [ ] Moving a clip onto others replaces what's under it, like recording does (`clearRange` in
+        `src/features/projects/clip-overlap.ts`); undo restores the trimmed clips.
   - [ ] Unit tests for the pure edit operations (move/trim/split math).
 - **Context:** Data model is already non-destructive (`clips.start/offset/duration`, `src/lib/db.ts`). Timeline
-  (T2): gestures are RNGH v3 hooks composed with `useSimultaneousGestures` in `timeline.tsx` (pan = scroll, pinch
-  = zoom, tap on the ruler = seek); taps on lanes are still free for selection. Convert touches with `toAxes`
-  (`timeline-axis.ts`) and times with `pointToTime` (`timeline-math.ts`) so both orientations work. Waveform
+  (T2, made horizontal-only in the post-T3 polish): gestures are RNGH v3 hooks composed with
+  `useSimultaneousGestures` in `timeline.tsx` (pan = scroll, pan starting on the ruler = drag the playhead, pinch =
+  zoom, tap anywhere = seek). Tap on a clip should become "select" and tap on empty lane space keep seeking.
+  x ↔ time is `LEADING_SPACE + (t - scroll) * zoom` (`seekable()` / `toX` in `timeline.tsx`). Waveform
   paths are cached per clip window (`waveform-path.ts`), so a trim just asks for a new window. Drawing is one
   `createPicture` per frame: add selection/handles there, driven by shared values.
   Since T3: track header chips (`track-headers.tsx`, RN views over the lane corners) take touches there; the
@@ -135,6 +138,8 @@ dependency changes). See the `wrap` skill.
         (copies rows; takes can be shared by copying files).
   - [ ] Sort (recent / name) and search when the list is long; show the date under each idea.
   - [ ] Storage used by recordings shown in Settings.
+  - [ ] Quick listen: play an idea from the list without opening it, with a scrubber under the row
+        (reuse `play()` from `audio-engine.ts` with the idea's clips; only one idea plays at a time).
 - **Context:** `deleteProject` (rows + files) and `useDeleteProject` (also clears decoded buffers) already exist in
   `src/features/projects/` but have no UI yet. Names default to "Idea N" (`createProject`).
 
@@ -172,6 +177,14 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 
 ## Done
+
+- Polish after T3 — 2026-11-13 — timeline horizontal in both orientations (vertical portrait layout removed with
+  `timeline-axis.ts`), waveforms scaled to one shared per-project level (true relative loudness), tap anywhere to
+  seek, drag on the ruler to move the playhead (with a handle), leading space before 0:00, transport is
+  Back to start · Play (largest, centered) · Record, headphones hint removed; recording onto a track now replaces what's
+  under the new take (overlapped clips trimmed/split, `clip-overlap.ts`; takes kept), clips outlined,
+  playback cancels superseded starts and releases its audio graph, the view no longer jumps away from the
+  playhead after Stop (zoom fit runs on the UI thread)
 
 - T3 — Multitrack overdub — 2026-11-13 — add/rename/delete/arm tracks (lane headers + track sheet), record at the playhead over the other tracks with measured start + latency compensation and a Settings offset, live waveform; fixed the playhead clock (JS and UI `performance.now()` differ, `ui-clock.ts`); overdub Maestro flow
 - T2 — Timeline view — 2026-11-11 — Skia timeline (lanes, clips with cached waveform peaks, ruler, UI-thread playhead with follow), pan/pinch/ruler seek, Play from the playhead, portrait/landscape layouts; Maestro hang traced to NTKDaemon on port 5563 (e2e warns now); smoke flow covers quick capture

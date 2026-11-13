@@ -6,36 +6,32 @@ import { Text } from '@/components/ui';
 import type { Track } from '@/features/projects/projects-repo';
 import { makeStyles } from '@/theme';
 
-import type { Orientation } from './timeline-axis';
-
 const ARM_SIZE = 28;
 
 /**
  * One header chip per track, floating at the leading corner of its lane: an arm button (the
  * armed track is the one Record records onto) and the track name (opens the track's settings).
- * Laid out with the same ruler and lane sizes as the Skia timeline and moved with its cross scroll.
+ * Laid out with the same ruler and lane sizes as the Skia timeline and moved with its lane scroll.
  */
 export function TrackHeaders({
   tracks,
-  orientation,
   rulerSize,
   lane,
   inset,
-  crossScroll,
+  laneScroll,
   armedTrackId,
   disabled,
   onArm,
   onEdit,
 }: {
   tracks: Pick<Track, 'id' | 'name'>[];
-  orientation: Orientation;
   /** Thickness of the ruler band the lanes start after. */
   rulerSize: number;
   /** Thickness of one lane across the time axis. */
   lane: number;
   /** Gap between the chip and the lane edges. */
   inset: number;
-  crossScroll: SharedValue<number>;
+  laneScroll: SharedValue<number>;
   armedTrackId: string | null;
   /** While recording: tracks can't be armed or edited. */
   disabled: boolean;
@@ -43,24 +39,14 @@ export function TrackHeaders({
   onEdit: (trackId: string) => void;
 }) {
   const styles = useStyles();
-  const isPortrait = orientation === 'portrait';
-  const scrolled = useAnimatedStyle(() =>
-    isPortrait
-      ? { transform: [{ translateX: -crossScroll.get() }] }
-      : { transform: [{ translateY: -crossScroll.get() }] },
-  );
+  const scrolled = useAnimatedStyle(() => ({ transform: [{ translateY: -laneScroll.get() }] }));
 
   return (
-    <View
-      pointerEvents="box-none"
-      style={[styles.viewport, isPortrait ? { left: rulerSize } : { top: rulerSize }]}>
+    <View pointerEvents="box-none" style={[styles.viewport, { top: rulerSize }]}>
       <Animated.View pointerEvents="box-none" style={[styles.fill, scrolled]}>
         {tracks.map((track, index) => {
           const armed = track.id === armedTrackId;
-          const cross = index * lane + inset;
-          const position = isPortrait
-            ? { left: cross, top: inset, maxWidth: lane - inset * 2 }
-            : { top: cross, left: inset, maxWidth: lane * 3 };
+          const position = { top: index * lane + inset, left: inset, maxWidth: lane * 3 };
           return (
             <View key={track.id} style={[styles.chip, position]}>
               <Pressable

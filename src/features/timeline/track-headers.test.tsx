@@ -6,7 +6,7 @@ const tracks = [
   { id: 'a', name: 'Track 1' },
   { id: 'b', name: 'Vocals' },
 ];
-const crossScroll = { get: () => 0, set: () => {}, value: 0 } as never;
+const laneScroll = { get: () => 0, set: () => {}, value: 0 } as never;
 
 function renderHeaders(overrides: Partial<Parameters<typeof TrackHeaders>[0]> = {}) {
   const onArm = jest.fn();
@@ -14,11 +14,10 @@ function renderHeaders(overrides: Partial<Parameters<typeof TrackHeaders>[0]> = 
   const view = render(
     <TrackHeaders
       tracks={tracks}
-      orientation="portrait"
-      rulerSize={44}
+      rulerSize={32}
       lane={120}
       inset={3}
-      crossScroll={crossScroll}
+      laneScroll={laneScroll}
       armedTrackId="b"
       disabled={false}
       onArm={onArm}

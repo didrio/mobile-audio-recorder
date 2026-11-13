@@ -27,7 +27,6 @@ name: Overdub
 - extendedWaitUntil:
     visible: 'Arm Track 2'
     timeout: 5000
-- assertVisible: 'Use headphones.*'
 - tapOn: 'Record'
 - extendedWaitUntil:
     visible: 'Stop recording'

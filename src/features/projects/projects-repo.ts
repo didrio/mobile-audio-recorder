@@ -7,6 +7,8 @@ import { randomUUID } from 'expo-crypto';
 import { deleteProjectFiles } from '@/features/audio/take-files';
 import { getDb } from '@/lib/db';
 
+import { clearRange } from './clip-overlap';
+
 export type ProjectSummary = {
   id: string;
   name: string;
@@ -196,7 +198,8 @@ export async function createProject(name?: string): Promise<ProjectSummary> {
 
 /**
  * Saves a recorded take and places it on a track as one clip covering the take from `offset`
- * (seconds skipped at its start, default 0) to its end.
+ * (seconds skipped at its start, default 0) to its end. The new clip replaces whatever was under it
+ * on that track: overlapped clips are trimmed or split (`clip-overlap.ts`), their takes kept.
  */
 export async function addTakeWithClip(input: {
   projectId: string;
@@ -208,7 +211,39 @@ export async function addTakeWithClip(input: {
   const offset = Math.min(Math.max(0, input.offset ?? 0), input.take.duration);
   const db = await getDb();
   const now = Date.now();
+  const start = Math.max(0, input.start);
+  const duration = input.take.duration - offset;
   await db.withExclusiveTransactionAsync(async (tx) => {
+    const existing = await tx.getAllAsync<ClipRow>(
+      'SELECT * FROM clips WHERE track_id = ?',
+      input.trackId,
+    );
+    for (const edit of clearRange(existing, start, start + duration)) {
+      if (edit.kind === 'delete') {
+        await tx.runAsync('DELETE FROM clips WHERE id = ?', edit.id);
+      } else if (edit.kind === 'update') {
+        await tx.runAsync(
+          'UPDATE clips SET start = ?, offset = ?, duration = ? WHERE id = ?',
+          edit.start,
+          edit.offset,
+          edit.duration,
+          edit.id,
+        );
+      } else {
+        const original = existing.find((row) => row.id === edit.id);
+        if (!original) continue;
+        await tx.runAsync('UPDATE clips SET duration = ? WHERE id = ?', edit.duration, edit.id);
+        await tx.runAsync(
+          'INSERT INTO clips (id, track_id, take_id, start, offset, duration) VALUES (?, ?, ?, ?, ?, ?)',
+          randomUUID(),
+          input.trackId,
+          original.take_id,
+          edit.tail.start,
+          edit.tail.offset,
+          edit.tail.duration,
+        );
+      }
+    }
     await tx.runAsync(
       `INSERT INTO takes (id, project_id, path, duration, sample_rate, channels, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -225,9 +260,9 @@ export async function addTakeWithClip(input: {
       randomUUID(),
       input.trackId,
       input.take.id,
-      input.start,
+      start,
       offset,
-      input.take.duration - offset,
+      duration,
     );
     await tx.runAsync('UPDATE projects SET updated_at = ? WHERE id = ?', now, input.projectId);
   });

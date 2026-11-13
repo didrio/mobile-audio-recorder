@@ -431,7 +431,22 @@ describe('ProjectScreen', () => {
       [expect.objectContaining({ takePath: 'projects/p1/takes/t1.wav', start: 0, duration: 12 })],
       expect.objectContaining({ from: 5 }),
     );
-    expect(await screen.findByRole('button', { name: 'Stop' })).toBeOnTheScreen();
+    expect(await screen.findByRole('button', { name: 'Pause' })).toBeOnTheScreen();
+  });
+
+  it('stops playback when going back to the start', async () => {
+    jest.mocked(play).mockResolvedValue();
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Seek to 0:05' }));
+    await user.press(screen.getByRole('button', { name: 'Play' }));
+    await user.press(await screen.findByRole('button', { name: 'Pause' }));
+    await user.press(screen.getByRole('button', { name: 'Play' }));
+    await user.press(await screen.findByRole('button', { name: 'Back to start' }));
+
+    expect(await screen.findByRole('button', { name: 'Play' })).toBeOnTheScreen();
+    expect(screen.getByText('0:00.0')).toBeOnTheScreen();
   });
 
   it('goes back to the start', async () => {

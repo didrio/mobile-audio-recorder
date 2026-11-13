@@ -427,7 +427,8 @@ export function Timeline({
 
       // Playhead, on top of everything, with a handle on the ruler to show it can be dragged.
       const x = toX(position);
-      canvas.drawLine(x, 0, x, viewHeight, paints.playhead);
+      const playheadEnd = Math.min(viewHeight, RULER_SIZE + trackCount * lane - ls);
+      canvas.drawLine(x, 0, x, Math.max(RULER_SIZE, playheadEnd), paints.playhead);
       const handle = Skia.PathBuilder.Make();
       handle.moveTo(x - PLAYHEAD_HANDLE, 0);
       handle.lineTo(x + PLAYHEAD_HANDLE, 0);

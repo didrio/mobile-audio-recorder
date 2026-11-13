@@ -4,8 +4,8 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T22 — Transport & playhead polish · Sonnet · low effort · plan mode off, then T28, then T15 (T12 can be run any
-time the Android build is done)
+**Next:** T28 — Track column v2 · Sonnet · medium effort · plan mode off, then T15 (T12 can be run any time the
+Android build is done)
 
 ## In progress
 
@@ -86,24 +86,6 @@ dependency changes). See the `wrap` skill.
     recording an overdub (backing changes, the take doesn't).
   - OTA note: an iOS-only preview update (`01a1d6bf`, T14) is already published; Android still needs an update
     published after its build finished (`npm run update:preview` covers both).
-
-### T22 — Transport & playhead polish
-
-- **Status:** ready
-- **Session:** Sonnet · low effort · plan mode off
-- **Goal:** Small transport fixes from the user (2026-11-13): no square stop buttons, Back to start stops
-  playback, and the playhead stays inside the lanes.
-- **Done when:**
-  - [ ] Back to start stops playback (stop, then `seek(0)`). It stays disabled while recording.
-  - [ ] No square stop icon anywhere. While playing, Play becomes **Pause** (`pause.fill` / `pause`); it stops
-        and leaves the playhead where it is, as Stop does today. While recording, the Record button shows Pause
-        (red) and stops the take. Accessibility labels: "Pause" and "Stop recording".
-  - [ ] The playhead line ends at the bottom of the last lane, so it never shows over the "+ New Track" row or
-        the empty space below it. The ruler handle stays as it is.
-  - [ ] Tests updated (`project-screen.test.tsx` queries by label), plus a simulator screenshot.
-- **Context:** The transport buttons are `backToStart` / `playButton` / `recordButton` in `project-screen.tsx`.
-  The playhead is drawn at the end of the picture in `timeline.tsx` with `drawLine(x, 0, x, viewHeight)`. Clamp
-  the end to `min(viewHeight, RULER_SIZE + trackCount * lane - laneScroll)`.
 
 ### T28 — Track column v2: arm in the mixer, grab handle, armed name
 
@@ -585,6 +567,10 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 
 ## Done
+
+- T22 — Transport & playhead polish — 2026-11-13 — Back to start stops playback; no stop squares (Play ↔ Pause,
+  Record shows Pause while recording); playhead ends at the last lane; `stopPlaying(at?)` avoids a stale-status
+  restart; checked on the iOS simulator
 
 - Backlog planning 3 — 2026-11-13 — new T28 (track column v2: arm button only in the mixer, narrow grab-handle
   column, armed track marked on its name label); T15 and T23 rewired onto it, T23's grab target is now the handle

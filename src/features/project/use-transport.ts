@@ -247,8 +247,9 @@ export function useTransport(project: Project | null | undefined) {
     await playFrom(playhead.get());
   };
 
-  const stopPlaying = () => {
-    const stoppedAt = playbackPosition() ?? playhead.get();
+  /** Stop playback, leaving the playhead where it is (or at `at`, e.g. 0 for back to start). */
+  const stopPlaying = (at?: number) => {
+    const stoppedAt = at ?? playbackPosition() ?? playhead.get();
     stopPlayback();
     moveTo(stoppedAt);
     setStatus('idle');

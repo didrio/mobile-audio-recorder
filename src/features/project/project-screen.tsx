@@ -123,21 +123,24 @@ export function ProjectScreen() {
       size={SIDE_BUTTON_SIZE}
       kind="secondary"
       disabled={isRecording || isBusy}
-      onPress={() => transport.seek(0)}
+      onPress={() => {
+        if (isPlaying) transport.stopPlaying(0);
+        else transport.seek(0);
+      }}
     />
   );
   const playButton = (
     <TransportButton
-      label={isPlaying ? 'Stop' : 'Play'}
+      label={isPlaying ? 'Pause' : 'Play'}
       icon={
         isPlaying
-          ? { ios: 'stop.fill', android: 'stop' }
+          ? { ios: 'pause.fill', android: 'pause' }
           : { ios: 'play.fill', android: 'play_arrow' }
       }
       size={PLAY_BUTTON_SIZE}
       kind="play"
       disabled={isRecording || isBusy || !hasClips}
-      onPress={isPlaying ? transport.stopPlaying : () => void transport.startPlayback()}
+      onPress={isPlaying ? () => transport.stopPlaying() : () => void transport.startPlayback()}
     />
   );
   const recordButton = (
@@ -145,7 +148,7 @@ export function ProjectScreen() {
       label={isRecording ? 'Stop recording' : 'Record'}
       icon={
         isRecording
-          ? { ios: 'stop.fill', android: 'stop' }
+          ? { ios: 'pause.fill', android: 'pause' }
           : { ios: 'record.circle', android: 'radio_button_checked' }
       }
       size={SIDE_BUTTON_SIZE}

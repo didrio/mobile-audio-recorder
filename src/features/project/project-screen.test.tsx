@@ -5,9 +5,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ensureRecordPermission, play, startRecording } from '@/features/audio/audio-engine';
 import {
-  addTakeWithClip,
-  addTrack,
+  deleteUnusedTakes,
   getProject,
+  saveChanges,
   type Project,
 } from '@/features/projects/projects-repo';
 
@@ -35,6 +35,9 @@ jest.mock('expo-router', () => {
   );
   const Toolbar = ({ children }: { children: ReactNode }) => children;
   Toolbar.Button = ToolbarButton;
+  Toolbar.Spacer = function Spacer() {
+    return null;
+  };
   return {
     Stack: { Screen: () => null, Toolbar },
     useLocalSearchParams: () => ({ id: 'p1' }),
@@ -103,10 +106,8 @@ jest.mock('@/features/audio/take-files', () => ({
 
 jest.mock('@/features/projects/projects-repo', () => ({
   getProject: jest.fn(),
-  addTakeWithClip: jest.fn(),
-  addTrack: jest.fn(),
-  renameTrack: jest.fn(),
-  deleteTrack: jest.fn(),
+  saveChanges: jest.fn(),
+  deleteUnusedTakes: jest.fn(),
   listProjects: jest.fn(),
   createProject: jest.fn(),
   deleteProject: jest.fn(),
@@ -178,6 +179,8 @@ function renderScreen() {
 describe('ProjectScreen', () => {
   beforeEach(() => {
     jest.mocked(getProject).mockResolvedValue(project);
+    jest.mocked(saveChanges).mockResolvedValue();
+    jest.mocked(deleteUnusedTakes).mockResolvedValue([]);
   });
 
   it('shows the timeline, the playhead time and the transport', async () => {
@@ -189,8 +192,7 @@ describe('ProjectScreen', () => {
     expect(screen.getByRole('button', { name: 'Record' })).toBeOnTheScreen();
   });
 
-  it('records onto the armed track at the playhead over the other tracks, lined up', async () => {
-    jest.mocked(getProject).mockResolvedValue(twoTracks);
+  function mockRecording() {
     jest.mocked(ensureRecordPermission).mockResolvedValue(true);
     jest.mocked(startRecording).mockResolvedValue({
       anchor: { from: 5, startedAtMs: 0 },
@@ -209,7 +211,11 @@ describe('ProjectScreen', () => {
         }),
       ),
     });
-    jest.mocked(addTakeWithClip).mockResolvedValue();
+  }
+
+  it('records onto the armed track at the playhead over the other tracks, lined up', async () => {
+    jest.mocked(getProject).mockResolvedValue(twoTracks);
+    mockRecording();
     const user = userEvent.setup();
     await renderScreen();
 
@@ -227,33 +233,67 @@ describe('ProjectScreen', () => {
     await user.press(await screen.findByRole('button', { name: 'Stop recording' }));
 
     expect(await screen.findByRole('button', { name: 'Record' })).toBeOnTheScreen();
-    expect(addTakeWithClip).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectId: 'p1',
-        trackId: 'track2',
-        start: expect.closeTo(5.05),
-        offset: 0,
-        take: expect.objectContaining({ duration: 3.5, sampleRate: 48000, channels: 1 }),
-      }),
+    expect(saveChanges).toHaveBeenCalledWith(
+      'p1',
+      [
+        expect.objectContaining({
+          table: 'clips',
+          before: null,
+          after: expect.objectContaining({
+            trackId: 'track2',
+            start: expect.closeTo(5.05),
+            offset: 0,
+          }),
+        }),
+      ],
+      expect.objectContaining({ duration: 3.5, sampleRate: 48000, channels: 1 }),
     );
     // Back to where recording started.
     expect(screen.getByText('0:05.0')).toBeOnTheScreen();
   });
 
   it('adds a track and arms it', async () => {
-    jest.mocked(addTrack).mockImplementation(async () => {
-      jest.mocked(getProject).mockResolvedValue(twoTracks);
-      const { clips: _clips, ...added } = track2;
-      return added;
-    });
     const user = userEvent.setup();
     await renderScreen();
 
     await screen.findByText('Timeline of Chorus riff');
     await user.press(screen.getByRole('button', { name: 'Add track' }));
 
-    expect(addTrack).toHaveBeenCalledWith('p1');
     expect(await screen.findByRole('button', { name: 'Arm Track 2' })).toBeSelected();
+    expect(saveChanges).toHaveBeenCalledWith(
+      'p1',
+      [expect.objectContaining({ table: 'tracks', before: null })],
+      undefined, // no new take
+    );
+  });
+
+  it('undoes and redoes edits, only while idle', async () => {
+    mockRecording();
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await screen.findByText('Timeline of Chorus riff');
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+
+    await user.press(screen.getByRole('button', { name: 'Add track' }));
+    expect(await screen.findByRole('button', { name: 'Arm Track 2' })).toBeOnTheScreen();
+
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+    expect(await screen.findByRole('button', { name: 'Stop recording' })).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    await user.press(screen.getByRole('button', { name: 'Stop recording' }));
+    expect(await screen.findByRole('button', { name: 'Record' })).toBeOnTheScreen();
+
+    // Undo the recording, then the added track; Redo brings the track back.
+    await user.press(screen.getByRole('button', { name: 'Undo' }));
+    await user.press(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.queryByRole('button', { name: 'Arm Track 2' })).not.toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+
+    await user.press(screen.getByRole('button', { name: 'Redo' }));
+    expect(await screen.findByRole('button', { name: 'Arm Track 2' })).toBeOnTheScreen();
+    expect(saveChanges).toHaveBeenCalledTimes(5);
   });
 
   it('explains when microphone access is denied', async () => {

@@ -1,16 +1,26 @@
 import * as Haptics from 'expo-haptics';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Platform, Pressable, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Text, type IconName } from '@/components/ui';
 import { formatTimecode } from '@/features/audio/format-time';
-import { useAddTrack, useProject } from '@/features/projects/queries';
 import { Timeline } from '@/features/timeline/timeline';
 import { makeStyles, useTheme } from '@/theme';
 
+import {
+  addTrack,
+  armTrack,
+  redo,
+  selectArmedTrack,
+  selectCanRedo,
+  selectCanUndo,
+  undo,
+  useEditorStore,
+  useOpenIdea,
+} from './editor-store';
 import { useTransport } from './use-transport';
 
 /**
@@ -18,7 +28,8 @@ import { useTransport } from './use-transport';
  * orientations; portrait stacks clock, timeline and transport, landscape puts the clock and
  * transport in a column beside the timeline so it gets the full height. Transport: back to start,
  * Play (the main button) and Record. One track is armed: Record records onto it while the others
- * play. "Add track" in the header adds a track and arms it.
+ * play. The header has Undo, Redo (enabled only while idle) and "Add track", which adds a track and
+ * arms it. The idea itself lives in the editor store (`editor-store.ts`), open while this screen is.
  */
 export function ProjectScreen() {
   const styles = useStyles();
@@ -32,20 +43,24 @@ export function ProjectScreen() {
   const isLandscape = window.width > window.height;
   const params = useLocalSearchParams<{ id: string; record?: string }>();
   const router = useRouter();
-  const project = useProject(params.id);
-  const transport = useTransport(project.data);
-  const addTrack = useAddTrack();
-
-  // The armed track; falls back to the first track (e.g. after the armed one was deleted).
-  const [armedId, setArmedId] = useState<string | null>(null);
-  const tracks = project.data?.tracks ?? [];
-  const armedTrack = tracks.find((t) => t.id === armedId) ?? tracks[0];
+  useOpenIdea(params.id);
+  const isOpen = useEditorStore((state) => state.projectId === params.id);
+  const project = useEditorStore((state) => (isOpen ? state.project : null));
+  const loadFailed = useEditorStore((state) => isOpen && state.status === 'error');
+  const saveError = useEditorStore((state) => state.saveError);
+  const armedTrack = useEditorStore(selectArmedTrack);
+  const canUndo = useEditorStore(selectCanUndo);
+  const canRedo = useEditorStore(selectCanRedo);
+  const transport = useTransport(project);
+  const tracks = project?.tracks ?? [];
 
   const isRecording = transport.status === 'recording';
   const isPlaying = transport.status === 'playing';
   const isBusy = transport.status === 'starting' || transport.status === 'stopping';
   const isIdle = transport.status === 'idle';
-  const addTrackDisabled = !project.data || !isIdle || addTrack.isPending;
+  const addTrackDisabled = !project || !isIdle;
+  const undoDisabled = !isIdle || !canUndo;
+  const redoDisabled = !isIdle || !canRedo;
   const hasClips = tracks.some((t) => t.clips.length > 0);
 
   const { record } = transport;
@@ -55,21 +70,20 @@ export function ProjectScreen() {
 
   // Quick capture: opened from "Record new idea", start recording as soon as the project is loaded.
   const autoRecordDone = useRef(false);
-  const firstTrackId = params.record === '1' ? project.data?.tracks[0]?.id : undefined;
+  const firstTrackId = params.record === '1' ? project?.tracks[0]?.id : undefined;
   useEffect(() => {
     if (!firstTrackId || autoRecordDone.current) return;
     autoRecordDone.current = true;
     void record(firstTrackId);
   }, [firstTrackId, record]);
 
-  const onAddTrack = async () => {
-    if (!project.data) return;
-    try {
-      const track = await addTrack.mutateAsync(project.data.id);
-      setArmedId(track.id);
-    } catch {
-      // The list stays as it was; nothing to clean up.
-    }
+  const onUndo = () => {
+    void Haptics.selectionAsync();
+    void undo();
+  };
+  const onRedo = () => {
+    void Haptics.selectionAsync();
+    void redo();
   };
 
   const editTrack = (trackId: string) =>
@@ -128,27 +142,28 @@ export function ProjectScreen() {
     </View>
   );
 
-  const errorText = transport.error ? (
+  const error = transport.error ?? saveError;
+  const errorText = error ? (
     <Text color="danger" align="center" variant="footnote">
-      {transport.error}
+      {error}
     </Text>
   ) : null;
 
-  const timeline = project.isError ? (
+  const timeline = loadFailed ? (
     <View style={styles.message}>
       <Text color="danger" align="center">
         Couldn&apos;t open this idea.
       </Text>
     </View>
-  ) : project.data ? (
+  ) : project ? (
     <Timeline
-      project={project.data}
+      project={project}
       playhead={transport.playhead}
       following={isPlaying || isRecording}
       liveTake={transport.liveTake}
       armedTrackId={armedTrack?.id ?? null}
       onSeek={transport.seek}
-      onArm={setArmedId}
+      onArm={armTrack}
       onEditTrack={editTrack}
     />
   ) : (
@@ -166,15 +181,29 @@ export function ProjectScreen() {
           renders nothing without one, so Android gets a plain header button with a Material Symbol. */}
       <Stack.Screen
         options={{
-          title: project.data?.name ?? '',
+          title: project?.name ?? '',
           ...(Platform.OS === 'android' && {
             headerRight: () => (
-              <HeaderIconButton
-                label="Add track"
-                icon={{ ios: 'plus', android: 'add' }}
-                disabled={addTrackDisabled}
-                onPress={() => void onAddTrack()}
-              />
+              <View style={styles.headerButtons}>
+                <HeaderIconButton
+                  label="Undo"
+                  icon={{ ios: 'arrow.uturn.backward', android: 'undo' }}
+                  disabled={undoDisabled}
+                  onPress={onUndo}
+                />
+                <HeaderIconButton
+                  label="Redo"
+                  icon={{ ios: 'arrow.uturn.forward', android: 'redo' }}
+                  disabled={redoDisabled}
+                  onPress={onRedo}
+                />
+                <HeaderIconButton
+                  label="Add track"
+                  icon={{ ios: 'plus', android: 'add' }}
+                  disabled={addTrackDisabled}
+                  onPress={() => void addTrack()}
+                />
+              </View>
             ),
           }),
         }}
@@ -182,10 +211,25 @@ export function ProjectScreen() {
       {Platform.OS === 'ios' && (
         <Stack.Toolbar placement="right">
           <Stack.Toolbar.Button
+            icon="arrow.uturn.backward"
+            accessibilityLabel="Undo"
+            disabled={undoDisabled}
+            onPress={onUndo}>
+            Undo
+          </Stack.Toolbar.Button>
+          <Stack.Toolbar.Button
+            icon="arrow.uturn.forward"
+            accessibilityLabel="Redo"
+            disabled={redoDisabled}
+            onPress={onRedo}>
+            Redo
+          </Stack.Toolbar.Button>
+          <Stack.Toolbar.Spacer width={8} />
+          <Stack.Toolbar.Button
             icon="plus"
             accessibilityLabel="Add track"
             disabled={addTrackDisabled}
-            onPress={() => void onAddTrack()}>
+            onPress={() => void addTrack()}>
             Add track
           </Stack.Toolbar.Button>
         </Stack.Toolbar>
@@ -334,6 +378,7 @@ const useStyles = makeStyles((t) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerButtons: { flexDirection: 'row', alignItems: 'center' },
   headerButton: { padding: t.spacing.sm, borderRadius: t.radius.full },
   recordButton: { backgroundColor: t.colors.primary },
   playButton: { backgroundColor: t.colors.text },

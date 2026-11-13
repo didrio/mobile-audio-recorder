@@ -1,15 +1,14 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, userEvent, waitFor } from '@testing-library/react-native';
-import type { ReactNode } from 'react';
+import { render, screen, userEvent } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 
 import {
-  deleteTrack,
+  deleteUnusedTakes,
   getProject,
-  renameTrack,
+  saveChanges,
   type Project,
 } from '@/features/projects/projects-repo';
 
+import { closeIdea, openIdea, useEditorStore } from './editor-store';
 import { TrackSheet } from './track-sheet';
 
 const mockBack = jest.fn();
@@ -19,10 +18,11 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ back: mockBack }),
 }));
 
+jest.mock('@/features/audio/audio-engine', () => ({ forgetTakes: jest.fn() }));
 jest.mock('@/features/projects/projects-repo', () => ({
   getProject: jest.fn(),
-  renameTrack: jest.fn(),
-  deleteTrack: jest.fn(),
+  saveChanges: jest.fn(),
+  deleteUnusedTakes: jest.fn(),
 }));
 
 const track = (id: string, name: string, clipCount: number): Project['tracks'][number] => ({
@@ -53,60 +53,62 @@ const project = (tracks: Project['tracks']): Project => ({
   tracks,
 });
 
-async function renderSheet() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: Infinity },
-      mutations: { gcTime: Infinity },
-    },
-  });
-  const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
-  await render(<TrackSheet />, { wrapper });
+/** Opens the idea in the editor store (the project screen does this) and shows the sheet over it. */
+async function renderSheet(tracks: Project['tracks']) {
+  jest.mocked(getProject).mockResolvedValue(project(tracks));
+  await openIdea('p1');
+  await render(<TrackSheet />);
   return await screen.findByLabelText('Track name');
 }
 
+const trackNames = () => useEditorStore.getState().project?.tracks.map((t) => t.name);
+
 describe('TrackSheet', () => {
+  const twoTracks = () => [track('track1', 'Track 1', 1), track('track2', 'Track 2', 1)];
+
   beforeEach(() => {
-    jest
-      .mocked(getProject)
-      .mockResolvedValue(project([track('track1', 'Track 1', 1), track('track2', 'Track 2', 1)]));
+    jest.mocked(saveChanges).mockResolvedValue();
+    jest.mocked(deleteUnusedTakes).mockResolvedValue([]);
   });
 
+  afterEach(() => closeIdea());
+
   it('renames the track', async () => {
-    jest.mocked(renameTrack).mockResolvedValue();
     const user = userEvent.setup();
-    const input = await renderSheet();
+    const input = await renderSheet(twoTracks());
 
     await user.clear(input);
     await user.type(input, 'Vocals', { submitEditing: true });
 
-    expect(renameTrack).toHaveBeenCalledWith({
-      projectId: 'p1',
-      trackId: 'track2',
-      name: 'Vocals',
-    });
+    expect(trackNames()).toEqual(['Track 1', 'Vocals']);
+    expect(saveChanges).toHaveBeenCalledWith(
+      'p1',
+      [
+        expect.objectContaining({
+          id: 'track2',
+          after: expect.objectContaining({ name: 'Vocals' }),
+        }),
+      ],
+      undefined, // no new take
+    );
   });
 
   it('asks before deleting a track with clips, then closes', async () => {
-    jest.mocked(deleteTrack).mockResolvedValue();
     const alert = jest.spyOn(Alert, 'alert');
     const user = userEvent.setup();
-    await renderSheet();
+    await renderSheet(twoTracks());
 
     await user.press(screen.getByRole('button', { name: 'Delete track' }));
-    expect(deleteTrack).not.toHaveBeenCalled();
+    expect(trackNames()).toEqual(['Track 1', 'Track 2']);
     const buttons = alert.mock.calls[0]?.[2];
     await buttons?.find((button) => button.text === 'Delete')?.onPress?.();
 
-    expect(deleteTrack).toHaveBeenCalledWith({ projectId: 'p1', trackId: 'track2' });
-    await waitFor(() => expect(mockBack).toHaveBeenCalled());
+    expect(trackNames()).toEqual(['Track 1']);
+    expect(mockBack).toHaveBeenCalled();
   });
 
   it("doesn't offer to delete the only track", async () => {
-    jest.mocked(getProject).mockResolvedValue(project([track('track2', 'Track 2', 0)]));
-    await renderSheet();
+    await renderSheet([track('track2', 'Track 2', 0)]);
 
     expect(screen.queryByRole('button', { name: 'Delete track' })).not.toBeOnTheScreen();
     expect(screen.getByText('An idea needs at least one track.')).toBeOnTheScreen();

@@ -9,6 +9,10 @@
  *   absolute container path changes between installs/updates on iOS.
  * - `clips` are windows onto a take placed on a track: `start` (timeline position), `offset` (where in
  *   the take playback begins) and `duration`, all in seconds. Trim/move/split only change these numbers.
+ * - The open idea is edited through the editor store (`@/features/project/editor-store`): edits are
+ *   snapshots of the track/clip rows they touch, applied in memory and written with `saveChanges`
+ *   (`projects-repo.ts`). Undo history lives only while the idea is open, so takes no clip uses are
+ *   deleted (rows + files) the next time it opens.
  *
  * Migrations: add a new `if (version < N)` block and bump `SCHEMA_VERSION`. Never edit an old block.
  */

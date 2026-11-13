@@ -43,6 +43,13 @@ export function storeRecordedTake(recordedPath: string, projectId: string, takeI
   return relativePath;
 }
 
+/** Deletes a take's audio and waveform files. Safe to call when they don't exist. */
+export function deleteTakeFiles(relativePath: string): void {
+  for (const file of [new File(Paths.document, relativePath), peaksFile(relativePath)]) {
+    if (file.exists) file.delete();
+  }
+}
+
 /** Deletes every file of a project. Safe to call when nothing exists. */
 export function deleteProjectFiles(projectId: string): void {
   const directory = new Directory(Paths.document, 'projects', projectId);

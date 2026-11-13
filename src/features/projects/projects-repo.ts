@@ -1,13 +1,14 @@
 /**
  * Projects ("ideas"), their tracks, takes and clips in SQLite. Schema and model: `@/lib/db`.
- * Screens use these through the TanStack Query hooks in `./queries.ts`.
+ * The Ideas list uses these through the TanStack Query hooks in `./queries.ts`; the open idea is loaded
+ * and edited through the editor store (`@/features/project/editor-store`), which writes with
+ * `saveChanges`.
  */
 import { randomUUID } from 'expo-crypto';
 
-import { deleteProjectFiles } from '@/features/audio/take-files';
+import { deleteProjectFiles, deleteTakeFiles } from '@/features/audio/take-files';
+import type { Change } from '@/features/project/edit-changes';
 import { getDb } from '@/lib/db';
-
-import { clearRange } from './clip-overlap';
 
 export type ProjectSummary = {
   id: string;
@@ -197,146 +198,89 @@ export async function createProject(name?: string): Promise<ProjectSummary> {
 }
 
 /**
- * Saves a recorded take and places it on a track as one clip covering the take from `offset`
- * (seconds skipped at its start, default 0) to its end. The new clip replaces whatever was under it
- * on that track: overlapped clips are trimmed or split (`clip-overlap.ts`), their takes kept.
+ * Writes an editor change set (`@/features/project/edit-changes`) in one transaction, plus the take it
+ * places when one was just recorded (inserted first, so a take is always committed with its clip).
+ * Deletes run before upserts, clips before tracks, so foreign keys hold whatever the edit does.
  */
-export async function addTakeWithClip(input: {
-  projectId: string;
-  trackId: string;
-  take: Pick<Take, 'id' | 'path' | 'duration' | 'sampleRate' | 'channels'>;
-  start: number;
-  offset?: number;
-}): Promise<void> {
-  const offset = Math.min(Math.max(0, input.offset ?? 0), input.take.duration);
+export async function saveChanges(
+  projectId: string,
+  changes: Change[],
+  take?: Take,
+): Promise<void> {
   const db = await getDb();
-  const now = Date.now();
-  const start = Math.max(0, input.start);
-  const duration = input.take.duration - offset;
   await db.withExclusiveTransactionAsync(async (tx) => {
-    const existing = await tx.getAllAsync<ClipRow>(
-      'SELECT * FROM clips WHERE track_id = ?',
-      input.trackId,
-    );
-    for (const edit of clearRange(existing, start, start + duration)) {
-      if (edit.kind === 'delete') {
-        await tx.runAsync('DELETE FROM clips WHERE id = ?', edit.id);
-      } else if (edit.kind === 'update') {
-        await tx.runAsync(
-          'UPDATE clips SET start = ?, offset = ?, duration = ? WHERE id = ?',
-          edit.start,
-          edit.offset,
-          edit.duration,
-          edit.id,
-        );
-      } else {
-        const original = existing.find((row) => row.id === edit.id);
-        if (!original) continue;
-        await tx.runAsync('UPDATE clips SET duration = ? WHERE id = ?', edit.duration, edit.id);
-        await tx.runAsync(
-          'INSERT INTO clips (id, track_id, take_id, start, offset, duration) VALUES (?, ?, ?, ?, ?, ?)',
-          randomUUID(),
-          input.trackId,
-          original.take_id,
-          edit.tail.start,
-          edit.tail.offset,
-          edit.tail.duration,
-        );
+    if (take) {
+      await tx.runAsync(
+        `INSERT INTO takes (id, project_id, path, duration, sample_rate, channels, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        take.id,
+        projectId,
+        take.path,
+        take.duration,
+        take.sampleRate,
+        take.channels,
+        take.createdAt,
+      );
+    }
+    const deleted = changes.filter((change) => !change.after);
+    for (const table of ['clips', 'tracks'] as const) {
+      for (const change of deleted.filter((candidate) => candidate.table === table)) {
+        await tx.runAsync(`DELETE FROM ${table} WHERE id = ?`, change.id);
       }
     }
-    await tx.runAsync(
-      `INSERT INTO takes (id, project_id, path, duration, sample_rate, channels, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      input.take.id,
-      input.projectId,
-      input.take.path,
-      input.take.duration,
-      input.take.sampleRate,
-      input.take.channels,
-      now,
-    );
-    await tx.runAsync(
-      'INSERT INTO clips (id, track_id, take_id, start, offset, duration) VALUES (?, ?, ?, ?, ?, ?)',
-      randomUUID(),
-      input.trackId,
-      input.take.id,
-      start,
-      offset,
-      duration,
-    );
-    await tx.runAsync('UPDATE projects SET updated_at = ? WHERE id = ?', now, input.projectId);
-  });
-}
-
-/** Adds an empty track after the last one, named "Track N". */
-export async function addTrack(projectId: string): Promise<Track> {
-  const db = await getDb();
-  const now = Date.now();
-  const row = await db.getFirstAsync<{ last: number | null }>(
-    'SELECT MAX(position) AS last FROM tracks WHERE project_id = ?',
-    projectId,
-  );
-  const position = (row?.last ?? -1) + 1;
-  const track: Track = {
-    id: randomUUID(),
-    projectId,
-    position,
-    name: `Track ${position + 1}`,
-    volume: 1,
-    muted: false,
-    solo: false,
-  };
-  await db.withExclusiveTransactionAsync(async (tx) => {
-    await tx.runAsync(
-      'INSERT INTO tracks (id, project_id, position, name) VALUES (?, ?, ?, ?)',
-      track.id,
-      projectId,
-      position,
-      track.name,
-    );
-    await tx.runAsync('UPDATE projects SET updated_at = ? WHERE id = ?', now, projectId);
-  });
-  return track;
-}
-
-/** Renames a track; an empty name is ignored. */
-export async function renameTrack(input: {
-  projectId: string;
-  trackId: string;
-  name: string;
-}): Promise<void> {
-  const name = input.name.trim();
-  if (!name) return;
-  const db = await getDb();
-  await db.withExclusiveTransactionAsync(async (tx) => {
-    await tx.runAsync('UPDATE tracks SET name = ? WHERE id = ?', name, input.trackId);
-    await tx.runAsync(
-      'UPDATE projects SET updated_at = ? WHERE id = ?',
-      Date.now(),
-      input.projectId,
-    );
+    for (const change of changes) {
+      if (change.table !== 'tracks' || !change.after) continue;
+      const track = change.after;
+      await tx.runAsync(
+        `INSERT INTO tracks (id, project_id, position, name, volume, muted, solo)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET position = excluded.position, name = excluded.name,
+           volume = excluded.volume, muted = excluded.muted, solo = excluded.solo`,
+        track.id,
+        projectId,
+        track.position,
+        track.name,
+        track.volume,
+        track.muted ? 1 : 0,
+        track.solo ? 1 : 0,
+      );
+    }
+    for (const change of changes) {
+      if (change.table !== 'clips' || !change.after) continue;
+      const clip = change.after;
+      await tx.runAsync(
+        `INSERT INTO clips (id, track_id, take_id, start, offset, duration) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET track_id = excluded.track_id, take_id = excluded.take_id,
+           start = excluded.start, offset = excluded.offset, duration = excluded.duration`,
+        clip.id,
+        clip.trackId,
+        clip.takeId,
+        clip.start,
+        clip.offset,
+        clip.duration,
+      );
+    }
+    await tx.runAsync('UPDATE projects SET updated_at = ? WHERE id = ?', Date.now(), projectId);
   });
 }
 
 /**
- * Deletes a track and its clips. Its takes stay (they may be reused once clips can move between
- * tracks) until the project is deleted. A project always keeps at least one track.
+ * Deletes the takes no clip uses (rows and files) and returns their paths. Run when an idea opens:
+ * undo history doesn't outlive an open idea, so nothing can bring them back.
  */
-export async function deleteTrack(input: { projectId: string; trackId: string }): Promise<void> {
+export async function deleteUnusedTakes(projectId: string): Promise<string[]> {
   const db = await getDb();
+  const unused = await db.getAllAsync<{ id: string; path: string }>(
+    `SELECT id, path FROM takes t WHERE t.project_id = ?
+     AND NOT EXISTS (SELECT 1 FROM clips c WHERE c.take_id = t.id)`,
+    projectId,
+  );
+  if (unused.length === 0) return [];
   await db.withExclusiveTransactionAsync(async (tx) => {
-    const count = await tx.getFirstAsync<{ n: number }>(
-      'SELECT COUNT(*) AS n FROM tracks WHERE project_id = ?',
-      input.projectId,
-    );
-    if ((count?.n ?? 0) <= 1) throw new Error('An idea needs at least one track.');
-    await tx.runAsync('DELETE FROM tracks WHERE id = ?', input.trackId);
-    await tx.runAsync(
-      'UPDATE projects SET updated_at = ? WHERE id = ?',
-      Date.now(),
-      input.projectId,
-    );
+    for (const take of unused) await tx.runAsync('DELETE FROM takes WHERE id = ?', take.id);
   });
+  for (const take of unused) deleteTakeFiles(take.path);
+  return unused.map((take) => take.path);
 }
 
 /** Deletes the project, its rows (cascade) and its audio files. Returns the deleted take paths. */

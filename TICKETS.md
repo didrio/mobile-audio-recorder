@@ -4,8 +4,8 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T13 — Editor store & undo/redo · Opus · high effort · plan mode on (T12 can be run any time the Android
-build is done)
+**Next:** T14 — Editor layout v2 · Opus · high effort · plan mode on (T12 can be run any time the Android build
+is done)
 
 ## In progress
 
@@ -35,7 +35,11 @@ dependency changes). See the `wrap` skill.
   section-label rail sits above the ruler. Thin status strip (time · metronome toggle · meter). Compact
   transport. "+ New Track" is a row after the last lane, not a header button.
 - **Header of an idea**: Undo · Redo · "⋯" (Idea settings, Duplicate, Delete, Favorite).
-- **Undo/redo** covers every edit, in memory per open idea (100 steps), cleared when leaving the idea.
+- **Undo/redo** covers every edit, in memory per open idea (100 steps), cleared when leaving the idea. Built in
+  T13: a new edit is a pure builder in `src/features/project/edit-commands.ts` returning an `Edit` (before/after
+  snapshots of the rows it touches, `edit-changes.ts`), applied with `executeEdit()` from `editor-store.ts`. One
+  gesture = one `executeEdit` at its end (live values during a drag go through shared values). A new table
+  (sections, idea settings) needs a `Change` variant, `applyToProject` and `saveChanges` support.
 - **Arming**: a toggle, one armed track at a time (multi-arm deferred to Backlog: one phone mic would only
   record the same audio onto each track). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
@@ -72,35 +76,6 @@ dependency changes). See the `wrap` skill.
     row and seek while playing; playback must stay audible.
   - Whoever does T15 repeats its mic checks on devices (mic indicator, Bluetooth quality while armed).
 
-### T13 — Editor store & undo/redo
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** One editor store for the open idea that every edit goes through, with undo/redo. This is the
-  foundation for T14, T15, T5, T9, T16 and T18.
-- **Done when:**
-  - [ ] Zustand store for the open idea: loaded from `getProject`, written through to SQLite per command, and
-        React Query's project list invalidated so the Ideas list stays current. Server data is not copied
-        twice: the store owns the open idea, and `useProject` is no longer the editor's source.
-  - [ ] Edits are commands with an inverse (or a snapshot of the rows they touch). A gesture is one step. History
-        holds 100 steps, in memory per idea, and is cleared when the idea closes.
-  - [ ] Undoable now: recording a take (undo removes the new clip and restores what `clearRange` trimmed),
-        adding, renaming and deleting tracks.
-  - [ ] Undo and Redo buttons in the idea's header, enabled only while idle. iOS: `Stack.Toolbar.Button`s.
-        Android: `headerRight` Pressables + `Icon` (see the AGENTS.md gotcha). Leave room for the "⋯" menu
-        that T14 adds.
-  - [ ] The armed track moves from `useState` in `project-screen.tsx` into the store (T15 makes it a toggle
-        and persists it).
-  - [ ] Takes that no clip uses are deleted (rows + files) when an idea is opened. Safe, because history
-        doesn't survive closing. This replaces the old "keep orphaned takes until the project is deleted".
-  - [ ] Unit tests for the history logic and each command's apply/inverse.
-- **Context:** Data model is non-destructive (`clips.start/offset/duration`, `src/lib/db.ts`). Current writes:
-  `useAddTake` / `useAddTrack` etc. in `src/features/projects/queries.ts` over `projects-repo.ts`.
-  Recording writes through `use-transport.ts` and trims overlapped clips with `clearRange`
-  (`src/features/projects/clip-overlap.ts`). `deleteTrack` keeps its takes, which is what lets undo restore
-  a deleted track. The playback engine reads `PlayableClip`s built from the project, so make sure playback
-  sees store changes.
-
 ### T14 — Editor layout v2
 
 - **Status:** ready (after T13)
@@ -120,16 +95,20 @@ dependency changes). See the `wrap` skill.
         ruler, lanes and (later) section rail start to the right of the column.
   - [ ] Track name is a small label floating at the top-left of its lane (as today), tapping it opens the
         track sheet. The chips in `track-headers.tsx` go away (arm moves to the column).
-  - [ ] A "+ New Track" row after the last lane adds and arms a track. Remove the header Add track button
-        (both the iOS toolbar and Android `headerRight`).
+  - [ ] A "+ New Track" row after the last lane adds and arms a track (`addTrack()` in `editor-store.ts`). Remove
+        the header Add track button (both the iOS toolbar and Android `headerRight`).
   - [ ] Track volume is saved to `tracks.volume` (the column exists) through the T13 store, one undo step per
-        drag. The engine applies it live: keep per-track `GainNode`s addressable instead of recreating them in
+        drag (an `Edit` changing the track row, like `renameTrackEdit`; `saveChanges` already writes `volume`).
+        The engine applies it live: keep per-track `GainNode`s addressable instead of recreating them in
         `play()`. Recording's backing playback uses the same path.
   - [ ] Thin status strip in both orientations: time on the left, the meter on the right, with space for
         T17's metronome toggle between them. Portrait: strip on top and a smaller transport at the bottom
         (Play ~60 pt, others ~44 pt, less padding). Landscape: strip above the timeline (as wide as it) and a
         narrow column on the right with the buttons stacked vertically (Record, Play, Back to start).
-  - [ ] Header: Undo · Redo · "⋯" (menu with placeholder items filled by T9/T10/T19).
+  - [ ] Header: Undo · Redo · "⋯" (menu with placeholder items filled by T9/T10/T19). Undo/Redo exist since
+        T13; on iOS 26 all toolbar buttons share one glass pill (`Stack.Toolbar.Spacer width={8}` didn't split
+        them), fine for three icons. The Android `headerRight` Undo/Redo were never looked at: take one Android
+        emulator screenshot of the header in this ticket.
   - [ ] Screenshots: portrait + landscape, light + dark, 1 track and 8 tracks.
 - **Context:** Timeline geometry: `RULER_SIZE`, `LEADING_SPACE` and `toX` / `seekable()` in
   `src/features/timeline/timeline.tsx` (x = `LEADING_SPACE + (t - scroll) * zoom`), so the column becomes a
@@ -156,8 +135,11 @@ dependency changes). See the `wrap` skill.
   - [ ] Checked on a real iPhone: the orange mic indicator only shows while armed. Check Bluetooth headphones
         too: many drop to low-quality "call" audio while the mic is open. If that's bad, note it and ticket a
         fallback (e.g. meter only while recording when Bluetooth output is active).
-- **Context:** Today the meter is fed by `setLevel(peakLevel(samples))` in `use-transport.ts` only while
-  recording. First check in `node_modules/react-native-audio-api` (types/docs) how to get input samples
+- **Context:** The armed track lives in the editor store since T13 (`armedTrackId`, `armTrack`,
+  `selectArmedTrack` with its fall back to the first track, in `src/features/project/editor-store.ts`); persist it
+  there (write on `armTrack`, read in `openIdea`). Arming isn't an undo step. Today the meter is fed by
+  `setLevel(peakLevel(samples))` in `use-transport.ts` only while recording. First check in
+  `node_modules/react-native-audio-api` (types/docs) how to get input samples
   without recording to a file, and whether opening the input changes the audio session for playback. Multi-arm
   with per-track inputs is in Backlog.
 
@@ -182,9 +164,10 @@ dependency changes). See the `wrap` skill.
 - **Context:** Gestures in `timeline.tsx` (pan = scroll, pan starting on the ruler = drag the playhead, pinch
   = zoom, tap = seek). A tap needs hit-testing: clip → select, empty lane space → seek. Waveform paths are
   cached per clip window (`waveform-path.ts`), so a trim just asks for a new window. Selection and handles are
-  drawn in the per-frame picture, driven by shared values. Moving a clip between tracks can reuse takes kept
-  by `deleteTrack`. T18 reuses this selection and drag code for section labels, so keep it generic (an item
-  with start/duration on a row).
+  drawn in the per-frame picture, driven by shared values. Moving a clip between tracks only changes its
+  `trackId`. Edits: builders in `edit-commands.ts` (see `recordTakeEdit` for `clearRange` → changes) and
+  `executeEdit`; history and write-through come for free. T18 reuses this selection and drag code for section
+  labels, so keep it generic (an item with start/duration on a row).
 
 ### T10 — Ideas library basics
 
@@ -441,6 +424,12 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 
 ## Done
+
+- T13 — Editor store & undo/redo — 2026-11-13 — the open idea lives in a zustand editor store (`editor-store.ts`):
+  edits are before/after row snapshots applied in memory and written through to SQLite in a serial queue,
+  100-step undo/redo per open idea with header buttons (idle only), record / add / rename / delete track
+  undoable, armed track in the store, unused takes (rows + files) deleted when an idea opens; checked on the iOS
+  simulator (record over a take → Undo restores it whole; reopen cleans up the undone take)
 
 - Backlog planning — 2026-11-13 — 17 user ideas turned into tickets: new T13–T21 (undo, layout v2, arming/meter,
   folders, tempo/metronome split, sections, clip options, pitch keyboard, speaker mode); T5/T6/T9/T10 rewritten;

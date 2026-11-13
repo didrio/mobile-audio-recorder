@@ -3,68 +3,61 @@ import { useState } from 'react';
 import { Alert, TextInput, View } from 'react-native';
 
 import { Button, Text } from '@/components/ui';
-import { useDeleteTrack, useProject, useRenameTrack } from '@/features/projects/queries';
 import { makeStyles, useTheme } from '@/theme';
 
+import { deleteTrackEdit, renameTrackEdit } from './edit-commands';
+import { executeEdit, useEditorStore } from './editor-store';
+
 /**
- * Track settings, shown as a sheet over the project: rename and delete. An idea always keeps at
- * least one track, so the only track can't be deleted.
+ * Track settings, shown as a sheet over the open idea (editor store): rename and delete, both
+ * undoable from the idea's header. An idea always keeps at least one track, so the only track can't
+ * be deleted.
  */
 export function TrackSheet() {
   const params = useLocalSearchParams<{ id: string; projectId: string }>();
-  const project = useProject(params.projectId);
-  const track = project.data?.tracks.find((candidate) => candidate.id === params.id);
+  const project = useEditorStore((state) =>
+    state.projectId === params.projectId ? state.project : null,
+  );
+  const track = project?.tracks.find((candidate) => candidate.id === params.id);
 
-  return track && project.data ? (
-    <TrackForm
-      key={track.id}
-      projectId={project.data.id}
-      track={track}
-      canDelete={project.data.tracks.length > 1}
-    />
+  return track && project ? (
+    <TrackForm key={track.id} track={track} canDelete={project.tracks.length > 1} />
   ) : null;
 }
 
 function TrackForm({
-  projectId,
   track,
   canDelete,
 }: {
-  projectId: string;
   track: { id: string; name: string; clips: unknown[] };
   canDelete: boolean;
 }) {
   const styles = useStyles();
   const theme = useTheme();
   const router = useRouter();
-  const rename = useRenameTrack();
-  const remove = useDeleteTrack();
   const [name, setName] = useState(track.name);
-  const [error, setError] = useState<string | null>(null);
+
+  const currentProject = () => useEditorStore.getState().project;
 
   const save = () => {
-    if (name.trim() && name.trim() !== track.name) {
-      rename.mutate({ projectId, trackId: track.id, name });
-    }
+    const project = currentProject();
+    if (project) void executeEdit(renameTrackEdit(project, track.id, name));
   };
 
-  const deleteTrack = async () => {
-    try {
-      await remove.mutateAsync({ projectId, trackId: track.id });
-      router.back();
-    } catch {
-      setError('The track could not be deleted.');
-    }
+  const deleteTrack = () => {
+    const project = currentProject();
+    if (project) void executeEdit(deleteTrackEdit(project, track.id));
+    router.back();
   };
 
   const confirmDelete = () => {
     if (track.clips.length === 0) {
-      void deleteTrack();
+      deleteTrack();
       return;
     }
     Alert.alert(`Delete ${track.name}?`, 'Its clips are removed from the idea.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => void deleteTrack() },
+      { text: 'Delete', style: 'destructive', onPress: deleteTrack },
     ]);
   };
 
@@ -94,7 +87,6 @@ function TrackForm({
           title="Delete track"
           variant="destructive"
           icon={{ ios: 'trash', android: 'delete' }}
-          loading={remove.isPending}
           onPress={confirmDelete}
         />
       ) : (
@@ -102,11 +94,6 @@ function TrackForm({
           An idea needs at least one track.
         </Text>
       )}
-      {error ? (
-        <Text variant="footnote" color="danger">
-          {error}
-        </Text>
-      ) : null}
     </View>
   );
 }

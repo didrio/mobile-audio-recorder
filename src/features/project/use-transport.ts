@@ -18,11 +18,11 @@ import {
 import { placeTake } from '@/features/audio/take-alignment';
 import { storeRecordedTake } from '@/features/audio/take-files';
 import type { Project } from '@/features/projects/projects-repo';
-import { useAddTake } from '@/features/projects/queries';
 import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
 import { prefetchTakePeaks } from '@/features/timeline/use-take-peaks';
 import { createLivePeaks, LIVE_PEAKS_PER_SECOND } from '@/features/timeline/waveform-peaks';
 
+import { recordTake } from './editor-store';
 import { toUiClock } from './ui-clock';
 
 export type TransportStatus = 'idle' | 'starting' | 'recording' | 'stopping' | 'playing';
@@ -56,7 +56,6 @@ const TICK_MS = 100;
  *   and saves the take.
  */
 export function useTransport(project: Project | null | undefined) {
-  const addTake = useAddTake();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<TransportStatus>('idle');
   const [position, setPosition] = useState(0);
@@ -113,7 +112,7 @@ export function useTransport(project: Project | null | undefined) {
     const path = storeRecordedTake(recorded.path, active.projectId, active.takeId);
     const { latencyOffsetMs } = useRecordingSettingsStore.getState();
     const placement = placeTake(active.from, recorded.alignment, latencyOffsetMs / 1000);
-    await addTake.mutateAsync({
+    await recordTake({
       projectId: active.projectId,
       trackId: active.trackId,
       start: placement.start,

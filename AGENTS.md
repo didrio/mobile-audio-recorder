@@ -158,6 +158,9 @@ TICKETS.md                Ordered, living backlog; one ticket per session (/star
 
 ## Gotchas
 
+- **Two clocks**: the JS and UI-thread (worklet) runtimes don't share a `performance.now()` origin (seen ~29 h
+  apart on iOS). Don't pass a JS timestamp to a worklet as-is; measure the offset with `runOnUISync` from
+  `react-native-worklets` (UI `performance.now()` minus the JS reading taken around the call) and convert.
 - **Variants**: `APP_VARIANT` = `development` (local scripts, `.dev` bundle ID, "<Name> Dev"), `preview`,
   `production` (default when unset). Switching variants for local native builds needs `npm run native:clean`.
 - **Base updates**: apps share the base's git history (`base` remote) and pull its improvements with

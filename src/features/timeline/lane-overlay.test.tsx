@@ -29,6 +29,7 @@ function renderOverlay(overrides: Partial<Parameters<typeof LaneOverlay>[0]> = {
       footer={44}
       laneScroll={laneScroll}
       draft={null}
+      armedTrackId="t0"
       editDisabled={false}
       addTrackDisabled={false}
       {...props}
@@ -49,6 +50,13 @@ describe('LaneOverlay', () => {
     await user.press(screen.getByRole('button', { name: 'Track 2 settings' }));
 
     expect(onEdit).toHaveBeenCalledWith('t1');
+  });
+
+  it('says which track is armed in its name button', async () => {
+    await renderOverlay().view;
+
+    expect(screen.getByRole('button', { name: 'Track 1 settings, armed' })).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Track 2 settings' })).toBeOnTheScreen();
   });
 
   it('adds a track from the row after the last lane', async () => {
@@ -75,7 +83,7 @@ describe('LaneOverlay', () => {
   it('locks tracks while recording', async () => {
     await renderOverlay({ editDisabled: true, addTrackDisabled: true }).view;
 
-    expect(screen.getByRole('button', { name: 'Track 1 settings' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Track 1 settings, armed' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'New track' })).toBeDisabled();
   });
 });

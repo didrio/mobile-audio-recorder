@@ -147,10 +147,10 @@ export function waveformLevel(
 
 /** Height of one track lane: fixed, so 5–6 lanes fit a phone and more scroll. */
 export const LANE_HEIGHT = 88;
-/** Width of the pinned track-controls column left of the lanes: the arm buttons. */
-export const CONTROLS_WIDTH = 44;
+/** Width of the pinned track column left of the lanes: one grab handle per track (T23). */
+export const CONTROLS_WIDTH = 30;
 /** Width of that column expanded into the mixer (arm · mute · solo · volume). */
-export const MIXER_WIDTH = 236;
+export const MIXER_WIDTH = 222;
 /** Height of the "+ New Track" row after the last lane. */
 export const NEW_TRACK_ROW_HEIGHT = 44;
 

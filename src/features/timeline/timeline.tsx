@@ -467,6 +467,7 @@ export function Timeline({
             accessibilityLabel="Mixer"
             accessibilityHint="Shows mute, solo and volume for each track"
             accessibilityState={{ expanded: mixerOpen }}
+            hitSlop={{ top: 6, bottom: 6 }}
             onPress={() => setMixerOpen((open) => !open)}
             style={({ pressed }) => [
               styles.corner,
@@ -521,6 +522,7 @@ export function Timeline({
             footer={NEW_TRACK_ROW_HEIGHT}
             laneScroll={laneScroll}
             draft={draft}
+            armedTrackId={armedTrackId}
             editDisabled={isRecording}
             addTrackDisabled={addTrackDisabled}
             onEdit={onEditTrack}

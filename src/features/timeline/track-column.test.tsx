@@ -23,7 +23,7 @@ function renderColumn(overrides: Partial<Parameters<typeof TrackColumn>[0]> = {}
         tracks={tracks}
         top={32}
         width={236}
-        armWidth={44}
+        armWidth={30}
         expanded
         lane={88}
         laneScroll={laneScroll}
@@ -40,11 +40,10 @@ function renderColumn(overrides: Partial<Parameters<typeof TrackColumn>[0]> = {}
 }
 
 describe('TrackColumn', () => {
-  it('shows only the arm buttons while collapsed', async () => {
+  it('shows no buttons while collapsed: each cell is a grab handle only', async () => {
     await renderColumn({ expanded: false }).view;
 
-    expect(screen.getByRole('button', { name: 'Arm Vocals' })).toBeSelected();
-    expect(screen.getByRole('button', { name: 'Arm Track 1' })).not.toBeSelected();
+    expect(screen.queryByRole('button')).not.toBeOnTheScreen();
     expect(screen.queryByRole('button', { name: 'Mute Vocals' })).not.toBeOnTheScreen();
     expect(screen.queryByRole('adjustable', { name: 'Vocals volume' })).not.toBeOnTheScreen();
   });
@@ -81,6 +80,13 @@ describe('TrackColumn', () => {
     expect(screen.getByRole('adjustable', { name: 'Track 1 volume' })).toHaveAccessibilityValue({
       text: '−6.0 dB',
     });
+  });
+
+  it('marks the armed track in the mixer', async () => {
+    await renderColumn().view;
+
+    expect(screen.getByRole('button', { name: 'Arm Vocals' })).toBeSelected();
+    expect(screen.getByRole('button', { name: 'Arm Track 1' })).not.toBeSelected();
   });
 
   it('locks arming while recording', async () => {

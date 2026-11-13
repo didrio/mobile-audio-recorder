@@ -35,6 +35,7 @@ export function LaneOverlay({
   footer,
   laneScroll,
   draft,
+  armedTrackId,
   editDisabled,
   addTrackDisabled,
   onEdit,
@@ -54,6 +55,8 @@ export function LaneOverlay({
   footer: number;
   laneScroll: SharedValue<number>;
   draft: FaderDraft | null;
+  /** The track Record records onto: its name gets a red outline and dot. */
+  armedTrackId: string | null;
   /** While recording: tracks can't be edited. */
   editDisabled: boolean;
   addTrackDisabled: boolean;
@@ -87,11 +90,12 @@ export function LaneOverlay({
       <Animated.View pointerEvents="box-none" style={[styles.fill, scrolled]}>
         {tracks.map((track, index) => {
           const level = draft?.trackId === track.id ? formatDb(draft.gain) : null;
+          const armed = track.id === armedTrackId;
           return (
             <Pressable
               key={track.id}
               accessibilityRole="button"
-              accessibilityLabel={`${track.name} settings`}
+              accessibilityLabel={`${track.name} settings${armed ? ', armed' : ''}`}
               accessibilityState={{ disabled: editDisabled }}
               disabled={editDisabled}
               hitSlop={6}
@@ -99,8 +103,10 @@ export function LaneOverlay({
               style={({ pressed }) => [
                 styles.name,
                 { top: index * lane + inset, left: left + inset, maxWidth: lane * 3 },
+                armed && styles.nameArmed,
                 pressed && styles.pressed,
               ]}>
+              {armed ? <View style={styles.armDot} /> : null}
               <Text variant="caption" color="textSecondary" numberOfLines={1}>
                 {track.name}
               </Text>
@@ -219,6 +225,8 @@ const useStyles = makeStyles((t) => ({
     borderRadius: t.radius.full,
     backgroundColor: t.colors.trackHeader,
   },
+  nameArmed: { borderWidth: 1.5, borderColor: t.colors.primary },
+  armDot: { width: 8, height: 8, borderRadius: t.radius.full, backgroundColor: t.colors.primary },
   newTrack: {
     position: 'absolute',
     left: 0,

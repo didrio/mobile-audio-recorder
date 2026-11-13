@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T28 — Track column v2 · Sonnet · medium effort · plan mode off, then T15 (T12 can be run any time the
+**Next:** T15 — Arming & input meter · Opus · high effort · plan mode on, then T23 (T12 can be run any time the
 Android build is done)
 
 ## In progress
@@ -87,37 +87,9 @@ dependency changes). See the `wrap` skill.
   - OTA note: an iOS-only preview update (`01a1d6bf`, T14) is already published; Android still needs an update
     published after its build finished (`npm run update:preview` covers both).
 
-### T28 — Track column v2: arm in the mixer, grab handle, armed name
-
-- **Status:** ready
-- **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** The lanes get more room and arming is less in-your-face (user, 2026-11-13). The arm button moves
-  into the mixer, the collapsed column becomes a narrow grab handle per track (T23 builds the reorder on it),
-  and the armed track shows on its name label instead.
-- **Done when:**
-  - [ ] Mixer open: each row is arm · Mute · Solo · volume, as today (arm stays leftmost). Mixer closed: no arm
-        buttons at all.
-  - [ ] Collapsed column narrows from 44 pt to about 30 pt (`CONTROLS_WIDTH` in `timeline-math.ts`; the user
-        suggested 60–70 % of today's width; go wider if it's hard to hit, the lanes are 88 pt tall so the
-        target stays big). The mixer toggle in the corner above it shrinks to the same width; its icon still
-        fits (`TOGGLE_SIZE` is 30). Keep its hit area at least 44 pt tall.
-  - [ ] Each collapsed cell is the track's grab handle and holds nothing else except a faint grip glyph
-        (`line.3.horizontal` / `drag_indicator`, `textSecondary`, small) so it reads as "hold to move" instead of
-        a blank gutter. Drop the glyph if the screenshot looks cleaner without it. No gesture yet (T23).
-  - [ ] Armed track shown on its floating name label (`lane-overlay.tsx`): a red outline on the pill plus a small
-        red dot before the name (the record symbol), so it isn't color-only. Accessibility: the name button's
-        label includes "armed". Text color stays as is for legibility. Visible with the mixer open or closed.
-  - [ ] Tests updated: `track-column.test.tsx`, `lane-overlay.test.tsx`, and `project-screen.test.tsx` (arming
-        now needs the mixer open first). `.maestro/overdub.yaml` taps the arm button: open the mixer first there.
-        Simulator screenshots: mixer closed/open, light/dark, 1 and 8 tracks.
-- **Context:** Column: `src/features/timeline/track-column.tsx` (`armWidth` = the collapsed width, arm button
-  labelled `Arm <name>`); mixer width math and the corner toggle (`accessibilityLabel="Mixer"`) in `timeline.tsx`.
-  The editor design's **Layout** bullet above is updated for this. Do this before T15 and T23, which both
-  touch the column.
-
 ### T15 — Arming & input meter
 
-- **Status:** ready (after T28, which moves the arm button into the mixer)
+- **Status:** ready
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Arming works like a DAW: toggle it, and the meter shows the live mic input while a track is armed.
 - **Done when:**
@@ -144,7 +116,7 @@ dependency changes). See the `wrap` skill.
 
 ### T23 — Reorder tracks
 
-- **Status:** ready (after T28, which adds the grab handles, and T15, which also changes `track-column.tsx`)
+- **Status:** ready (after T15, which also changes `track-column.tsx`; T28 added the grab handles)
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Move tracks up and down without adding any buttons: long-press a track's grab handle (its cell in
   the collapsed column, T28), drag it, let go.
@@ -567,6 +539,8 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 
 ## Done
+
+- T28 — Track column v2 — 2026-11-13 — collapsed column 44→30 pt, one faint grip glyph per track (no gesture; T23 builds on it), arm button only in the open mixer, armed track = red outline + dot on its name pill (label "<name> settings, armed"), mixer toggle hit area 44 pt; `overdub.yaml` waits on the armed label; checked on the iOS simulator (dark, 1 track, closed/open); light mode, 8 tracks and Maestro not run
 
 - T22 — Transport & playhead polish — 2026-11-13 — Back to start stops playback; no stop squares (Play ↔ Pause,
   Record shows Pause while recording); playhead ends at the last lane; `stopPlaying(at?)` avoids a stale-status

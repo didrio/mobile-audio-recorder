@@ -2,23 +2,23 @@ import * as Haptics from 'expo-haptics';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 
-import { Text } from '@/components/ui';
+import { Icon, Text } from '@/components/ui';
 import type { Track } from '@/features/projects/projects-repo';
 import { makeStyles } from '@/theme';
 
 import { VolumeSlider } from './volume-slider';
 
-const ARM_SIZE = 26;
+const ARM_SIZE = 24;
 const TOGGLE_SIZE = 30;
 
 /** A volume slider being dragged: its live gain, shown before it's saved. */
 export type FaderDraft = { trackId: string; gain: number };
 
 /**
- * The pinned track-controls column left of the lanes, one cell per lane. Collapsed it's just the arm
- * buttons (the armed track is the one Record records onto). Expanded (the mixer) each cell adds Mute,
- * Solo and a volume slider to the right of the arm button, which stays where it was. It follows the
- * lanes' vertical scroll (`laneScroll`) but never scrolls with time.
+ * The pinned track-controls column left of the lanes, one cell per lane. Collapsed, each cell is just a
+ * track's grab handle (a faint grip glyph; T23 adds the long-press reorder). Expanded (the mixer) each
+ * cell is the arm button (the armed track is the one Record records onto), Mute, Solo and a volume
+ * slider. It follows the lanes' vertical scroll (`laneScroll`) but never scrolls with time.
  */
 export function TrackColumn({
   tracks,
@@ -42,7 +42,7 @@ export function TrackColumn({
   /** Where the lanes start (below the ruler). */
   top: number;
   width: number;
-  /** Width of the arm button's area (the collapsed column). */
+  /** Width of the collapsed column: the grab handle, and the arm button's area in the mixer. */
   armWidth: number;
   /** Show the mixer controls. */
   expanded: boolean;
@@ -73,23 +73,33 @@ export function TrackColumn({
             <View
               key={track.id}
               style={[styles.cell, { height: lane }, index % 2 === 1 && styles.cellAlt]}>
-              <View style={[styles.armArea, { width: armWidth }]}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Arm ${track.name}`}
-                  accessibilityState={{ selected: armed, disabled: armDisabled }}
-                  disabled={armDisabled}
-                  hitSlop={8}
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    onArm(track.id);
-                  }}
-                  style={[styles.arm, armed && styles.armed, armDisabled && styles.disabled]}>
-                  {armed ? <View style={styles.armDot} /> : null}
-                </Pressable>
-              </View>
+              {expanded ? null : (
+                <View style={[styles.armArea, { width: armWidth }]}>
+                  <Icon
+                    name={{ ios: 'line.3.horizontal', android: 'drag_indicator' }}
+                    size={14}
+                    color="textSecondary"
+                    style={styles.grip}
+                  />
+                </View>
+              )}
               {expanded ? (
                 <View style={styles.mixer}>
+                  <View style={[styles.armArea, { width: armWidth }]}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Arm ${track.name}`}
+                      accessibilityState={{ selected: armed, disabled: armDisabled }}
+                      disabled={armDisabled}
+                      hitSlop={8}
+                      onPress={() => {
+                        void Haptics.selectionAsync();
+                        onArm(track.id);
+                      }}
+                      style={[styles.arm, armed && styles.armed, armDisabled && styles.disabled]}>
+                      {armed ? <View style={styles.armDot} /> : null}
+                    </Pressable>
+                  </View>
                   <MixerToggle
                     label={`Mute ${track.name}`}
                     letter="M"
@@ -190,6 +200,7 @@ const useStyles = makeStyles((t) => ({
     justifyContent: 'center',
   },
   armed: { borderColor: t.colors.primary },
+  grip: { opacity: 0.6 },
   armDot: {
     width: ARM_SIZE / 2,
     height: ARM_SIZE / 2,

@@ -4,8 +4,8 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T15 — Arming & input meter · Opus · high effort · plan mode on (T12 can be run any time the Android
-build is done)
+**Next:** T22 — Transport & playhead polish · Sonnet · low effort · plan mode off, then T15 (T12 can be run any
+time the Android build is done)
 
 ## In progress
 
@@ -85,14 +85,33 @@ dependency changes). See the `wrap` skill.
   - OTA note: an iOS-only preview update (`01a1d6bf`, T14) is already published; Android still needs an update
     published after its build finished (`npm run update:preview` covers both).
 
+### T22 — Transport & playhead polish
+
+- **Status:** ready
+- **Session:** Sonnet · low effort · plan mode off
+- **Goal:** Small transport fixes from the user (2026-11-13): no square stop buttons, Back to start stops
+  playback, and the playhead stays inside the lanes.
+- **Done when:**
+  - [ ] Back to start stops playback (stop, then `seek(0)`). It stays disabled while recording.
+  - [ ] No square stop icon anywhere. While playing, Play becomes **Pause** (`pause.fill` / `pause`); it stops
+        and leaves the playhead where it is, as Stop does today. While recording, the Record button shows Pause
+        (red) and stops the take. Accessibility labels: "Pause" and "Stop recording".
+  - [ ] The playhead line ends at the bottom of the last lane, so it never shows over the "+ New Track" row or
+        the empty space below it. The ruler handle stays as it is.
+  - [ ] Tests updated (`project-screen.test.tsx` queries by label), plus a simulator screenshot.
+- **Context:** The transport buttons are `backToStart` / `playButton` / `recordButton` in `project-screen.tsx`.
+  The playhead is drawn at the end of the picture in `timeline.tsx` with `drawLine(x, 0, x, viewHeight)`. Clamp
+  the end to `min(viewHeight, RULER_SIZE + trackCount * lane - laneScroll)`.
+
 ### T15 — Arming & input meter
 
 - **Status:** ready
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Arming works like a DAW: toggle it, and the meter shows the live mic input while a track is armed.
 - **Done when:**
-  - [ ] Tapping the arm button toggles it. Arming a track disarms the previous one (one armed track at a time).
-        Nothing armed → Record is grayed out.
+  - [ ] Tapping the arm button toggles it: tapping the armed track unarms it (the user asked for this again on
+        2026-11-13). Arming a track disarms the previous one (one armed track at a time). Nothing armed → Record
+        is grayed out.
   - [ ] The armed track is saved per idea (`projects.armed_track_id`, nullable, in the next migration of
         `src/lib/db.ts`). New ideas (quick capture and T10's New Idea) arm Track 1. Deleting the armed track
         clears it.
@@ -110,6 +129,114 @@ dependency changes). See the `wrap` skill.
   `node_modules/react-native-audio-api` (types/docs) how to get input samples
   without recording to a file, and whether opening the input changes the audio session for playback. Multi-arm
   with per-track inputs is in Backlog.
+
+### T23 — Reorder tracks
+
+- **Status:** ready (after T15, which also changes `track-column.tsx`)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Move tracks up and down without adding any buttons: long-press a track's empty column space,
+  drag it, let go.
+- **Done when:**
+  - [ ] Long-pressing empty space in a track's column cell (above or below the arm button, or any empty spot in
+        the expanded mixer row) picks the track up. A haptic plays, and the cell and its lane lift slightly
+        (scale about 1.03, shadow, a bit of transparency). This is the standard "lift and drag" pattern; a wiggle
+        means edit mode on iOS, so we don't use one. The track follows the finger vertically, the other tracks
+        slide aside with animation, and releasing drops it. There's no cancel button.
+  - [ ] The column auto-scrolls when the track is dragged near the top or bottom edge (with many tracks).
+  - [ ] Lanes may get taller if the extra grab space needs it (88 pt now; up to about 100 pt is fine with the
+        user). Decide in the session after a screenshot.
+  - [ ] A reorder is one undoable T13 command (`moveTrackEdit` in `edit-commands.ts`) that rewrites
+        `tracks.position`. No migration: `position` already exists in `src/lib/db.ts`.
+  - [ ] Long press doesn't fire on the arm, mute or solo buttons or the volume slider. A plain tap on empty
+        space does nothing new.
+  - [ ] Unit tests for the position math. The feel is checked on a device.
+- **Context:** The column is `src/features/timeline/track-column.tsx`. Lanes are drawn in `timeline.tsx` (Skia)
+  in track order. The floating track names are in `lane-overlay.tsx`. Live drag offsets go through shared values,
+  committed once at the end of the gesture (the T13 rule). See the "Shared values moved on the UI thread"
+  gotcha in AGENTS.md.
+
+### T25 — Pre-roll (punch in at the playhead)
+
+- **Status:** ready (after T15; T17 builds its count-in on it)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Record into an exact spot with a run-up: playback starts a little before the playhead, including
+  the armed track's own audio, and recording kicks in exactly at the playhead. The user asked for this on
+  2026-11-13 ("so you can anticipate what's coming").
+- **Done when:**
+  - [ ] A pre-roll toggle in the status strip (SF `arrow.right.to.line`, Material `start`), saved per idea
+        (migration). Its length lives in Settings → Recording: 1 s / 2 s / 4 s while the grid is off, 1 or 2 bars
+        while the grid is on (T9). Defaults: 2 s and 1 bar.
+  - [ ] Pre-roll on + Record: playback of **every** track, the armed one included, starts at playhead − pre-roll
+        (clamped at 0, padded with silence before 0:00). At the playhead the armed track's existing audio goes
+        silent and the new take starts there, replacing what's under it as recording does now (`clearRange`).
+        After Stop the playhead returns to the punch point, as today.
+  - [ ] Punch accuracy: the take's first sample is at the playhead after latency compensation. Preferred: start
+        the recorder at the start of the pre-roll and place the clip with `offset` = pre-roll length. That avoids
+        recorder start-up delay at the punch point, and T5's trim can later extend back into the run-up. Check
+        that this is right in `take-alignment.ts` and test it with a clap on a device.
+  - [ ] The status strip clock and the playhead show the run-up (moving toward the punch point), plus a
+        visible marker at the punch point while pre-rolling. Stop during the run-up cancels without saving a
+        take.
+  - [ ] Pre-roll off → recording behaves exactly as today.
+  - [ ] Unit tests for the timing math (run-up start, clamping at 0, clip offset).
+- **Context:** Recording start, playback during overdub and latency compensation are in
+  `src/features/project/use-transport.ts` (`record`) and `src/features/audio/take-alignment.ts`; scheduling is
+  in `audio-engine.ts` (`play()`). The armed track has to play during the run-up and be cut at the punch point:
+  schedule its clips to end there, or ramp its track gain to 0 (`setTrackGain`). T17's count-in becomes this
+  pre-roll plus clicks. The punch-out end point comes with loop recording (T27).
+
+### T26 — Loop region
+
+- **Status:** ready (after T25; the "Loop" actions on clips and sections come with T5 / T18, whichever exists)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Record a riff and hear it loop right away: one loop region, set in a tap, with gapless looped
+  playback. Agreed with the user (2026-11-13): a core recording feature, kept simple. No per-clip loop toggles
+  or Ableton-style clip repeating (the region plus T5's Duplicate cover that).
+- **Done when:**
+  - [ ] A Loop toggle in the transport (SF `repeat`, Material `repeat`), saved per idea with the region
+        (migration: `projects.loop_on`, `loop_start`, `loop_end`, nullable).
+  - [ ] The region shows as a tinted band on the ruler with a handle at each end. Dragging a handle resizes the
+        region (snaps to bars with the grid on, T9). Everything else on the ruler still scrubs the playhead, so
+        the handles are hit-tested first. While Loop is on, the lanes inside the region get a light tint.
+  - [ ] Setting it needs no extra buttons. Turning Loop on with no region uses the selected clip or section if
+        there is one, otherwise the last recorded clip, otherwise 8 s (or 2 bars) from the playhead. "Loop" in
+        the clip action bar (T5) and the section action bar (T18) sets the region and turns Loop on.
+  - [ ] Playback with Loop on starts at the playhead if it's inside the region, otherwise at the region start.
+        At the region end it wraps back without a gap or click (iterations scheduled ahead on the context
+        clock). The playhead and clock wrap too.
+  - [ ] Changing the region isn't an undo step (like the playhead). Unit tests cover the wrap/scheduling math.
+- **Context:** `play()` and `PlayableClip` are in `audio-engine.ts`. The library's buffer-source
+  `loop`/`loopStart`/`loopEnd` only loops one buffer, so multitrack looping means rescheduling every clip each
+  iteration. The playhead anchor math is in `use-transport.ts` (`playbackAnchor`), and the ruler gesture is in
+  `timeline.tsx`. The transport and status strip are getting crowded (pre-roll, notes, keyboard, metronome):
+  check with a screenshot in both orientations.
+
+### T27 — Loop recording & takes
+
+- **Status:** ready (after T25 and T26)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Sing over a loop again and again and keep the best pass. It also gives the punch-in/out with an
+  end point the user asked for. Takes are a badge plus a picker, not take lanes.
+- **Done when:**
+  - [ ] Record with Loop on: the pre-roll runs first (T25), then recording covers the region pass after pass.
+        It is one continuous recorder file (no gaps at the wrap), and each complete pass is a window into that
+        take (`offset` = pass × length, plus the latency shift). The armed track is silent inside the region
+        while recording.
+  - [ ] On Stop: the clip in the region is the last complete pass, and earlier passes are kept as alternates.
+        An unfinished final pass is dropped. With no complete pass, it behaves like a normal punch-in.
+        Recording one pass and stopping during the next is the punch-in/out.
+  - [ ] The clip shows an "N takes" badge. Tapping it opens a take picker sheet: Take 1…N, each with a
+        listen button (plays the region with that take in place). Tapping one chooses it; takes other than the
+        chosen one can be deleted. Choosing is undoable.
+  - [ ] Data: a `clip_alternates` table (clip_id, take_id, offset, position), a `Change` variant in
+        `edit-changes.ts`, and support in `applyToProject` / `saveChanges`. The open-idea cleanup of unused
+        takes counts alternates as used. Trimming or splitting a clip with alternates drops them; the action says
+        so.
+  - [ ] Unit tests for the pass math (pass windows, latency shift, dropped partial pass). Checked on a device
+        with headphones: passes line up with the loop.
+- **Context:** Recording is in `use-transport.ts` (`record`) and `take-alignment.ts`, overlap/replace in
+  `clip-overlap.ts`, and edit builders in `edit-commands.ts` (`recordTakeEdit`). Clips are already windows onto
+  immutable takes (`db.ts` header), so passes need no new files. Comping is in Backlog.
 
 ### T5 — Clip editing
 
@@ -158,6 +285,27 @@ dependency changes). See the `wrap` skill.
   `src/features/projects/projects-screen.tsx`. T19 adds folders on top of this screen, so keep the row and
   sort code reusable for a folder's contents.
 
+### T24 — Idea notes
+
+- **Status:** ready (independent of the editor tickets)
+- **Session:** Sonnet · medium effort · plan mode off
+- **Goal:** Jot down what you played (unusual chords, tuning, capo, lyric ideas), so you can rebuild the song in
+  a DAW weeks later. The user is a songwriter and this is a real, repeated pain for them.
+- **Done when:**
+  - [ ] A notes button in the status strip (SF `note.text`, Material `notes`) opens a sheet with a multiline
+        text field. A dot on the button shows when the idea has notes. "Notes" is also in the "⋯" menu.
+  - [ ] **Insert time** button: inserts the playhead time as `[1:23]` at the cursor. Outside editing, time stamps
+        are tappable and seek to that time. This gives time-specific notes ("[0:45] chorus: Fmaj7 – Em7 –
+        A7sus4") without needing section labels.
+  - [ ] Migration: `projects.notes` (TEXT, default ''). Saved debounced and on close. Not an undo step (the text
+        field has its own undo).
+  - [ ] T10's Duplicate copies the notes (if T10 is done; otherwise note it there).
+  - [ ] Unit tests for finding and inserting time stamps.
+- **Context:** Decided with the user (2026-11-13): idea-wide notes first, because they work without sections and
+  add almost no UI. Per-section notes are part of T18, and first-class chord progressions are in Backlog. The status
+  strip and menu items are in `project-screen.tsx` and `src/features/project/idea-menu-items.ts`. Time formatting
+  is in `src/features/audio/format-time.ts`. A later Search (T10/T19) could match notes too.
+
 ### T20 — Pitch reference keyboard
 
 - **Status:** ready
@@ -201,17 +349,19 @@ dependency changes). See the `wrap` skill.
 
 ### T17 — Metronome & count-in
 
-- **Status:** ready (after T9)
+- **Status:** ready (after T9 and T25)
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** A metronome that follows the idea's tempo and time signature, with a count-in for recording.
 - **Done when:**
   - [ ] Click generated in code (short buffers scheduled on the context clock — not an instrument), with an
         accented downbeat. 6/8 and 12/8 accent each group of three eighths, the bar's first more strongly.
-  - [ ] Metronome on/off toggle in the status strip (T14), saved per idea. Metronome volume and a "Count-in
-        (1 bar)" toggle in Idea settings (migration).
+  - [ ] Metronome on/off toggle in the status strip (T14), saved per idea. Metronome volume in Idea settings
+        (migration).
   - [ ] Clicks during playback and recording, never recorded into takes (with headphones). The click lines up
         with takes after latency compensation (record a clap on the click on a device and check).
-  - [ ] Count-in plays one bar before recording starts; the take starts at the playhead, not before.
+  - [ ] Count-in is T25's pre-roll with clicks: with the metronome on, the run-up clicks (whole bars, so the
+        punch lands on the beat as counted). No separate count-in toggle. The take starts at the playhead, not
+        before.
   - [ ] T8's mixdown leaves the click out.
 - **Context:** Scheduling and playback helpers live in `audio-engine.ts`. Recording start and latency
   compensation: `take-alignment.ts` and `use-transport.ts`. Turning the metronome on also turns the grid on.
@@ -261,6 +411,9 @@ dependency changes). See the `wrap` skill.
         long-press to pick one up. Sections never overlap (they stop at their neighbors) and snap to bars when
         the grid is on.
   - [ ] Undoable (T13 store). Names truncate when the section is narrow.
+  - [ ] The section action bar also gets **Notes**: an optional free-text note per section (chords, lyric cue),
+        stored in `sections.notes`, with a small icon on the section when one is set. Complements T24's idea
+        notes.
   - [ ] Palette colors are tokens in `src/theme/tokens.ts` (light and dark), readable label text on each.
 - **Context:** Reuse T5's selection and drag code. Draw the rail in the same per-frame Skia picture as the
   ruler. Looping a section is in Backlog.
@@ -372,14 +525,25 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - Quantize clips to the tempo grid (after T9).
 - Pitch correction for vocal takes (the library's `createBufferSource({ pitchCorrection })` is for playback-rate
   changes, not tuning; would need a native DSP library).
-- Loop a region or a section label (after T18); punch-in recording over a range.
+- Comping: build one take from parts of several loop passes (after T27).
 - Input monitoring through headphones; input gain; input device picker (`AudioManager.getDevicesInfo`). With a
   multi-input audio interface: arm several tracks at once, each recording its own input (deferred from T15).
 - Recently Deleted: soft-delete ideas and folders, keep them 30 days, restore from a "Recently Deleted" folder
   (after T19).
 - Quick listen: play an idea from the Ideas list without opening it, with a scrubber under the row (reuse
   `play()` from `audio-engine.ts`; only one idea plays at a time). Moved from T10.
+- First-class chord progressions per section (chord picker, chord symbols drawn on the section rail). Revisit
+  once T24's idea notes and T18's section notes have been used for a while.
 - Tuner: show the pitch the mic hears (note + cents), next to T20's keyboard.
+- Pitched 2026-11-13, not agreed yet (recording-focused tools, not DAW features):
+  - Flag button while playing or recording: drops a `[1:23] ★` time stamp into the idea's notes (T24) to mark
+    "that part was good".
+  - Latency auto-calibration in Settings → Recording: plays clicks from the speaker, hears them with the mic,
+    and sets the offset, instead of tuning it by ear.
+  - Slow listening (0.5× / 0.75×, pitch kept, via `createBufferSource({ pitchCorrection })`) for working out
+    what you played or learning a part.
+  - Quick capture from the lock screen, Control Center or a home-screen widget: start recording a new idea in
+    one tap (native work, needs a dev build).
 - Simple effects per track (reverb, EQ) via the audio graph.
 - Backup / sync (iCloud Drive, Google Drive) — the data model uses UUIDs and relative paths to make this possible.
 - iOS Live Activity while recording (lock screen timer + stop).
@@ -396,6 +560,10 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 
 ## Done
+
+- Backlog planning 2 — 2026-11-13 — new T22 (transport & playhead polish), T23 (reorder tracks), T24 (idea
+  notes), T25 (pre-roll), T26 (loop region), T27 (loop recording & takes); T17's count-in now builds on T25,
+  T18 gets per-section notes; chord progressions, comping and four pitched ideas added to Backlog
 
 - T14 — Editor layout v2 — 2026-11-13 — fixed 88 pt lanes with "N more" chips, arm-only column that expands
   into a mixer (mute, solo, relative-drag volume; mute/solo pulled in from T6; per-track `GainNode`s applied

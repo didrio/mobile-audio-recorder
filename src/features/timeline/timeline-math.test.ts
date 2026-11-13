@@ -26,7 +26,7 @@ describe('zoom', () => {
     expect(clampZoom(10_000, 400, 30)).toBe(MAX_ZOOM);
   });
 
-  it('opens at the same scale in both orientations, or the whole idea if it fits', () => {
+  it('opens at the same scale on any width, or the whole idea if it fits', () => {
     expect(defaultZoom(400, 120)).toBe(DEFAULT_ZOOM);
     expect(defaultZoom(850, 120)).toBe(DEFAULT_ZOOM);
     expect(defaultZoom(600, 5)).toBe(40); // 15 s with the tail fills 600 pt

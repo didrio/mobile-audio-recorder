@@ -96,8 +96,8 @@ type ClipShape = {
 };
 
 /**
- * The project timeline, drawn with Skia on the UI thread: time runs left to right in both
- * orientations, tracks are rows. Ruler on top, lanes with clips and waveforms, the playhead on top.
+ * The project timeline, drawn with Skia on the UI thread: time runs left to right, tracks are
+ * rows. Ruler on top, lanes with clips and waveforms, the playhead on top.
  *
  * Lanes have a fixed height (`LANE_HEIGHT`) and scroll vertically when they don't fit. A pinned
  * column on the left (`TrackColumn`) follows that scroll but not time: arm buttons, expanded into a
@@ -149,7 +149,7 @@ export function Timeline({
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [draft, setDraft] = useState<FaderDraft | null>(null);
   const [mixerOpen, setMixerOpen] = useState(false);
-  // Never wider than half the view (a phone in portrait keeps some timeline next to the mixer).
+  // Never wider than half the view (so some timeline stays visible next to the mixer).
   const columnWidth = mixerOpen
     ? Math.max(CONTROLS_WIDTH, Math.min(MIXER_WIDTH, size.width / 2 + CONTROLS_WIDTH))
     : CONTROLS_WIDTH;

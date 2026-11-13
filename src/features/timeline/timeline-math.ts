@@ -8,8 +8,8 @@
 export const MAX_ZOOM = 400;
 /** Empty time after the last clip, so there's room to scroll past the end. */
 export const TAIL_SECONDS = 10;
-/** Zoom an idea opens at (points per second), the same in both orientations: a phone in portrait
- * shows about 14 s, in landscape about 30 s (an idea that fits entirely is shown whole). */
+/** Zoom an idea opens at (points per second), the same on every screen width: a phone shows about
+ * 14 s (an idea that fits entirely is shown whole). */
 export const DEFAULT_ZOOM = 28;
 /** Quietest peak the waveforms are scaled up to fill the lane: quieter projects stay small. */
 const MIN_SCALED_PEAK = 0.05;
@@ -145,7 +145,7 @@ export function waveformLevel(
   return level;
 }
 
-/** Height of one track lane: fixed, so 5–6 lanes fit a phone in portrait and more scroll. */
+/** Height of one track lane: fixed, so 5–6 lanes fit a phone and more scroll. */
 export const LANE_HEIGHT = 88;
 /** Width of the pinned track-controls column left of the lanes: the arm buttons. */
 export const CONTROLS_WIDTH = 44;

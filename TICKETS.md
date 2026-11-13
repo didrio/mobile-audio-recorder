@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T22 — Transport & playhead polish · Sonnet · low effort · plan mode off, then T15 (T12 can be run any
+**Next:** T22 — Transport & playhead polish · Sonnet · low effort · plan mode off, then T28, then T15 (T12 can be run any
 time the Android build is done)
 
 ## In progress
@@ -14,7 +14,8 @@ _None._
 ## Up next
 
 Product in one line: a quick multitrack sketchpad for musicians (2–3 min song ideas), with a simple horizontal
-timeline (time left→right, tracks are rows) that works well in both portrait and landscape.
+timeline (time left→right, tracks are rows). Portrait only (`orientation` in `app.json`): landscape isn't a
+good experience for this app and isn't designed or tested.
 Not a DAW: no software instruments (T20's pitch-reference keyboard is a tool, never recorded or on the
 timeline). Local only. Architecture and data model: `docs/decisions.md` (Audio engine,
 Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/features/audio/audio-engine.ts`.
@@ -30,9 +31,10 @@ dependency changes). See the `wrap` skill.
   Dragging an unselected item scrolls the timeline, so nothing moves by accident. Tapping a clip never moves
   the playhead. Tapping empty lane space or the ruler seeks and deselects. Tapping a section label also jumps
   the playhead to its start.
-- **Layout** (built in T14): fixed 88 pt lanes. A pinned column on the left holds only the arm buttons; the
-  sliders button in the corner above it expands it into a mixer (arm · Mute · Solo · horizontal volume),
-  pushing the timeline right. Mute/solo also show as M/S badges on the floating track names, and silent
+- **Layout** (built in T14, column reworked in T28): fixed 88 pt lanes. A narrow pinned column on the left
+  holds one grab handle per track (long-press to reorder, T23); the sliders button in the corner above it
+  expands it into a mixer (arm · Mute · Solo · horizontal volume), pushing the timeline right. Arm buttons
+  appear only in the mixer; the armed track shows as a red outline and dot on its name label. Mute/solo also show as M/S badges on the floating track names, and silent
   tracks' clips are drawn faded. Tapping a track name opens its sheet (Rename, Delete; no Duplicate). The
   section-label rail sits above the ruler. Thin status strip (time · metronome toggle · meter). Compact
   transport. "+ New Track" is a row after the last lane, not a header button.
@@ -103,9 +105,37 @@ dependency changes). See the `wrap` skill.
   The playhead is drawn at the end of the picture in `timeline.tsx` with `drawLine(x, 0, x, viewHeight)`. Clamp
   the end to `min(viewHeight, RULER_SIZE + trackCount * lane - laneScroll)`.
 
-### T15 — Arming & input meter
+### T28 — Track column v2: arm in the mixer, grab handle, armed name
 
 - **Status:** ready
+- **Session:** Sonnet · medium effort · plan mode off
+- **Goal:** The lanes get more room and arming is less in-your-face (user, 2026-11-13). The arm button moves
+  into the mixer, the collapsed column becomes a narrow grab handle per track (T23 builds the reorder on it),
+  and the armed track shows on its name label instead.
+- **Done when:**
+  - [ ] Mixer open: each row is arm · Mute · Solo · volume, as today (arm stays leftmost). Mixer closed: no arm
+        buttons at all.
+  - [ ] Collapsed column narrows from 44 pt to about 30 pt (`CONTROLS_WIDTH` in `timeline-math.ts`; the user
+        suggested 60–70 % of today's width; go wider if it's hard to hit, the lanes are 88 pt tall so the
+        target stays big). The mixer toggle in the corner above it shrinks to the same width; its icon still
+        fits (`TOGGLE_SIZE` is 30). Keep its hit area at least 44 pt tall.
+  - [ ] Each collapsed cell is the track's grab handle and holds nothing else except a faint grip glyph
+        (`line.3.horizontal` / `drag_indicator`, `textSecondary`, small) so it reads as "hold to move" instead of
+        a blank gutter. Drop the glyph if the screenshot looks cleaner without it. No gesture yet (T23).
+  - [ ] Armed track shown on its floating name label (`lane-overlay.tsx`): a red outline on the pill plus a small
+        red dot before the name (the record symbol), so it isn't color-only. Accessibility: the name button's
+        label includes "armed". Text color stays as is for legibility. Visible with the mixer open or closed.
+  - [ ] Tests updated: `track-column.test.tsx`, `lane-overlay.test.tsx`, and `project-screen.test.tsx` (arming
+        now needs the mixer open first). `.maestro/overdub.yaml` taps the arm button: open the mixer first there.
+        Simulator screenshots: mixer closed/open, light/dark, 1 and 8 tracks.
+- **Context:** Column: `src/features/timeline/track-column.tsx` (`armWidth` = the collapsed width, arm button
+  labelled `Arm <name>`); mixer width math and the corner toggle (`accessibilityLabel="Mixer"`) in `timeline.tsx`.
+  The editor design's **Layout** bullet above is updated for this. Do this before T15 and T23, which both
+  touch the column.
+
+### T15 — Arming & input meter
+
+- **Status:** ready (after T28, which moves the arm button into the mixer)
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Arming works like a DAW: toggle it, and the meter shows the live mic input while a track is armed.
 - **Done when:**
@@ -121,8 +151,8 @@ dependency changes). See the `wrap` skill.
   - [ ] Checked on a real iPhone: the orange mic indicator only shows while armed. Check Bluetooth headphones
         too: many drop to low-quality "call" audio while the mic is open. If that's bad, note it and ticket a
         fallback (e.g. meter only while recording when Bluetooth output is active).
-- **Context:** The arm buttons are in the controls column since T14 (`src/features/timeline/track-column.tsx`,
-  always visible, mixer open or not). The armed track lives in the editor store since T13 (`armedTrackId`, `armTrack`,
+- **Context:** The arm buttons are in the mixer rows since T28 (`src/features/timeline/track-column.tsx`, shown
+  only with the mixer open); the armed track is marked on its name label (`lane-overlay.tsx`). The armed track lives in the editor store since T13 (`armedTrackId`, `armTrack`,
   `selectArmedTrack` with its fall back to the first track, in `src/features/project/editor-store.ts`); persist it
   there (write on `armTrack`, read in `openIdea`). Arming isn't an undo step. Today the meter is fed by
   `setLevel(peakLevel(samples))` in `use-transport.ts` only while recording. First check in
@@ -132,23 +162,20 @@ dependency changes). See the `wrap` skill.
 
 ### T23 — Reorder tracks
 
-- **Status:** ready (after T15, which also changes `track-column.tsx`)
+- **Status:** ready (after T28, which adds the grab handles, and T15, which also changes `track-column.tsx`)
 - **Session:** Opus · high effort · plan mode on
-- **Goal:** Move tracks up and down without adding any buttons: long-press a track's empty column space,
-  drag it, let go.
+- **Goal:** Move tracks up and down without adding any buttons: long-press a track's grab handle (its cell in
+  the collapsed column, T28), drag it, let go.
 - **Done when:**
-  - [ ] Long-pressing empty space in a track's column cell (above or below the arm button, or any empty spot in
-        the expanded mixer row) picks the track up. A haptic plays, and the cell and its lane lift slightly
+  - [ ] Long-pressing a track's grab handle (mixer closed) picks the track up. With the mixer open there's no
+        handle (the arm button sits there), so reordering needs the mixer closed. A haptic plays, and the cell and its lane lift slightly
         (scale about 1.03, shadow, a bit of transparency). This is the standard "lift and drag" pattern; a wiggle
         means edit mode on iOS, so we don't use one. The track follows the finger vertically, the other tracks
         slide aside with animation, and releasing drops it. There's no cancel button.
   - [ ] The column auto-scrolls when the track is dragged near the top or bottom edge (with many tracks).
-  - [ ] Lanes may get taller if the extra grab space needs it (88 pt now; up to about 100 pt is fine with the
-        user). Decide in the session after a screenshot.
   - [ ] A reorder is one undoable T13 command (`moveTrackEdit` in `edit-commands.ts`) that rewrites
         `tracks.position`. No migration: `position` already exists in `src/lib/db.ts`.
-  - [ ] Long press doesn't fire on the arm, mute or solo buttons or the volume slider. A plain tap on empty
-        space does nothing new.
+  - [ ] A plain tap on a grab handle does nothing.
   - [ ] Unit tests for the position math. The feel is checked on a device.
 - **Context:** The column is `src/features/timeline/track-column.tsx`. Lanes are drawn in `timeline.tsx` (Skia)
   in track order. The floating track names are in `lane-overlay.tsx`. Live drag offsets go through shared values,
@@ -209,7 +236,7 @@ dependency changes). See the `wrap` skill.
   `loop`/`loopStart`/`loopEnd` only loops one buffer, so multitrack looping means rescheduling every clip each
   iteration. The playhead anchor math is in `use-transport.ts` (`playbackAnchor`), and the ruler gesture is in
   `timeline.tsx`. The transport and status strip are getting crowded (pre-roll, notes, keyboard, metronome):
-  check with a screenshot in both orientations.
+  check with a screenshot.
 
 ### T27 — Loop recording & takes
 
@@ -552,14 +579,15 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - Overdub polish: show the live take at its compensated position while recording (it jumps by the latency
   on Stop); count-in arrives with T17; input monitoring is above.
 - Maestro: `tapOn` by `accessibilityLabel` doesn't focus a `TextInput` on iOS (tap by point instead).
-- Timeline remounts on rotation: mixer open/closed, zoom and lane scroll reset (the portrait and landscape
-  layouts render it in different trees in `project-screen.tsx`). Keep one tree or lift that state.
 - Android emulator: the old "Idea 1" clip draws without a waveform (center line only); not investigated in
   T14 (missing take file or peaks?). Check on a real device in T12.
 - Clock text runs ~0.1–0.3 s ahead of the playhead (the playhead includes output latency). Show the clock from
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 
 ## Done
+
+- Backlog planning 3 — 2026-11-13 — new T28 (track column v2: arm button only in the mixer, narrow grab-handle
+  column, armed track marked on its name label); T15 and T23 rewired onto it, T23's grab target is now the handle
 
 - Backlog planning 2 — 2026-11-13 — new T22 (transport & playhead polish), T23 (reorder tracks), T24 (idea
   notes), T25 (pre-roll), T26 (loop region), T27 (loop recording & takes); T17's count-in now builds on T25,
@@ -585,13 +613,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   built and working on the iPhone, Android preview rebuilt arm64-only after an out-of-memory failure (install +
   OTA check moved to T12); fixed on Android: missing Add track button (`Stack.Toolbar.Button` needs an image icon
   there) and a blank band under the header; e2e green on both platforms
-
-- Polish after T3 — 2026-11-13 — timeline horizontal in both orientations (vertical portrait layout removed with
-  `timeline-axis.ts`), waveforms scaled to one shared per-project level (true relative loudness), tap anywhere to
-  seek, drag on the ruler to move the playhead (with a handle), leading space before 0:00, transport is
-  Back to start · Play (largest, centered) · Record, headphones hint removed; recording onto a track now replaces what's
-  under the new take (overlapped clips trimmed/split, `clip-overlap.ts`; takes kept), clips outlined,
-  playback cancels superseded starts and releases its audio graph, the view no longer jumps away from the
-  playhead after Stop (zoom fit runs on the UI thread)
-
-- T3 — Multitrack overdub — 2026-11-13 — add/rename/delete/arm tracks (lane headers + track sheet), record at the playhead over the other tracks with measured start + latency compensation and a Settings offset, live waveform; fixed the playhead clock (JS and UI `performance.now()` differ, `ui-clock.ts`); overdub Maestro flow

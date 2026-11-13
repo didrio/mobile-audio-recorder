@@ -4,7 +4,7 @@
     "slug": "audio-recorder",
     "scheme": "audio-recorder",
     "version": "1.0.0",
-    "orientation": "default",
+    "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
     "platforms": [

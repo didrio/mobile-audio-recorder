@@ -1,8 +1,8 @@
 # Audio Recorder
 
 A quick, unrestrictive recorder for musicians: capture a 2–3 minute song idea with several tracks, then
-trim, split and move clips on a simple timeline that works in portrait (time runs top to bottom) and landscape
-(left to right). A sketchpad, not a DAW: no software instruments. Everything stays on the device.
+trim, split and move clips on a simple horizontal timeline (time runs left to right, tracks are rows). Portrait
+only. A sketchpad, not a DAW: no software instruments. Everything stays on the device.
 
 **Needs a development build** (`npm run ios` / `npm run android`): the audio engine
 (`react-native-audio-api`) isn't part of Expo Go, so `npm run start:go` can't record or play.

@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useEffect, useRef } from 'react';
-import { Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Text, type IconName } from '@/components/ui';
@@ -32,9 +32,8 @@ import { useTransport } from './use-transport';
 
 /**
  * The project editor: a thin status strip (clock, room for T17's metronome toggle, meter), the
- * timeline and the transport. Portrait: strip, timeline, then a compact transport row (Back to start
- * · Play · Record). Landscape: the strip above the timeline and the buttons stacked in a narrow
- * column on the right (Record, Play, Back to start), so the timeline gets the most room. One track is
+ * timeline, then a compact transport row (Back to start · Play · Record). The app is portrait-only
+ * (`orientation` in app.json), so there is no landscape layout. One track is
  * armed: Record records onto it while the others play. Tracks are added from the timeline's
  * "+ New Track" row. The header has Undo, Redo (enabled only while idle) and "⋯" (placeholders until
  * T9/T10/T19). The idea itself lives in the editor store (`editor-store.ts`), open while this screen is.
@@ -47,8 +46,6 @@ export function ProjectScreen() {
   // Material header is opaque and already sits above the content.
   const headerHeight = useHeaderHeight();
   const contentTop = Platform.OS === 'ios' ? headerHeight : 0;
-  const window = useWindowDimensions();
-  const isLandscape = window.width > window.height;
   const params = useLocalSearchParams<{ id: string; record?: string }>();
   const router = useRouter();
   useOpenIdea(params.id);
@@ -194,12 +191,7 @@ export function ProjectScreen() {
   );
 
   return (
-    <View
-      style={[
-        styles.root,
-        isLandscape && styles.rootLandscape,
-        { paddingTop: contentTop, paddingLeft: insets.left, paddingRight: insets.right },
-      ]}>
+    <View style={[styles.root, { paddingTop: contentTop }]}>
       {/* Android's Stack.Toolbar.Button draws only an image-source icon (no SF Symbols, no text) and
           renders nothing without one, so Android gets a plain header button with a Material Symbol. */}
       <Stack.Screen
@@ -256,42 +248,25 @@ export function ProjectScreen() {
         </Stack.Toolbar>
       )}
 
-      {isLandscape ? (
-        <>
-          <View style={[styles.main, { paddingBottom: insets.bottom }]}>
-            {statusStrip}
-            {errorText}
-            <View style={styles.timeline}>{timeline}</View>
-          </View>
-          <View style={[styles.sideColumn, { paddingBottom: insets.bottom }]}>
-            {recordButton}
-            {playButton}
-            {backToStart}
-          </View>
-        </>
-      ) : (
-        <>
-          {statusStrip}
-          {errorText}
-          <View style={styles.timeline}>{timeline}</View>
-          {/* Android's gesture bar reports almost no inset, so it gets more room under the buttons. */}
-          <View
-            style={[
-              styles.transport,
-              {
-                paddingBottom:
-                  insets.bottom + (Platform.OS === 'android' ? theme.spacing.lg : theme.spacing.sm),
-              },
-            ]}>
-            {/* The outer two share a size, so Play stays centered. */}
-            <View style={styles.buttons}>
-              {backToStart}
-              {playButton}
-              {recordButton}
-            </View>
-          </View>
-        </>
-      )}
+      {statusStrip}
+      {errorText}
+      <View style={styles.timeline}>{timeline}</View>
+      {/* Android's gesture bar reports almost no inset, so it gets more room under the buttons. */}
+      <View
+        style={[
+          styles.transport,
+          {
+            paddingBottom:
+              insets.bottom + (Platform.OS === 'android' ? theme.spacing.lg : theme.spacing.sm),
+          },
+        ]}>
+        {/* The outer two share a size, so Play stays centered. */}
+        <View style={styles.buttons}>
+          {backToStart}
+          {playButton}
+          {recordButton}
+        </View>
+      </View>
     </View>
   );
 }
@@ -379,8 +354,6 @@ const SIDE_BUTTON_SIZE = 44;
 
 const useStyles = makeStyles((t) => ({
   root: { flex: 1, backgroundColor: t.colors.background },
-  rootLandscape: { flexDirection: 'row' },
-  main: { flex: 1 },
   strip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -407,14 +380,6 @@ const useStyles = makeStyles((t) => ({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: t.colors.border,
     backgroundColor: t.colors.background,
-  },
-  sideColumn: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: t.spacing.lg,
-    paddingHorizontal: t.spacing.md,
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: t.colors.border,
   },
   buttons: {
     flexDirection: 'row',

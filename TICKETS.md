@@ -4,7 +4,8 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T5 — Clip editing · Opus · high effort · plan mode on (T12 can be run any time the Android build is done)
+**Next:** T13 — Editor store & undo/redo · Opus · high effort · plan mode on (T12 can be run any time the Android
+build is done)
 
 ## In progress
 
@@ -14,11 +15,31 @@ _None._
 
 Product in one line: a quick multitrack sketchpad for musicians (2–3 min song ideas), with a simple horizontal
 timeline (time left→right, tracks are rows) that works well in both portrait and landscape.
-Not a DAW: no software instruments. Local only. Architecture and data model: `docs/decisions.md` (Audio engine,
+Not a DAW: no software instruments (T20's pitch-reference keyboard is a tool, never recorded or on the
+timeline). Local only. Architecture and data model: `docs/decisions.md` (Audio engine,
 Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/features/audio/audio-engine.ts`.
 Testing cadence while iterating: unit tests + `npm run check` + simulator screenshots per ticket, then the user
 tries it; Maestro, the Android emulator and the two-platform export only at milestones (T4, releases, native
 dependency changes). See the `wrap` skill.
+
+**Editor design agreed with the user (2026-11-13), used by T13–T19, T5, T6, T9, T10, T16:**
+
+- **Interaction model** for everything on the timeline (clips in T5, section labels in T18): tap selects
+  (highlight, edge handles, small floating action bar). Drag a _selected_ item to move it, drag its handles to
+  trim or resize. Long-press an unselected item to pick it up and move it in one go (haptic on pickup).
+  Dragging an unselected item scrolls the timeline, so nothing moves by accident. Tapping a clip never moves
+  the playhead. Tapping empty lane space or the ruler seeks and deselects. Tapping a section label also jumps
+  the playhead to its start.
+- **Layout**: fixed lane height (5–6 lanes visible in portrait). A pinned track-controls column on the left
+  (arm + vertical volume fader) stays put while time scrolls. Track names float above each lane. The
+  section-label rail sits above the ruler. Thin status strip (time · metronome toggle · meter). Compact
+  transport. "+ New Track" is a row after the last lane, not a header button.
+- **Header of an idea**: Undo · Redo · "⋯" (Idea settings, Duplicate, Delete, Favorite).
+- **Undo/redo** covers every edit, in memory per open idea (100 steps), cleared when leaving the idea.
+- **Arming**: a toggle, one armed track at a time (multi-arm deferred to Backlog: one phone mic would only
+  record the same audio onto each track). Nothing armed → Record grayed out.
+- **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
+  folder.
 
 ### T12 — Android preview install, first OTA, real-device checks
 
@@ -49,48 +70,289 @@ dependency changes). See the `wrap` skill.
     higher latency) and delete a track from its sheet.
   - Record over the middle of a take on the same track (three clips end to end), then Play several times in a
     row and seek while playing; playback must stay audible.
+  - Whoever does T15 repeats its mic checks on devices (mic indicator, Bluetooth quality while armed).
 
-### T5 — Clip editing
+### T13 — Editor store & undo/redo
 
 - **Status:** ready
 - **Session:** Opus · high effort · plan mode on
-- **Goal:** Edit clips on the timeline: select, move, trim, split, delete, with undo.
+- **Goal:** One editor store for the open idea that every edit goes through, with undo/redo. This is the
+  foundation for T14, T15, T5, T9, T16 and T18.
 - **Done when:**
-  - [ ] Tap selects a clip; drag moves it along time and between tracks; edge handles trim (changing `offset`
-        and `duration`, never the file); split at the playhead creates two clips on the same take; delete.
-  - [ ] Editor state for the open project lives in a zustand store (load from `getProject`, write through to
-        SQLite on gesture end) with undo/redo.
+  - [ ] Zustand store for the open idea: loaded from `getProject`, written through to SQLite per command, and
+        React Query's project list invalidated so the Ideas list stays current. Server data is not copied
+        twice: the store owns the open idea, and `useProject` is no longer the editor's source.
+  - [ ] Edits are commands with an inverse (or a snapshot of the rows they touch). A gesture is one step. History
+        holds 100 steps, in memory per idea, and is cleared when the idea closes.
+  - [ ] Undoable now: recording a take (undo removes the new clip and restores what `clearRange` trimmed),
+        adding, renaming and deleting tracks.
+  - [ ] Undo and Redo buttons in the idea's header, enabled only while idle. iOS: `Stack.Toolbar.Button`s.
+        Android: `headerRight` Pressables + `Icon` (see the AGENTS.md gotcha). Leave room for the "⋯" menu
+        that T14 adds.
+  - [ ] The armed track moves from `useState` in `project-screen.tsx` into the store (T15 makes it a toggle
+        and persists it).
+  - [ ] Takes that no clip uses are deleted (rows + files) when an idea is opened. Safe, because history
+        doesn't survive closing. This replaces the old "keep orphaned takes until the project is deleted".
+  - [ ] Unit tests for the history logic and each command's apply/inverse.
+- **Context:** Data model is non-destructive (`clips.start/offset/duration`, `src/lib/db.ts`). Current writes:
+  `useAddTake` / `useAddTrack` etc. in `src/features/projects/queries.ts` over `projects-repo.ts`.
+  Recording writes through `use-transport.ts` and trims overlapped clips with `clearRange`
+  (`src/features/projects/clip-overlap.ts`). `deleteTrack` keeps its takes, which is what lets undo restore
+  a deleted track. The playback engine reads `PlayableClip`s built from the project, so make sure playback
+  sees store changes.
+
+### T14 — Editor layout v2
+
+- **Status:** ready (after T13)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** The idea screen gives the timeline more room: fixed-height lanes, a pinned track-controls column
+  with a volume fader per track, compact clock and transport in both orientations.
+- **Done when:**
+  - [ ] Lanes have a fixed height, so 5–6 fit in portrait on a 6.1" iPhone (around 64–72 pt; pick with
+        screenshots). Landscape shows fewer and scrolls. Replaces the fill logic of `laneSize()` in
+        `timeline-math.ts`.
+  - [ ] When tracks are off screen above or below, a subtle floating chevron with "N more" shows at that
+        edge of the lanes area. Tapping it scrolls one page.
+  - [ ] Pinned controls column on the left (narrow, ~52–56 pt), one cell per lane. It scrolls vertically with
+        the lanes and stays put when scrolling through time. Each cell has an arm button and a vertical volume
+        fader. The fader uses **relative drag** (a ~40 pt fader is too short for absolute positioning: a longer
+        finger move covers the full range), shows dB while dragging, and resets to 0 dB on double-tap. The
+        ruler, lanes and (later) section rail start to the right of the column.
+  - [ ] Track name is a small label floating at the top-left of its lane (as today), tapping it opens the
+        track sheet. The chips in `track-headers.tsx` go away (arm moves to the column).
+  - [ ] A "+ New Track" row after the last lane adds and arms a track. Remove the header Add track button
+        (both the iOS toolbar and Android `headerRight`).
+  - [ ] Track volume is saved to `tracks.volume` (the column exists) through the T13 store, one undo step per
+        drag. The engine applies it live: keep per-track `GainNode`s addressable instead of recreating them in
+        `play()`. Recording's backing playback uses the same path.
+  - [ ] Thin status strip in both orientations: time on the left, the meter on the right, with space for
+        T17's metronome toggle between them. Portrait: strip on top and a smaller transport at the bottom
+        (Play ~60 pt, others ~44 pt, less padding). Landscape: strip above the timeline (as wide as it) and a
+        narrow column on the right with the buttons stacked vertically (Record, Play, Back to start).
+  - [ ] Header: Undo · Redo · "⋯" (menu with placeholder items filled by T9/T10/T19).
+  - [ ] Screenshots: portrait + landscape, light + dark, 1 track and 8 tracks.
+- **Context:** Timeline geometry: `RULER_SIZE`, `LEADING_SPACE` and `toX` / `seekable()` in
+  `src/features/timeline/timeline.tsx` (x = `LEADING_SPACE + (t - scroll) * zoom`), so the column becomes a
+  left inset. Gestures are RNGH v3 hooks composed with `useSimultaneousGestures` in `timeline.tsx`. The
+  column's fader drag must win over lane scrolling. Drawing is one `createPicture` per frame. Header button
+  patterns and both layouts are in `src/features/project/project-screen.tsx`. Read the AGENTS.md
+  "Two clocks" and "Shared values" gotchas before touching scroll shared values. `@expo/ui` has native
+  sliders, but a custom fader will probably fit the narrow column better.
+
+### T15 — Arming & input meter
+
+- **Status:** ready (after T13; easier after T14)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Arming works like a DAW: toggle it, and the meter shows the live mic input while a track is armed.
+- **Done when:**
+  - [ ] Tapping the arm button toggles it. Arming a track disarms the previous one (one armed track at a time).
+        Nothing armed → Record is grayed out.
+  - [ ] The armed track is saved per idea (`projects.armed_track_id`, nullable, in the next migration of
+        `src/lib/db.ts`). New ideas (quick capture and T10's New Idea) arm Track 1. Deleting the armed track
+        clears it.
+  - [ ] Input meter: while a track is armed, the idea is on screen and the app is in the foreground, the mic
+        input runs for metering only (not written to a file). Unarmed, backgrounded or leaving the screen
+        releases the mic. Nothing armed → the meter shows empty/dimmed.
+  - [ ] Checked on a real iPhone: the orange mic indicator only shows while armed. Check Bluetooth headphones
+        too: many drop to low-quality "call" audio while the mic is open. If that's bad, note it and ticket a
+        fallback (e.g. meter only while recording when Bluetooth output is active).
+- **Context:** Today the meter is fed by `setLevel(peakLevel(samples))` in `use-transport.ts` only while
+  recording. First check in `node_modules/react-native-audio-api` (types/docs) how to get input samples
+  without recording to a file, and whether opening the input changes the audio session for playback. Multi-arm
+  with per-track inputs is in Backlog.
+
+### T5 — Clip editing
+
+- **Status:** ready (after T13 and T14)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Move, trim, split, duplicate and delete clips on the timeline, all undoable.
+- **Done when:**
+  - [ ] The agreed interaction model (top of Up next): tapping a clip selects it, with edge handles and an action
+        bar (Split, Duplicate, Delete, Options…; Options… stays hidden until T16). Dragging a selected clip
+        moves it in time and between tracks. Handles trim (`offset`/`duration`, never the file), and can
+        extend back out to the take's bounds. Long-pressing an unselected clip picks it up. Tapping a clip
+        never seeks.
+  - [ ] Split at the playhead creates two clips on the same take. Duplicate places the copy right after the
+        original on the same track. Delete.
   - [ ] Snap to other clip edges and the playhead (grid snapping comes with T9).
-  - [ ] Orphaned takes (no clips left) are kept until the project is deleted (simple, safe for undo).
-  - [ ] Moving a clip onto others replaces what's under it, like recording does (`clearRange` in
-        `src/features/projects/clip-overlap.ts`); undo restores the trimmed clips.
+  - [ ] Dropping a clip onto others replaces what's under it, as recording does (`clearRange`); undo restores
+        the trimmed clips.
+  - [ ] Every edit is a T13 store command (one undo step per gesture).
   - [ ] Unit tests for the pure edit operations (move/trim/split math).
-- **Context:** Data model is already non-destructive (`clips.start/offset/duration`, `src/lib/db.ts`). Timeline
-  (T2, made horizontal-only in the post-T3 polish): gestures are RNGH v3 hooks composed with
-  `useSimultaneousGestures` in `timeline.tsx` (pan = scroll, pan starting on the ruler = drag the playhead, pinch =
-  zoom, tap anywhere = seek). Tap on a clip should become "select" and tap on empty lane space keep seeking.
-  x ↔ time is `LEADING_SPACE + (t - scroll) * zoom` (`seekable()` / `toX` in `timeline.tsx`). Waveform
-  paths are cached per clip window (`waveform-path.ts`), so a trim just asks for a new window. Drawing is one
-  `createPicture` per frame: add selection/handles there, driven by shared values.
-  Since T3: track header chips (`track-headers.tsx`, RN views over the lane corners) take touches there; the
-  armed track is `useState` in `project-screen.tsx` (move it into the editor store); moving a clip between
-  tracks can reuse takes left by `deleteTrack` (they're kept).
+- **Context:** Gestures in `timeline.tsx` (pan = scroll, pan starting on the ruler = drag the playhead, pinch
+  = zoom, tap = seek). A tap needs hit-testing: clip → select, empty lane space → seek. Waveform paths are
+  cached per clip window (`waveform-path.ts`), so a trim just asks for a new window. Selection and handles are
+  drawn in the per-frame picture, driven by shared values. Moving a clip between tracks can reuse takes kept
+  by `deleteTrack`. T18 reuses this selection and drag code for section labels, so keep it generic (an item
+  with start/duration on a row).
 
-### T6 — Mixer basics
+### T10 — Ideas library basics
 
-- **Status:** ready
+- **Status:** ready (independent of the editor tickets)
 - **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** Per-track volume, mute and solo, plus a master volume.
+- **Goal:** Manage ideas: create without recording, rename, duplicate, delete, sort, find.
 - **Done when:**
-  - [ ] Track header controls (volume slider, M, S) persisted in `tracks.volume/muted/solo` (columns exist).
-  - [ ] The engine applies them live during playback (keep per-track `GainNode`s addressable instead of
-        recreating them in `play()`); solo silences non-solo tracks.
-  - [ ] Optional track color (needs a migration v2 in `src/lib/db.ts`).
-- **Context:** `audio-engine.ts` `play()` currently builds one gain per clip from `PlayableClip.volume`;
-  recording plays the other tracks through the same `play()` (backing), so mute/solo must apply there too.
-  Header controls go in the chips of `src/features/timeline/track-headers.tsx` (or the track sheet,
-  `src/features/project/track-sheet.tsx`, if the chips get crowded in portrait).
-  `@expo/ui` has native sliders (skill `expo:expo-ui`).
+  - [ ] "+" in the Ideas tab header (iOS toolbar menu; Android `headerRight`) with "New Idea" (T19 adds "New
+        Folder"). It creates an idea with Track 1 (armed) and opens it **without** recording. The "Record new
+        idea" hero stays as it is.
+  - [ ] Rename, duplicate ("<name> copy": copies the rows and the take files, so deleting one idea never
+        affects the other) and delete with confirmation. Available from swipe actions and the long-press
+        context menu on rows. Duplicate and Delete are also in the idea's "⋯" header menu (T14). Rename there
+        lives in Idea settings (T9).
+  - [ ] Date under each idea. Sort menu: Recent (default), Name, Date created (remember the choice in
+        `@/lib/storage`). Search in the header.
+  - [ ] Storage used by recordings shown in Settings.
+- **Context:** `deleteProject` (rows + files) and `useDeleteProject` (also clears decoded buffers) already exist
+  in `src/features/projects/` but have no UI yet. Names default to "Idea N" (`createProject`). The list is
+  `src/features/projects/projects-screen.tsx`. T19 adds folders on top of this screen, so keep the row and
+  sort code reusable for a folder's contents.
+
+### T20 — Pitch reference keyboard
+
+- **Status:** ready (after T14)
+- **Session:** Sonnet · medium effort · plan mode off
+- **Goal:** A quick piano to find and hear any note (starting note for a melody, checking a key) without
+  leaving the idea.
+- **Done when:**
+  - [ ] A keyboard button in the status strip (SF `pianokeys`, Material `piano`) opens a short sheet. The
+        timeline stays visible, so you can play along with playback.
+  - [ ] Two octaves on screen (one in a narrow portrait sheet if two get too small), octave down/up buttons,
+        multi-touch, note name shown while held (C4, F♯3…). The note sounds while held and releases smoothly.
+  - [ ] The sound is synthesized in code (`createOscillator`, triangle or a few mixed partials with an
+        attack/release envelope), so no sample files ship with the app. Latency feels instant on a device.
+  - [ ] It is a reference tool only: never recorded into takes (other than what the mic hears), not on the
+        timeline, not in the mixdown. Volume follows a "Keyboard volume" setting.
+  - [ ] Unit tests for note ↔ frequency and note names.
+- **Context:** `react-native-audio-api` has `createOscillator` (see `lib/typescript/module/jsi-interfaces.d.ts`).
+  Play it through the same `AudioContext` as playback in `audio-engine.ts` so it works during playback.
+  Product rule: no software instruments. This stays a pitch reference, so don't grow it into a recordable
+  instrument. A mic tuner is the natural companion (Backlog).
+
+### T9 — Idea settings, tempo & grid
+
+- **Status:** ready (after T13; snapping needs T5)
+- **Session:** Sonnet · high effort · plan mode off
+- **Goal:** Each idea has a settings sheet with its name, tempo and time signature, and an optional bar/beat
+  grid on the timeline.
+- **Done when:**
+  - [ ] "Idea settings" in the idea's "⋯" menu opens a sheet: Name (rename), Tempo (BPM 40–240, stepper or
+        field, plus a Tap tempo button), Time signature (2/4, 3/4, 4/4, 5/4, 6/8, 7/8, 12/8), and a Grid
+        toggle. A footer note says that changing the tempo moves only the grid, not the audio.
+  - [ ] Migration: `projects.bpm` (default 120), `beats_per_bar` (4), `beat_unit` (4), `grid` (off). Setting
+        a tempo turns the grid on.
+  - [ ] Grid on: bar and beat lines in the lanes (beat lines fade out when zoomed far out), bar numbers on the
+        ruler instead of mm:ss, snap to grid while editing clips (extends T5's snapping). The clock in the
+        status strip stays in time.
+  - [ ] Settings changes are T13 store commands (undoable).
+- **Context:** Grid lines go in the timeline picture next to the ruler ticks (`rulerSteps` in
+  `timeline-math.ts`). Compound meters (6/8, 12/8): beats are eighths, grouped in threes. T17 adds the
+  metronome section to this sheet. Quantize stays in Backlog.
+
+### T17 — Metronome & count-in
+
+- **Status:** ready (after T9 and T14)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** A metronome that follows the idea's tempo and time signature, with a count-in for recording.
+- **Done when:**
+  - [ ] Click generated in code (short buffers scheduled on the context clock — not an instrument), with an
+        accented downbeat. 6/8 and 12/8 accent each group of three eighths, the bar's first more strongly.
+  - [ ] Metronome on/off toggle in the status strip (T14), saved per idea. Metronome volume and a "Count-in
+        (1 bar)" toggle in Idea settings (migration).
+  - [ ] Clicks during playback and recording, never recorded into takes (with headphones). The click lines up
+        with takes after latency compensation (record a clap on the click on a device and check).
+  - [ ] Count-in plays one bar before recording starts; the take starts at the playhead, not before.
+  - [ ] T8's mixdown leaves the click out.
+- **Context:** Scheduling and playback helpers live in `audio-engine.ts`. Recording start and latency
+  compensation: `take-alignment.ts` and `use-transport.ts`. Turning the metronome on also turns the grid on.
+
+### T21 — Speaker mode (echo cancellation)
+
+- **Status:** ready (after T15 and T17)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Overdub without headphones: while recording, cancel the app's own output (backing tracks,
+  metronome, keyboard) from the mic, so the user hears the song from the speaker and the new take stays
+  clean enough for a sketch.
+- **Done when:**
+  - [ ] Spike first, on real phones: record singing and an acoustic guitar over a backing track from the
+        speaker, with and without echo cancellation. Note how much bleed is left, and whether sustained notes,
+        quiet passages or dynamics get eaten. Write the findings in this ticket and decide with the user if
+        it's worth shipping.
+  - [ ] "Speaker mode" toggle in Settings → Recording, off by default. When recording starts with no headphones
+        connected and the mode is off, offer it once (dismissable).
+  - [ ] On: the recorder uses `iosVoiceProcessing: true` (iOS) and `androidInputPreset: 'voiceCommunication'`
+        (Android). Headphones connected → raw mic as today.
+  - [ ] Latency compensation stays right in both modes: voice processing adds its own delay, so measure it
+        and keep a separate latency offset per mode (Settings → Recording).
+  - [ ] Playback volume while recording in speaker mode is checked (iOS voice processing can duck other
+        output); the mode is turned off again after recording so normal playback sounds as before.
+- **Context:** Both options are in `AudioRecorderOptions` of `react-native-audio-api`
+  (`lib/typescript/module/types.d.ts`); no native code needed. Expectations to set with the user: the
+  platforms' echo cancellation is tuned for speech calls. It works well for humming or singing a melody, but
+  it can thin out music (noise suppression, auto gain, mono), and some bleed remains. So this is a
+  convenience for quick sketches; headphones stay best for keeper takes. Recording start and latency code:
+  `use-transport.ts`, `take-alignment.ts`, `recording-settings-store.ts`.
+
+### T18 — Section labels
+
+- **Status:** ready (after T5 and T9)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Mark the song's structure (Intro, Verse, Chorus…) on a colored rail above the ruler, and jump to
+  sections with a tap.
+- **Done when:**
+  - [ ] `sections` table (migration): id, project_id, name, color, start, duration.
+  - [ ] Rail above the ruler, about the ruler's height. It starts after the controls column, scrolls and zooms
+        with time, and doesn't scroll vertically with the tracks.
+  - [ ] Tapping an empty spot on the rail opens a picker: presets with fixed colors (Intro, Verse, Pre-chorus,
+        Chorus, Bridge, Outro) and Custom… (name + a color from a palette). A new section starts at the tapped
+        spot and runs to the next section, or 8 bars (grid on) / 15 s (grid off).
+  - [ ] Agreed interaction model: tapping a section jumps the playhead to its start and selects it (action bar:
+        Rename, Color, Delete). Drag a selected section to move it, drag its handles to resize it,
+        long-press to pick one up. Sections never overlap (they stop at their neighbors) and snap to bars when
+        the grid is on.
+  - [ ] Undoable (T13 store). Names truncate when the section is narrow.
+  - [ ] Palette colors are tokens in `src/theme/tokens.ts` (light and dark), readable label text on each.
+- **Context:** Reuse T5's selection and drag code. Draw the rail in the same per-frame Skia picture as the
+  ruler. Looping a section is in Backlog.
+
+### T16 — Clip options
+
+- **Status:** ready (after T5)
+- **Session:** Sonnet · medium effort · plan mode off
+- **Goal:** Per-clip adjustments from the clip action bar's "Options…".
+- **Done when:**
+  - [ ] Options… opens a sheet for that clip: Gain (dB slider, double-tap to reset), Fade in and Fade out
+        (length), Restore full take (reset the trim to the whole take, where it fits), Share take (once T8 is
+        done), Delete.
+  - [ ] Migration: `clips.gain` (1), `fade_in` (0), `fade_out` (0). The engine applies gain and fades with
+        gain ramps, plus a few-millisecond automatic declick fade on every clip edge.
+  - [ ] Waveform drawing reflects clip gain. Changes are undoable (T13 store).
+- **Context:** `PlayableClip.volume` in `audio-engine.ts` already gives each clip its own gain. T8's mixdown
+  must apply the same gain and fades.
+
+### T19 — Folders & favorites
+
+- **Status:** ready (after T10)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** The Ideas tab works like a simple file system: nested folders, favorites, moving things around.
+- **Done when:**
+  - [ ] Migration: `folders` table (id, parent_id nullable → root, name, created_at, updated_at, cascade on
+        delete), `projects.folder_id` (null = root), `projects.favorite`.
+  - [ ] A `folder/[id]` route in the Ideas stack reuses the list screen for a folder's contents. Back goes up a
+        level. No depth limit.
+  - [ ] Root shows a Favorites row pinned at the top (a virtual folder with every starred idea, wherever it
+        lives), then folders, then ideas. Folders always list before ideas, and T10's sort applies within
+        each.
+  - [ ] Star/unstar from the row's swipe action, the long-press menu and the idea's "⋯" menu. Starring doesn't
+        move the idea.
+  - [ ] "+" menu: New Idea (created in the current folder), New Folder. Rename folder; delete folder with a
+        confirmation that gives counts ("Delete 'Demos' and its 2 folders and 9 ideas?"), deleting its
+        contents and their files.
+  - [ ] "Move to…" on ideas and folders: folder picker sheet (a folder can't be moved into itself or a
+        subfolder of itself). Select mode (Edit) for moving or deleting several at once.
+  - [ ] Search spans every folder and shows each result's folder path.
+  - [ ] Unit tests for the tree logic (descendants, move validation, delete counts).
+- **Context:** The Ideas stack is `src/app/(tabs)/(home)/`. `deleteProject` deletes rows + files; deleting a
+  folder must do that for every idea under it. A "Recently Deleted" safety net is in Backlog.
 
 ### T7 — Background recording & interruptions
 
@@ -119,35 +381,25 @@ dependency changes). See the `wrap` skill.
         (`npx expo install expo-sharing`). M4A is a later option.
   - [ ] Share a single take from the clip menu.
 - **Context:** The library has no "encode AudioBuffer to file" API (checked in T1); `concatAudioFiles` only joins
-  recorder segments. Export files go to the cache directory and are deleted after sharing.
+  recorder segments. Export files go to the cache directory and are deleted after sharing. The mixdown must
+  match playback: track volume (T14), mute/solo (T6), clip gain and fades (T16), and leave out the metronome
+  (T17). Whatever of those exists when this ticket runs.
 
-### T9 — Tempo, metronome & count-in
+### T6 — Mute, solo & master volume
 
-- **Status:** ready
-- **Session:** Sonnet · high effort · plan mode off
-- **Goal:** Optional tempo grid for musicians who want it.
-- **Done when:**
-  - [ ] Project BPM and time signature (migration v2+); bar/beat grid lines on the timeline.
-  - [ ] Click track generated in code (short buffers on the context clock — not an instrument), toggle on/off,
-        not recorded into takes; count-in of one bar before recording.
-  - [ ] Snap to grid while editing (extends T5's snapping).
-- **Context:** Scheduling helpers live in `audio-engine.ts`. Grid lines go in the timeline picture next to the
-  ruler ticks (`rulerSteps` in `timeline-math.ts`). Quantize (moving clips/notes to the grid) stays in Backlog.
-
-### T10 — Ideas library polish
-
-- **Status:** ready
+- **Status:** ready (after T14)
 - **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** Manage ideas: rename, duplicate, delete, find.
+- **Goal:** Per-track mute and solo, a master volume, and optional track colors. (Track volume moved to T14.)
 - **Done when:**
-  - [ ] Rename (project screen header and list), delete with confirmation (swipe or context menu), duplicate
-        (copies rows; takes can be shared by copying files).
-  - [ ] Sort (recent / name) and search when the list is long; show the date under each idea.
-  - [ ] Storage used by recordings shown in Settings.
-  - [ ] Quick listen: play an idea from the list without opening it, with a scrubber under the row
-        (reuse `play()` from `audio-engine.ts` with the idea's clips; only one idea plays at a time).
-- **Context:** `deleteProject` (rows + files) and `useDeleteProject` (also clears decoded buffers) already exist in
-  `src/features/projects/` but have no UI yet. Names default to "Idea N" (`createProject`).
+  - [ ] Mute and solo persisted in `tracks.muted/solo` (columns exist). They go in T14's controls column if they
+        fit at its lane height, otherwise in the track sheet (`src/features/project/track-sheet.tsx`); decide
+        with screenshots.
+  - [ ] The engine applies them live through T14's per-track gains, including the backing playback while
+        recording; solo silences non-solo tracks.
+  - [ ] Master volume (where: status strip or Idea settings; decide in the session).
+  - [ ] Optional track color (migration), used for the clips and the name label.
+  - [ ] Undoable (T13 store).
+- **Context:** Per-track `GainNode`s come with T14.
 
 ### T11 — Identity & store prep
 
@@ -169,20 +421,30 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - Quantize clips to the tempo grid (after T9).
 - Pitch correction for vocal takes (the library's `createBufferSource({ pitchCorrection })` is for playback-rate
   changes, not tuning; would need a native DSP library).
-- Loop a region; punch-in recording over a range.
-- Input monitoring through headphones; input gain; input device picker (`AudioManager.getDevicesInfo`).
+- Loop a region or a section label (after T18); punch-in recording over a range.
+- Input monitoring through headphones; input gain; input device picker (`AudioManager.getDevicesInfo`). With a
+  multi-input audio interface: arm several tracks at once, each recording its own input (deferred from T15).
+- Recently Deleted: soft-delete ideas and folders, keep them 30 days, restore from a "Recently Deleted" folder
+  (after T19).
+- Quick listen: play an idea from the Ideas list without opening it, with a scrubber under the row (reuse
+  `play()` from `audio-engine.ts`; only one idea plays at a time). Moved from T10.
+- Tuner: show the pitch the mic hears (note + cents), next to T20's keyboard.
 - Simple effects per track (reverb, EQ) via the audio graph.
 - Backup / sync (iCloud Drive, Google Drive) — the data model uses UUIDs and relative paths to make this possible.
 - iOS Live Activity while recording (lock screen timer + stop).
 - Timeline performance with many tracks × long ideas: if frames drop, cache one `SkPicture` per clip (redrawn
   only when the clip or zoom level changes) instead of drawing every path each frame.
 - Overdub polish: show the live take at its compensated position while recording (it jumps by the latency
-  on Stop); count-in arrives with T9; input monitoring is above.
+  on Stop); count-in arrives with T17; input monitoring is above.
 - Maestro: `tapOn` by `accessibilityLabel` doesn't focus a `TextInput` on iOS (tap by point instead).
 - Clock text runs ~0.1–0.3 s ahead of the playhead (the playhead includes output latency). Show the clock from
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 
 ## Done
+
+- Backlog planning — 2026-11-13 — 17 user ideas turned into tickets: new T13–T21 (undo, layout v2, arming/meter,
+  folders, tempo/metronome split, sections, clip options, pitch keyboard, speaker mode); T5/T6/T9/T10 rewritten;
+  editor design decisions recorded at the top of Up next
 
 - T4 — First preview build — 2026-11-13 — EAS project `@ididrio/audio-recorder` linked with OTA updates, iOS preview
   built and working on the iPhone, Android preview rebuilt arm64-only after an out-of-memory failure (install +

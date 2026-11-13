@@ -9,6 +9,7 @@ import {
   play,
   playbackAnchor,
   playbackPosition,
+  setTrackGain,
   startRecording,
   stopPlayback,
   type ActiveRecording,
@@ -23,6 +24,7 @@ import { prefetchTakePeaks } from '@/features/timeline/use-take-peaks';
 import { createLivePeaks, LIVE_PEAKS_PER_SECOND } from '@/features/timeline/waveform-peaks';
 
 import { recordTake } from './editor-store';
+import { hasSolo, trackOutputGain } from './mixer';
 import { toUiClock } from './ui-clock';
 
 export type TransportStatus = 'idle' | 'starting' | 'recording' | 'stopping' | 'playing';
@@ -96,6 +98,14 @@ export function useTransport(project: Project | null | undefined) {
     }, TICK_MS);
     return () => clearInterval(timer);
   }, [isRecording, isPlaying]);
+
+  // Mixer: the engine plays every track at its saved volume, mute and solo, and picks up changes
+  // (a slider's final value, mute, solo, undo) live while playing or recording.
+  const tracks = project?.tracks;
+  useEffect(() => {
+    const anySolo = hasSolo(tracks ?? []);
+    for (const track of tracks ?? []) setTrackGain(track.id, trackOutputGain(track, anySolo));
+  }, [tracks]);
 
   const moveTo = (time: number) => {
     anchor.set(null);
@@ -283,10 +293,10 @@ function playableClips(
         ? [
             {
               takePath: take.path,
+              trackId: track.id,
               start: clip.start,
               offset: clip.offset,
               duration: clip.duration,
-              volume: track.volume,
             },
           ]
         : [];

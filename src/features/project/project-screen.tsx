@@ -2,14 +2,16 @@ import * as Haptics from 'expo-haptics';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useEffect, useRef } from 'react';
-import { Platform, Pressable, useWindowDimensions, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Text, type IconName } from '@/components/ui';
+import { setTrackGain } from '@/features/audio/audio-engine';
 import { formatTimecode } from '@/features/audio/format-time';
 import { Timeline } from '@/features/timeline/timeline';
 import { makeStyles, useTheme } from '@/theme';
 
+import { AndroidIdeaMenu } from './android-idea-menu';
 import {
   addTrack,
   armTrack,
@@ -17,19 +19,25 @@ import {
   selectArmedTrack,
   selectCanRedo,
   selectCanUndo,
+  setTrackVolume,
+  toggleMute,
+  toggleSolo,
   undo,
   useEditorStore,
   useOpenIdea,
 } from './editor-store';
+import { IDEA_MENU_ITEMS } from './idea-menu-items';
+import { hasSolo, trackOutputGain } from './mixer';
 import { useTransport } from './use-transport';
 
 /**
- * The project editor: clock, timeline and transport. The timeline runs left to right in both
- * orientations; portrait stacks clock, timeline and transport, landscape puts the clock and
- * transport in a column beside the timeline so it gets the full height. Transport: back to start,
- * Play (the main button) and Record. One track is armed: Record records onto it while the others
- * play. The header has Undo, Redo (enabled only while idle) and "Add track", which adds a track and
- * arms it. The idea itself lives in the editor store (`editor-store.ts`), open while this screen is.
+ * The project editor: a thin status strip (clock, room for T17's metronome toggle, meter), the
+ * timeline and the transport. Portrait: strip, timeline, then a compact transport row (Back to start
+ * · Play · Record). Landscape: the strip above the timeline and the buttons stacked in a narrow
+ * column on the right (Record, Play, Back to start), so the timeline gets the most room. One track is
+ * armed: Record records onto it while the others play. Tracks are added from the timeline's
+ * "+ New Track" row. The header has Undo, Redo (enabled only while idle) and "⋯" (placeholders until
+ * T9/T10/T19). The idea itself lives in the editor store (`editor-store.ts`), open while this screen is.
  */
 export function ProjectScreen() {
   const styles = useStyles();
@@ -86,60 +94,69 @@ export function ProjectScreen() {
     void redo();
   };
 
+  // While a volume slider moves: hear it at once (the engine also applies mute/solo on top).
+  const previewVolume = (trackId: string, volume: number) => {
+    const track = tracks.find((candidate) => candidate.id === trackId);
+    if (track) setTrackGain(trackId, trackOutputGain({ ...track, volume }, hasSolo(tracks)));
+  };
+
   const editTrack = (trackId: string) =>
     router.push({ pathname: '/track/[id]', params: { id: trackId, projectId: params.id } });
 
-  const clock = (
-    <View style={styles.clock}>
+  // Time on the left, the meter on the right; the gap between is where T17's metronome toggle goes.
+  const statusStrip = (
+    <View style={styles.strip}>
       <Text
         variant="timecode"
         color={isRecording ? 'primary' : 'text'}
         accessibilityLabel={isRecording ? 'Recording time' : 'Time'}>
         {formatTimecode(transport.position)}
       </Text>
+      <View style={styles.stripSpacer} />
       <View style={styles.meter} accessibilityElementsHidden importantForAccessibility="no">
         <View style={[styles.meterFill, { width: `${Math.round(transport.level * 100)}%` }]} />
       </View>
     </View>
   );
 
-  // Back to start | Play (main, centered) | Record. The outer two share a width so Play stays centered.
-  const buttons = (
-    <View style={styles.buttons}>
-      <TransportButton
-        label="Back to start"
-        icon={{ ios: 'backward.end.fill', android: 'skip_previous' }}
-        size={SIDE_BUTTON_SIZE}
-        kind="secondary"
-        disabled={isRecording || isBusy}
-        onPress={() => transport.seek(0)}
-      />
-      <TransportButton
-        label={isPlaying ? 'Stop' : 'Play'}
-        icon={
-          isPlaying
-            ? { ios: 'stop.fill', android: 'stop' }
-            : { ios: 'play.fill', android: 'play_arrow' }
-        }
-        size={PLAY_BUTTON_SIZE}
-        kind="play"
-        disabled={isRecording || isBusy || !hasClips}
-        onPress={isPlaying ? transport.stopPlaying : () => void transport.startPlayback()}
-      />
-      <TransportButton
-        label={isRecording ? 'Stop recording' : 'Record'}
-        icon={
-          isRecording
-            ? { ios: 'stop.fill', android: 'stop' }
-            : { ios: 'record.circle', android: 'radio_button_checked' }
-        }
-        size={SIDE_BUTTON_SIZE}
-        kind="record"
-        busy={isBusy}
-        disabled={isBusy || isPlaying || !armedTrack}
-        onPress={isRecording ? () => void transport.stopRecording() : recordArmed}
-      />
-    </View>
+  const backToStart = (
+    <TransportButton
+      label="Back to start"
+      icon={{ ios: 'backward.end.fill', android: 'skip_previous' }}
+      size={SIDE_BUTTON_SIZE}
+      kind="secondary"
+      disabled={isRecording || isBusy}
+      onPress={() => transport.seek(0)}
+    />
+  );
+  const playButton = (
+    <TransportButton
+      label={isPlaying ? 'Stop' : 'Play'}
+      icon={
+        isPlaying
+          ? { ios: 'stop.fill', android: 'stop' }
+          : { ios: 'play.fill', android: 'play_arrow' }
+      }
+      size={PLAY_BUTTON_SIZE}
+      kind="play"
+      disabled={isRecording || isBusy || !hasClips}
+      onPress={isPlaying ? transport.stopPlaying : () => void transport.startPlayback()}
+    />
+  );
+  const recordButton = (
+    <TransportButton
+      label={isRecording ? 'Stop recording' : 'Record'}
+      icon={
+        isRecording
+          ? { ios: 'stop.fill', android: 'stop' }
+          : { ios: 'record.circle', android: 'radio_button_checked' }
+      }
+      size={SIDE_BUTTON_SIZE}
+      kind="record"
+      busy={isBusy}
+      disabled={isBusy || isPlaying || !armedTrack}
+      onPress={isRecording ? () => void transport.stopRecording() : recordArmed}
+    />
   );
 
   const error = transport.error ?? saveError;
@@ -162,9 +179,15 @@ export function ProjectScreen() {
       following={isPlaying || isRecording}
       liveTake={transport.liveTake}
       armedTrackId={armedTrack?.id ?? null}
+      addTrackDisabled={addTrackDisabled}
       onSeek={transport.seek}
       onArm={armTrack}
       onEditTrack={editTrack}
+      onAddTrack={() => void addTrack()}
+      onToggleMute={(trackId) => void toggleMute(trackId)}
+      onToggleSolo={(trackId) => void toggleSolo(trackId)}
+      onVolumeLive={previewVolume}
+      onVolumeCommit={(trackId, gain) => void setTrackVolume(trackId, gain)}
     />
   ) : (
     <View style={styles.message} />
@@ -197,12 +220,7 @@ export function ProjectScreen() {
                   disabled={redoDisabled}
                   onPress={onRedo}
                 />
-                <HeaderIconButton
-                  label="Add track"
-                  icon={{ ios: 'plus', android: 'add' }}
-                  disabled={addTrackDisabled}
-                  onPress={() => void addTrack()}
-                />
+                <AndroidIdeaMenu />
               </View>
             ),
           }),
@@ -224,33 +242,53 @@ export function ProjectScreen() {
             onPress={onRedo}>
             Redo
           </Stack.Toolbar.Button>
-          <Stack.Toolbar.Spacer width={8} />
-          <Stack.Toolbar.Button
-            icon="plus"
-            accessibilityLabel="Add track"
-            disabled={addTrackDisabled}
-            onPress={() => void addTrack()}>
-            Add track
-          </Stack.Toolbar.Button>
+          <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="More">
+            {IDEA_MENU_ITEMS.map((item) => (
+              <Stack.Toolbar.MenuAction
+                key={item.label}
+                icon={item.icon.ios}
+                destructive={item.destructive}
+                disabled>
+                {item.label}
+              </Stack.Toolbar.MenuAction>
+            ))}
+          </Stack.Toolbar.Menu>
         </Stack.Toolbar>
       )}
 
       {isLandscape ? (
         <>
-          <View style={[styles.timeline, { paddingBottom: insets.bottom }]}>{timeline}</View>
-          <View style={[styles.sidePanel, { paddingBottom: insets.bottom + theme.spacing.md }]}>
-            {clock}
+          <View style={[styles.main, { paddingBottom: insets.bottom }]}>
+            {statusStrip}
             {errorText}
-            {buttons}
+            <View style={styles.timeline}>{timeline}</View>
+          </View>
+          <View style={[styles.sideColumn, { paddingBottom: insets.bottom }]}>
+            {recordButton}
+            {playButton}
+            {backToStart}
           </View>
         </>
       ) : (
         <>
-          {clock}
+          {statusStrip}
           {errorText}
           <View style={styles.timeline}>{timeline}</View>
-          <View style={[styles.transport, { paddingBottom: insets.bottom + theme.spacing.lg }]}>
-            {buttons}
+          {/* Android's gesture bar reports almost no inset, so it gets more room under the buttons. */}
+          <View
+            style={[
+              styles.transport,
+              {
+                paddingBottom:
+                  insets.bottom + (Platform.OS === 'android' ? theme.spacing.lg : theme.spacing.sm),
+              },
+            ]}>
+            {/* The outer two share a size, so Play stays centered. */}
+            <View style={styles.buttons}>
+              {backToStart}
+              {playButton}
+              {recordButton}
+            </View>
           </View>
         </>
       )}
@@ -336,15 +374,25 @@ function TransportButton({
   );
 }
 
-const PLAY_BUTTON_SIZE = 76;
-const SIDE_BUTTON_SIZE = 56;
+const PLAY_BUTTON_SIZE = 60;
+const SIDE_BUTTON_SIZE = 44;
 
 const useStyles = makeStyles((t) => ({
   root: { flex: 1, backgroundColor: t.colors.background },
   rootLandscape: { flexDirection: 'row' },
-  clock: { alignItems: 'center', gap: t.spacing.sm, paddingVertical: t.spacing.md },
+  main: { flex: 1 },
+  strip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: t.spacing.md,
+    paddingHorizontal: t.spacing.lg,
+    paddingVertical: t.spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: t.colors.border,
+  },
+  stripSpacer: { flex: 1 },
   meter: {
-    width: '60%',
+    width: 96,
     height: t.spacing.xs,
     borderRadius: t.radius.full,
     backgroundColor: t.colors.surfaceMuted,
@@ -354,17 +402,18 @@ const useStyles = makeStyles((t) => ({
   timeline: { flex: 1 },
   message: { flex: 1, justifyContent: 'center', padding: t.spacing.lg },
   transport: {
-    paddingTop: t.spacing.lg,
+    paddingTop: t.spacing.sm,
     paddingHorizontal: t.spacing.lg,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: t.colors.border,
     backgroundColor: t.colors.background,
   },
-  sidePanel: {
+  sideColumn: {
     justifyContent: 'center',
-    gap: t.spacing.md,
-    paddingHorizontal: t.spacing.lg,
-    borderLeftWidth: 1,
+    alignItems: 'center',
+    gap: t.spacing.lg,
+    paddingHorizontal: t.spacing.md,
+    borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: t.colors.border,
   },
   buttons: {

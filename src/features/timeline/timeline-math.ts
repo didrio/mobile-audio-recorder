@@ -145,10 +145,61 @@ export function waveformLevel(
   return level;
 }
 
-/** Thickness of one track lane across the time axis. */
-export function laneSize(available: number, trackCount: number, min = 72, max = 240): number {
+/** Height of one track lane: fixed, so 5–6 lanes fit a phone in portrait and more scroll. */
+export const LANE_HEIGHT = 88;
+/** Width of the pinned track-controls column left of the lanes: the arm buttons. */
+export const CONTROLS_WIDTH = 44;
+/** Width of that column expanded into the mixer (arm · mute · solo · volume). */
+export const MIXER_WIDTH = 236;
+/** Height of the "+ New Track" row after the last lane. */
+export const NEW_TRACK_ROW_HEIGHT = 44;
+
+/** How far the lanes can scroll down: every lane plus the footer row (e.g. "+ New Track"). */
+export function laneScrollMax(
+  viewport: number,
+  trackCount: number,
+  lane: number,
+  footer: number,
+): number {
   'worklet';
-  return clamp(available / Math.max(1, trackCount), min, max);
+  return Math.max(0, trackCount * lane + footer - viewport);
+}
+
+/**
+ * Lanes scrolled out of view above and below a viewport of `viewport` points at `scroll`. A lane counts
+ * as hidden when less than half of it shows.
+ */
+export function hiddenLanes(
+  scroll: number,
+  viewport: number,
+  lane: number,
+  count: number,
+): { above: number; below: number } {
+  'worklet';
+  let above = 0;
+  let below = 0;
+  for (let index = 0; index < count; index++) {
+    const middle = (index + 0.5) * lane - scroll;
+    if (middle < 0) above++;
+    else if (middle > viewport) below++;
+  }
+  return { above, below };
+}
+
+/**
+ * Lane scroll one page up (`direction` -1) or down (1): as many whole lanes as fit the viewport,
+ * landing on a lane boundary, within 0…`max`.
+ */
+export function pageScroll(
+  scroll: number,
+  viewport: number,
+  lane: number,
+  direction: 1 | -1,
+  max: number,
+): number {
+  'worklet';
+  const page = Math.max(1, Math.floor(viewport / lane)) * lane;
+  return clamp(Math.round((scroll + direction * page) / lane) * lane, 0, max);
 }
 
 /**

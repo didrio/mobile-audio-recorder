@@ -3,7 +3,12 @@ import { render, screen, userEvent } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { ensureRecordPermission, play, startRecording } from '@/features/audio/audio-engine';
+import {
+  ensureRecordPermission,
+  play,
+  setTrackGain,
+  startRecording,
+} from '@/features/audio/audio-engine';
 import {
   deleteUnusedTakes,
   getProject,
@@ -38,6 +43,33 @@ jest.mock('expo-router', () => {
   Toolbar.Spacer = function Spacer() {
     return null;
   };
+  Toolbar.Menu = function Menu({
+    accessibilityLabel,
+    children,
+  }: {
+    accessibilityLabel: string;
+    children: ReactNode;
+  }) {
+    return (
+      <>
+        <Text>{accessibilityLabel}</Text>
+        {children}
+      </>
+    );
+  };
+  Toolbar.MenuAction = function MenuAction({
+    children,
+    disabled,
+  }: {
+    children: string;
+    disabled?: boolean;
+  }) {
+    return (
+      <Pressable accessibilityRole="menuitem" accessibilityState={{ disabled }} disabled={disabled}>
+        <Text>{children}</Text>
+      </Pressable>
+    );
+  };
   return {
     Stack: { Screen: () => null, Toolbar },
     useLocalSearchParams: () => ({ id: 'p1' }),
@@ -52,6 +84,7 @@ jest.mock('@/features/audio/audio-engine', () => ({
   startRecording: jest.fn(),
   peakLevel: jest.fn(() => 0),
   play: jest.fn(),
+  setTrackGain: jest.fn(),
   playbackPosition: jest.fn(() => 0),
   playbackAnchor: jest.fn(() => null),
   decodeTake: jest.fn(),
@@ -59,8 +92,9 @@ jest.mock('@/features/audio/audio-engine', () => ({
   forgetTakes: jest.fn(),
 }));
 
-// The Skia timeline can't render in Jest; a stand-in shows the project and exposes seeking and
-// arming (the real track headers are tested in `track-headers.test.tsx`).
+// The Skia timeline can't render in Jest; a stand-in shows the project and exposes seeking, arming,
+// adding tracks and the mixer (the real controls are tested in `track-column.test.tsx` and
+// `lane-overlay.test.tsx`).
 jest.mock('@/features/timeline/timeline', () => {
   const { Pressable, Text, View } =
     jest.requireActual<typeof import('react-native')>('react-native');
@@ -68,13 +102,23 @@ jest.mock('@/features/timeline/timeline', () => {
     Timeline: ({
       project,
       armedTrackId,
+      addTrackDisabled,
       onSeek,
       onArm,
+      onAddTrack,
+      onToggleMute,
+      onVolumeLive,
+      onVolumeCommit,
     }: {
       project: Project;
       armedTrackId: string | null;
+      addTrackDisabled: boolean;
       onSeek: (time: number) => void;
       onArm: (trackId: string) => void;
+      onAddTrack: () => void;
+      onToggleMute: (trackId: string) => void;
+      onVolumeLive: (trackId: string, gain: number) => void;
+      onVolumeCommit: (trackId: string, gain: number) => void;
     }) => (
       <View>
         <Pressable
@@ -92,6 +136,28 @@ jest.mock('@/features/timeline/timeline', () => {
             onPress={() => onArm(track.id)}
           />
         ))}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="New track"
+          accessibilityState={{ disabled: addTrackDisabled }}
+          disabled={addTrackDisabled}
+          onPress={onAddTrack}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Mute Track 1"
+          onPress={() => onToggleMute('track1')}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Drag Track 1 volume to half"
+          onPress={() => {
+            onVolumeLive('track1', 0.7);
+            onVolumeLive('track1', 0.5);
+            onVolumeCommit('track1', 0.5);
+          }}
+        />
+        <Text>{`Track 1 volume ${project.tracks[0]?.volume}`}</Text>
       </View>
     ),
   };
@@ -257,7 +323,7 @@ describe('ProjectScreen', () => {
     await renderScreen();
 
     await screen.findByText('Timeline of Chorus riff');
-    await user.press(screen.getByRole('button', { name: 'Add track' }));
+    await user.press(screen.getByRole('button', { name: 'New track' }));
 
     expect(await screen.findByRole('button', { name: 'Arm Track 2' })).toBeSelected();
     expect(saveChanges).toHaveBeenCalledWith(
@@ -276,7 +342,7 @@ describe('ProjectScreen', () => {
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
 
-    await user.press(screen.getByRole('button', { name: 'Add track' }));
+    await user.press(screen.getByRole('button', { name: 'New track' }));
     expect(await screen.findByRole('button', { name: 'Arm Track 2' })).toBeOnTheScreen();
 
     await user.press(screen.getByRole('button', { name: 'Record' }));
@@ -294,6 +360,51 @@ describe('ProjectScreen', () => {
     await user.press(screen.getByRole('button', { name: 'Redo' }));
     expect(await screen.findByRole('button', { name: 'Arm Track 2' })).toBeOnTheScreen();
     expect(saveChanges).toHaveBeenCalledTimes(5);
+  });
+
+  it('has a "More" menu with the idea actions (placeholders for now)', async () => {
+    await renderScreen();
+
+    await screen.findByText('Timeline of Chorus riff');
+    expect(screen.getByText('More')).toBeOnTheScreen();
+    expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeDisabled();
+  });
+
+  it('sets a track volume live and saves it once, as one undo step', async () => {
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await screen.findByText('Timeline of Chorus riff');
+    await user.press(screen.getByRole('button', { name: 'Drag Track 1 volume to half' }));
+
+    expect(setTrackGain).toHaveBeenCalledWith('track1', 0.7);
+    expect(setTrackGain).toHaveBeenLastCalledWith('track1', 0.5);
+    expect(screen.getByText('Track 1 volume 0.5')).toBeOnTheScreen();
+    expect(saveChanges).toHaveBeenCalledTimes(1);
+    expect(saveChanges).toHaveBeenCalledWith(
+      'p1',
+      [expect.objectContaining({ after: expect.objectContaining({ volume: 0.5 }) })],
+      undefined,
+    );
+
+    await user.press(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByText('Track 1 volume 1')).toBeOnTheScreen();
+    expect(setTrackGain).toHaveBeenLastCalledWith('track1', 1);
+  });
+
+  it('silences a muted track in the engine', async () => {
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await screen.findByText('Timeline of Chorus riff');
+    await user.press(screen.getByRole('button', { name: 'Mute Track 1' }));
+
+    expect(setTrackGain).toHaveBeenLastCalledWith('track1', 0);
+    expect(saveChanges).toHaveBeenCalledWith(
+      'p1',
+      [expect.objectContaining({ after: expect.objectContaining({ muted: true }) })],
+      undefined,
+    );
   });
 
   it('explains when microphone access is denied', async () => {

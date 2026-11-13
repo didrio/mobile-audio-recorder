@@ -11,7 +11,7 @@ import {
   type SkPath,
 } from '@shopify/react-native-skia';
 import { useEffect, useState } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import {
   GestureDetector,
   usePanGesture,
@@ -29,26 +29,32 @@ import {
 } from 'react-native-reanimated';
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 
+import { Icon } from '@/components/ui';
 import type { Project } from '@/features/projects/projects-repo';
 import { useTheme, type ThemeColors } from '@/theme';
 
+import { LaneOverlay } from './lane-overlay';
 import {
   clamp,
   clampScroll,
   clampZoom,
+  CONTROLS_WIDTH,
   contentDuration,
   defaultZoom,
   followScroll,
   formatRulerTime,
-  laneSize,
+  LANE_HEIGHT,
+  laneScrollMax,
   maxScroll,
+  MIXER_WIDTH,
+  NEW_TRACK_ROW_HEIGHT,
   pointToTime,
   rulerSteps,
   waveformGain,
   waveformLevel,
   zoomAroundPoint,
 } from './timeline-math';
-import { TrackHeaders } from './track-headers';
+import { TrackColumn, type FaderDraft } from './track-column';
 import { useTakePeaks } from './use-take-peaks';
 import { waveformPaths } from './waveform-path';
 import { LEVEL_COUNT, LEVEL_FACTOR, maxAmplitude, peaksPerSecond } from './waveform-peaks';
@@ -82,6 +88,8 @@ type ClipShape = {
   start: number;
   duration: number;
   lane: number;
+  /** Muted, or another track is soloed: drawn faded. */
+  silent: boolean;
   /** One path per detail level, in clip-local seconds × amplitude (-1…1); null while loading. */
   waveform: SkPath[] | null;
   peaksPerSecond: number;
@@ -91,10 +99,16 @@ type ClipShape = {
  * The project timeline, drawn with Skia on the UI thread: time runs left to right in both
  * orientations, tracks are rows. Ruler on top, lanes with clips and waveforms, the playhead on top.
  *
+ * Lanes have a fixed height (`LANE_HEIGHT`) and scroll vertically when they don't fit. A pinned
+ * column on the left (`TrackColumn`) follows that scroll but not time: arm buttons, expanded into a
+ * mixer (mute, solo, volume) by the button in the corner above it. The canvas and its gestures cover
+ * only the time area right of the column, so expanding it narrows the time area. Names, "+ New Track" and the
+ * "N more" chevrons are RN views over the lanes (`LaneOverlay`).
+ *
  * Gestures: pan scrolls (with momentum, both axes), pinch zooms around the fingers, a tap anywhere
  * moves the playhead there, and dragging on the ruler scrubs the playhead (released: seek).
  * Waveforms share one vertical scale per project (the loudest take fills its lane), so relative
- * loudness between takes stays true. Track headers (arm, name) are RN views over the lanes.
+ * loudness between takes stays true.
  */
 export function Timeline({
   project,
@@ -102,9 +116,15 @@ export function Timeline({
   following,
   liveTake,
   armedTrackId,
+  addTrackDisabled,
   onSeek,
   onArm,
   onEditTrack,
+  onAddTrack,
+  onToggleMute,
+  onToggleSolo,
+  onVolumeLive,
+  onVolumeCommit,
 }: {
   project: Project;
   /** Playhead position in seconds, animated by the transport. */
@@ -114,23 +134,39 @@ export function Timeline({
   /** The take being recorded, or null. */
   liveTake: LiveTake | null;
   armedTrackId: string | null;
+  addTrackDisabled: boolean;
   onSeek: (time: number) => void;
   onArm: (trackId: string) => void;
   onEditTrack: (trackId: string) => void;
+  onAddTrack: () => void;
+  onToggleMute: (trackId: string) => void;
+  onToggleSolo: (trackId: string) => void;
+  /** A volume slider moved (per move, for the engine); `onVolumeCommit` once when it's released. */
+  onVolumeLive: (trackId: string, gain: number) => void;
+  onVolumeCommit: (trackId: string, gain: number) => void;
 }) {
   const theme = useTheme();
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const viewWidth = size.width;
+  const [draft, setDraft] = useState<FaderDraft | null>(null);
+  const [mixerOpen, setMixerOpen] = useState(false);
+  // Never wider than half the view (a phone in portrait keeps some timeline next to the mixer).
+  const columnWidth = mixerOpen
+    ? Math.max(CONTROLS_WIDTH, Math.min(MIXER_WIDTH, size.width / 2 + CONTROLS_WIDTH))
+    : CONTROLS_WIDTH;
+  // The canvas covers the time area right of the controls column; its x = 0 is the column's edge.
+  const viewWidth = Math.max(0, size.width - columnWidth);
   // Time is laid out over the view minus the leading space: x = LEADING_SPACE + (t - scroll) * zoom.
   const timeWidth = Math.max(0, viewWidth - LEADING_SPACE);
   const viewHeight = size.height;
   const trackCount = project.tracks.length;
-  const lane = laneSize(viewHeight - RULER_SIZE, trackCount);
-  const maxLaneScroll = Math.max(0, RULER_SIZE + trackCount * lane - viewHeight);
+  const lane = LANE_HEIGHT;
+  const lanesViewport = Math.max(0, viewHeight - RULER_SIZE);
+  const maxLaneScroll = laneScrollMax(lanesViewport, trackCount, lane, NEW_TRACK_ROW_HEIGHT);
   const duration = project.duration;
   const isRecording = liveTake != null;
 
   const peaks = useTakePeaks(Object.values(project.takes).map((take) => take.path));
+  const anySolo = project.tracks.some((track) => track.solo);
   const clips: ClipShape[] = project.tracks.flatMap((track, lane) =>
     track.clips.map((clip) => {
       const take = project.takes[clip.takeId];
@@ -139,6 +175,7 @@ export function Timeline({
         start: clip.start,
         duration: clip.duration,
         lane,
+        silent: anySolo ? !track.solo : track.muted,
         waveform: levels ? waveformPaths(levels, clip.offset, clip.duration) : null,
         peaksPerSecond: levels?.[0] ? peaksPerSecond(levels[0]) : 0,
       };
@@ -325,6 +362,7 @@ export function Timeline({
         const height = lane - CLIP_INSET * 2;
         const rect = Skia.XYWHRect(x0, top, width, height);
         const rrect = Skia.RRectXY(rect, CLIP_RADIUS, CLIP_RADIUS);
+        if (clip.silent) canvas.saveLayer(paints.silent);
         canvas.drawRRect(rrect, paints.clip);
         canvas.drawRRect(rrect, paints.clipBorder);
         canvas.drawLine(x0, top + height / 2, x0 + width, top + height / 2, paints.centerLine);
@@ -339,6 +377,7 @@ export function Timeline({
           canvas.drawPath(path, paints.waveform);
           canvas.restore();
         }
+        if (clip.silent) canvas.restore();
       }
 
       // The take being recorded, on its track's lane, with the waveform received so far.
@@ -410,7 +449,7 @@ export function Timeline({
       }}>
       <GestureDetector gesture={gesture}>
         <View
-          style={StyleSheet.absoluteFill}
+          style={[styles.timeArea, { left: columnWidth }]}
           accessible
           accessibilityLabel={`Timeline, ${trackCount} ${trackCount === 1 ? 'track' : 'tracks'}, ${clipCount} ${clipCount === 1 ? 'clip' : 'clips'}`}>
           {size.width > 0 ? (
@@ -421,17 +460,72 @@ export function Timeline({
         </View>
       </GestureDetector>
       {size.width > 0 ? (
-        <TrackHeaders
-          tracks={project.tracks}
-          rulerSize={RULER_SIZE}
-          lane={lane}
-          inset={CLIP_INSET}
-          laneScroll={laneScroll}
-          armedTrackId={armedTrackId}
-          disabled={isRecording}
-          onArm={onArm}
-          onEdit={onEditTrack}
-        />
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Mixer"
+            accessibilityHint="Shows mute, solo and volume for each track"
+            accessibilityState={{ expanded: mixerOpen }}
+            onPress={() => setMixerOpen((open) => !open)}
+            style={({ pressed }) => [
+              styles.corner,
+              {
+                width: columnWidth,
+                backgroundColor: mixerOpen
+                  ? theme.colors.surfacePressed
+                  : theme.colors.surfaceMuted,
+                borderColor: theme.colors.border,
+              },
+              pressed && styles.pressed,
+            ]}>
+            <View style={styles.cornerIcon}>
+              <Icon
+                name={{ ios: 'slider.horizontal.3', android: 'tune' }}
+                size={18}
+                color={mixerOpen ? 'text' : 'textSecondary'}
+              />
+            </View>
+          </Pressable>
+          <TrackColumn
+            tracks={project.tracks}
+            top={RULER_SIZE}
+            width={columnWidth}
+            armWidth={CONTROLS_WIDTH}
+            expanded={mixerOpen}
+            anySolo={anySolo}
+            onToggleMute={onToggleMute}
+            onToggleSolo={onToggleSolo}
+            lane={lane}
+            laneScroll={laneScroll}
+            armedTrackId={armedTrackId}
+            armDisabled={isRecording}
+            draft={draft}
+            onArm={onArm}
+            onVolumeDrag={(trackId, gain) => {
+              setDraft({ trackId, gain });
+              onVolumeLive(trackId, gain);
+            }}
+            onVolumeRelease={(trackId, gain) => {
+              setDraft(null);
+              onVolumeCommit(trackId, gain);
+            }}
+          />
+          <LaneOverlay
+            tracks={project.tracks}
+            top={RULER_SIZE}
+            left={columnWidth}
+            viewport={lanesViewport}
+            lane={lane}
+            inset={CLIP_INSET}
+            footer={NEW_TRACK_ROW_HEIGHT}
+            laneScroll={laneScroll}
+            draft={draft}
+            editDisabled={isRecording}
+            addTrackDisabled={addTrackDisabled}
+            onEdit={onEditTrack}
+            onAddTrack={onAddTrack}
+          />
+        </>
       ) : null}
     </View>
   );
@@ -524,9 +618,28 @@ function makePaints(colors: ThemeColors) {
     label: fill(colors.textSecondary),
     playhead: stroke(colors.primary, PLAYHEAD_WIDTH),
     playheadHandle: fill(colors.primary),
+    /** Layer paint for clips of silent (muted / not soloed) tracks. */
+    silent: (() => {
+      const paint = Skia.Paint();
+      paint.setAlphaf(0.35);
+      return paint;
+    })(),
   };
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, overflow: 'hidden' },
+  timeArea: { position: 'absolute', top: 0, bottom: 0, right: 0 },
+  corner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    height: RULER_SIZE,
+    justifyContent: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: StyleSheet.hairlineWidth,
+  },
+  // The icon stays centered over the arm buttons whether the mixer is open or not.
+  cornerIcon: { width: CONTROLS_WIDTH, alignItems: 'center' },
+  pressed: { opacity: 0.6 },
 });

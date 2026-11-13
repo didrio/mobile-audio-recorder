@@ -42,6 +42,11 @@ export const lightColors = {
   waveform: '#2F5FBF',
   /** Timeline: track header chip floating over the lane (slightly translucent). */
   trackHeader: '#F2F2F7EB',
+  /** Track mixer: active Mute (M) and Solo (S) buttons, and their text. */
+  mute: '#3478F6',
+  onMute: '#FFFFFF',
+  solo: '#F5B800',
+  onSolo: '#000000',
 } as const;
 
 export type ThemeColors = { readonly [K in keyof typeof lightColors]: string };
@@ -66,6 +71,10 @@ export const darkColors: ThemeColors = {
   clip: '#1C2940',
   waveform: '#82A9F2',
   trackHeader: '#1C1C1EEB',
+  mute: '#4A8DFF',
+  onMute: '#FFFFFF',
+  solo: '#FFD60A',
+  onSolo: '#000000',
 };
 
 /** 4pt spacing scale. Use for padding, margin and gap. */
@@ -112,8 +121,8 @@ export const typography = {
   footnote: { fontSize: 13, lineHeight: 18, fontWeight: '400' },
   caption: { fontSize: 12, lineHeight: 16, fontWeight: '400' },
   mono: { fontSize: 13, lineHeight: 18, fontWeight: '400', fontFamily: fonts.mono },
-  /** Transport clock (elapsed / position). Monospaced so digits don't jitter. */
-  timecode: { fontSize: 40, lineHeight: 48, fontWeight: '600', fontFamily: fonts.mono },
+  /** Transport clock in the editor's status strip. Monospaced so digits don't jitter. */
+  timecode: { fontSize: 22, lineHeight: 28, fontWeight: '600', fontFamily: fonts.mono },
 } as const satisfies Record<
   string,
   {

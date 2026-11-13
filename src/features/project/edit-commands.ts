@@ -5,7 +5,7 @@
 import { randomUUID } from 'expo-crypto';
 
 import { clearRange } from '@/features/projects/clip-overlap';
-import type { Clip, Project, Take } from '@/features/projects/projects-repo';
+import type { Clip, Project, Take, Track } from '@/features/projects/projects-repo';
 
 import { trackRow, type Change, type Edit } from './edit-changes';
 
@@ -47,6 +47,41 @@ export function renameTrackEdit(project: Project, trackId: string, name: string)
     label: 'Rename track',
     changes: [{ table: 'tracks', id: trackId, before, after: { ...before, name: trimmed } }],
   };
+}
+
+/** Sets a track's volume (linear gain, 1 = 0 dB); an unchanged or invalid volume does nothing. */
+export function setTrackVolumeEdit(project: Project, trackId: string, volume: number): Edit | null {
+  if (!Number.isFinite(volume) || volume < 0) return null;
+  return trackSettingEdit(project, trackId, { volume }, 'Track volume');
+}
+
+export function setTrackMutedEdit(project: Project, trackId: string, muted: boolean): Edit | null {
+  return trackSettingEdit(project, trackId, { muted }, muted ? 'Mute' : 'Unmute');
+}
+
+export function setTrackSoloEdit(project: Project, trackId: string, solo: boolean): Edit | null {
+  return trackSettingEdit(project, trackId, { solo }, solo ? 'Solo' : 'Unsolo');
+}
+
+/** Changes mixer settings of a track's row; `null` when the track is missing or nothing changes. */
+function trackSettingEdit(
+  project: Project,
+  trackId: string,
+  settings: Partial<Pick<Track, 'volume' | 'muted' | 'solo'>>,
+  label: string,
+): Edit | null {
+  const track = project.tracks.find((candidate) => candidate.id === trackId);
+  if (!track) return null;
+  const before = trackRow(track);
+  const after = { ...before, ...settings };
+  if (
+    after.volume === before.volume &&
+    after.muted === before.muted &&
+    after.solo === before.solo
+  ) {
+    return null;
+  }
+  return { label, changes: [{ table: 'tracks', id: trackId, before, after }] };
 }
 
 /**

@@ -43,6 +43,8 @@ jest.mock('expo-crypto', () => {
 
 jest.mock('react-native-worklets', () => ({
   runOnUISync: (worklet: (...args: unknown[]) => unknown, ...args: unknown[]) => worklet(...args),
+  scheduleOnUI: (worklet: (...args: unknown[]) => unknown, ...args: unknown[]) => worklet(...args),
+  scheduleOnRN: (fn: (...args: unknown[]) => unknown, ...args: unknown[]) => fn(...args),
 }));
 
 // Reanimated runs worklets on the UI thread, which doesn't exist in Jest (its bundled mock still
@@ -72,13 +74,20 @@ jest.mock('react-native-reanimated', () => {
   const { View } = jest.requireActual<typeof import('react-native')>('react-native');
   return {
     __esModule: true,
-    default: { View },
+    default: { View, createAnimatedComponent: (component: unknown) => component },
+    createAnimatedComponent: (component: unknown) => component,
     useAnimatedStyle: (compute: () => unknown) => compute(),
     useSharedValue: (initial: unknown) => useState(() => makeSharedValue(initial))[0],
     useDerivedValue: (compute: () => unknown) => makeSharedValue(compute()),
     useFrameCallback: () => ({ setActive: () => {}, isActive: false, callbackId: -1 }),
     useAnimatedReaction: () => {},
     withDecay: () => 0,
+    withTiming: (value: unknown) => value,
+    // Used by react-native-gesture-handler's v3 hooks; gestures never fire in Jest.
+    isSharedValue: () => false,
+    useEvent: () => () => {},
+    useHandler: () => ({ context: {}, doDependenciesDiffer: false, useWeb: false }),
+    useComposedEventHandler: () => () => {},
     cancelAnimation: () => {},
   };
 });

@@ -11,6 +11,9 @@
  *   `stop()` returns that measurement with the latencies; `take-alignment.ts` turns it into a clip.
  * - Playback: one shared `AudioContext`. Every clip becomes an `AudioBufferSourceNode` started at
  *   its timeline position: source → track gain → master gain → speakers. Decoded takes are cached.
+ * - Mixer: `setTrackGain` keeps each track's gain (track volume; later × mute/solo). Playback builds
+ *   one `GainNode` per track from it, and changes apply live (short ramp) to the playing graph,
+ *   including the backing playback while recording.
  * - Playhead: `playbackAnchor()` gives the moment (on the `performance.now()` clock, shared by the
  *   JS and UI threads) when timeline position `from` is heard, so the UI can animate the playhead
  *   per frame without calling into the engine.
@@ -63,17 +66,21 @@ export type ActiveRecording = {
 export type PlayableClip = {
   /** Take path relative to the document directory (as stored in the database). */
   takePath: string;
+  /** Its track: the clip plays through that track's gain (`setTrackGain`). */
+  trackId: string;
   /** Timeline position, offset into the take, and length: all in seconds. */
   start: number;
   offset: number;
   duration: number;
-  /** Track volume, 0–1+. */
-  volume: number;
 };
 
 let context: AudioContext | null = null;
 let recorder: AudioRecorder | null = null;
 const decodedTakes = new Map<string, Promise<AudioBuffer>>();
+/** Gain per track id (linear, 1 = 0 dB); tracks not in here play at 1. */
+const trackGains = new Map<string, number>();
+/** Time constant of the ramp when a gain changes while playing (no zipper noise). */
+const GAIN_RAMP_SECONDS = 0.015;
 
 /** Bumped by every `play` and `stopPlayback`, so a `play` still loading audio knows it was superseded. */
 let playGeneration = 0;
@@ -82,6 +89,8 @@ let playback: {
   sources: AudioBufferSourceNode[];
   /** The graph's output node; disconnecting it releases the whole graph of this playback. */
   output: GainNode;
+  /** One gain per track that has audible clips. */
+  tracks: Map<string, GainNode>;
   endTimer: ReturnType<typeof setTimeout>;
   startedAt: number;
   from: number;
@@ -272,14 +281,23 @@ export async function play(
   const startedAtMs = performance.now() + (SCHEDULE_AHEAD_SECONDS + outputLatency(ctx)) * 1000;
   let end = 0;
 
+  const tracks = new Map<string, GainNode>();
+  const trackGain = (trackId: string) => {
+    let node = tracks.get(trackId);
+    if (!node) {
+      node = ctx.createGain();
+      node.gain.value = trackGains.get(trackId) ?? 1;
+      node.connect(master);
+      tracks.set(trackId, node);
+    }
+    return node;
+  };
+
   const sources = audible.map((clip, index) => {
     const skipped = Math.max(0, from - clip.start);
-    const gain = ctx.createGain();
-    gain.gain.value = clip.volume;
-    gain.connect(master);
     const source = ctx.createBufferSource();
     source.buffer = buffers[index] ?? null;
-    source.connect(gain);
+    source.connect(trackGain(clip.trackId));
     source.start(
       startedAt + Math.max(0, clip.start - from),
       clip.offset + skipped,
@@ -297,7 +315,18 @@ export async function play(
     },
     (end + SCHEDULE_AHEAD_SECONDS) * 1000,
   );
-  playback = { sources, output: master, endTimer, startedAt, from, startedAtMs };
+  playback = { sources, output: master, tracks, endTimer, startedAt, from, startedAtMs };
+}
+
+/**
+ * Sets a track's gain (linear, 1 = 0 dB) for this and later playbacks; a playing track changes
+ * smoothly at once. Cheap: call it per fader move.
+ */
+export function setTrackGain(trackId: string, gain: number) {
+  if (!Number.isFinite(gain) || gain < 0) return;
+  trackGains.set(trackId, gain);
+  const node = playback?.tracks.get(trackId);
+  if (node && context) node.gain.setTargetAtTime(gain, context.currentTime, GAIN_RAMP_SECONDS);
 }
 
 export function stopPlayback() {

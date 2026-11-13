@@ -23,7 +23,7 @@ name: Overdub
     visible: 'Timeline, 1 track, 1 clip'
     timeout: 15000
 
-- tapOn: 'Add track'
+- tapOn: 'New track'
 - extendedWaitUntil:
     visible: 'Arm Track 2'
     timeout: 5000

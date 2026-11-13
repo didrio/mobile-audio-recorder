@@ -5,10 +5,12 @@ import {
   defaultZoom,
   followScroll,
   formatRulerTime,
-  laneSize,
+  hiddenLanes,
+  laneScrollMax,
   MAX_ZOOM,
   maxScroll,
   minZoom,
+  pageScroll,
   pointToTime,
   rulerSteps,
   timeToPoint,
@@ -83,11 +85,25 @@ describe('waveformLevel', () => {
   });
 });
 
-describe('laneSize', () => {
-  it('shares the space between tracks within limits', () => {
-    expect(laneSize(300, 1)).toBe(240);
-    expect(laneSize(300, 3)).toBe(100);
-    expect(laneSize(300, 10)).toBe(72);
+describe('lanes', () => {
+  it('scrolls far enough to show the last lane and the footer row', () => {
+    expect(laneScrollMax(340, 8, 68, 44)).toBe(248);
+    expect(laneScrollMax(340, 2, 68, 44)).toBe(0);
+  });
+
+  it('counts lanes hidden above and below the viewport', () => {
+    expect(hiddenLanes(0, 340, 68, 8)).toEqual({ above: 0, below: 3 });
+    expect(hiddenLanes(136, 340, 68, 8)).toEqual({ above: 2, below: 1 });
+    // Half a lane showing still counts as visible.
+    expect(hiddenLanes(34, 340, 68, 8)).toEqual({ above: 0, below: 2 });
+    expect(hiddenLanes(0, 340, 68, 1)).toEqual({ above: 0, below: 0 });
+  });
+
+  it('pages by whole lanes within bounds', () => {
+    expect(pageScroll(0, 340, 68, 1, 248)).toBe(248); // a page is 5 lanes, capped at the end
+    expect(pageScroll(0, 300, 68, 1, 500)).toBe(272); // 4 whole lanes fit
+    expect(pageScroll(248, 340, 68, -1, 248)).toBe(0);
+    expect(pageScroll(30, 140, 68, 1, 500)).toBe(136); // lands on a lane boundary
   });
 });
 

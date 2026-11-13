@@ -1,5 +1,13 @@
 import { applyToProject, invertEdit } from './edit-changes';
-import { addTrackEdit, deleteTrackEdit, recordTakeEdit, renameTrackEdit } from './edit-commands';
+import {
+  addTrackEdit,
+  deleteTrackEdit,
+  recordTakeEdit,
+  renameTrackEdit,
+  setTrackMutedEdit,
+  setTrackSoloEdit,
+  setTrackVolumeEdit,
+} from './edit-commands';
 import { testClip, testProject, testTrack } from './edit-test-data';
 
 const project = testProject([
@@ -31,6 +39,34 @@ describe('renameTrackEdit', () => {
   it('ignores empty and unchanged names', () => {
     expect(renameTrackEdit(project, 'b', '  ')).toBeNull();
     expect(renameTrackEdit(project, 'b', 'Track 2')).toBeNull();
+  });
+});
+
+describe('setTrackVolumeEdit', () => {
+  it('sets the volume, and undo restores it', () => {
+    const edit = setTrackVolumeEdit(project, 'a', 0.5)!;
+
+    expect(applyToProject(project, edit.changes).tracks[0]?.volume).toBe(0.5);
+    expect(undo(edit)).toEqual(project);
+  });
+
+  it('ignores unchanged, negative and unknown values', () => {
+    expect(setTrackVolumeEdit(project, 'a', 1)).toBeNull();
+    expect(setTrackVolumeEdit(project, 'a', -1)).toBeNull();
+    expect(setTrackVolumeEdit(project, 'a', Number.NaN)).toBeNull();
+    expect(setTrackVolumeEdit(project, 'zzz', 0.5)).toBeNull();
+  });
+});
+
+describe('setTrackMutedEdit / setTrackSoloEdit', () => {
+  it('mutes and solos a track, and undo restores it', () => {
+    const mute = setTrackMutedEdit(project, 'a', true)!;
+    const solo = setTrackSoloEdit(project, 'b', true)!;
+
+    expect(applyToProject(project, mute.changes).tracks[0]?.muted).toBe(true);
+    expect(applyToProject(project, solo.changes).tracks[1]?.solo).toBe(true);
+    expect(undo(mute)).toEqual(project);
+    expect(setTrackMutedEdit(project, 'a', false)).toBeNull();
   });
 });
 

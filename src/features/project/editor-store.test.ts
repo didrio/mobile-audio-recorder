@@ -13,6 +13,9 @@ import {
   selectArmedTrack,
   selectCanRedo,
   selectCanUndo,
+  setTrackVolume,
+  toggleMute,
+  toggleSolo,
   undo,
   useEditorStore,
 } from './editor-store';
@@ -79,6 +82,41 @@ describe('editor store', () => {
     expect(selectArmedTrack(state())?.name).toBe('Track 3');
     await undo();
     expect(selectArmedTrack(state())?.name).toBe('Track 1'); // falls back to the first track
+  });
+
+  it('sets a track volume as one undo step', async () => {
+    await setTrackVolume('b', 0.5);
+    expect(state().project?.tracks[1]?.volume).toBe(0.5);
+    expect(saveChanges).toHaveBeenLastCalledWith(
+      'p1',
+      [
+        expect.objectContaining({
+          table: 'tracks',
+          after: expect.objectContaining({ volume: 0.5 }),
+        }),
+      ],
+      undefined,
+    );
+
+    await undo();
+    expect(state().project?.tracks[1]?.volume).toBe(1);
+    expect(selectCanUndo(state())).toBe(false);
+  });
+
+  it('toggles mute and solo, each an undo step', async () => {
+    await toggleMute('a');
+    await toggleSolo('b');
+    expect(state().project?.tracks.map((t) => [t.muted, t.solo])).toEqual([
+      [true, false],
+      [false, true],
+    ]);
+
+    await undo();
+    await undo();
+    expect(state().project?.tracks.map((t) => [t.muted, t.solo])).toEqual([
+      [false, false],
+      [false, false],
+    ]);
   });
 
   it('records a take as one undo step, saving the take with its clip', async () => {

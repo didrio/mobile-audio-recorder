@@ -27,7 +27,14 @@ import {
 import { projectKeys } from '@/features/projects/queries';
 
 import { applyToProject, invertEdit, type Change, type Edit } from './edit-changes';
-import { addTrackEdit, recordTakeEdit, type RecordedTakeInput } from './edit-commands';
+import {
+  addTrackEdit,
+  recordTakeEdit,
+  setTrackMutedEdit,
+  setTrackSoloEdit,
+  setTrackVolumeEdit,
+  type RecordedTakeInput,
+} from './edit-commands';
 import { emptyHistory, pushEdit, redoStep, undoStep, type History } from './edit-history';
 
 export type EditorState = {
@@ -170,6 +177,29 @@ export function addTrack(): Promise<void> {
   const saved = executeEdit(edit);
   armTrack(trackId);
   return saved;
+}
+
+/** Sets a track's volume (linear gain) as one undo step: call it once, when a fader drag ends. */
+export function setTrackVolume(trackId: string, volume: number): Promise<void> {
+  const { project } = useEditorStore.getState();
+  if (!project) return Promise.resolve();
+  return executeEdit(setTrackVolumeEdit(project, trackId, volume));
+}
+
+/** Mutes or unmutes a track (one undo step). */
+export function toggleMute(trackId: string): Promise<void> {
+  const { project } = useEditorStore.getState();
+  const track = project?.tracks.find((candidate) => candidate.id === trackId);
+  if (!project || !track) return Promise.resolve();
+  return executeEdit(setTrackMutedEdit(project, trackId, !track.muted));
+}
+
+/** Solos or unsolos a track (one undo step); several tracks can be soloed. */
+export function toggleSolo(trackId: string): Promise<void> {
+  const { project } = useEditorStore.getState();
+  const track = project?.tracks.find((candidate) => candidate.id === trackId);
+  if (!project || !track) return Promise.resolve();
+  return executeEdit(setTrackSoloEdit(project, trackId, !track.solo));
 }
 
 export function armTrack(trackId: string) {

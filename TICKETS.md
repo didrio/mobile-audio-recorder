@@ -4,8 +4,8 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T14 — Editor layout v2 · Opus · high effort · plan mode on (T12 can be run any time the Android build
-is done)
+**Next:** T15 — Arming & input meter · Opus · high effort · plan mode on (T12 can be run any time the Android
+build is done)
 
 ## In progress
 
@@ -30,11 +30,16 @@ dependency changes). See the `wrap` skill.
   Dragging an unselected item scrolls the timeline, so nothing moves by accident. Tapping a clip never moves
   the playhead. Tapping empty lane space or the ruler seeks and deselects. Tapping a section label also jumps
   the playhead to its start.
-- **Layout**: fixed lane height (5–6 lanes visible in portrait). A pinned track-controls column on the left
-  (arm + vertical volume fader) stays put while time scrolls. Track names float above each lane. The
+- **Layout** (built in T14): fixed 88 pt lanes. A pinned column on the left holds only the arm buttons; the
+  sliders button in the corner above it expands it into a mixer (arm · Mute · Solo · horizontal volume),
+  pushing the timeline right. Mute/solo also show as M/S badges on the floating track names, and silent
+  tracks' clips are drawn faded. Tapping a track name opens its sheet (Rename, Delete; no Duplicate). The
   section-label rail sits above the ruler. Thin status strip (time · metronome toggle · meter). Compact
   transport. "+ New Track" is a row after the last lane, not a header button.
-- **Header of an idea**: Undo · Redo · "⋯" (Idea settings, Duplicate, Delete, Favorite).
+- **Header of an idea**: Undo · Redo · "⋯" (Idea settings, Duplicate, Delete, Favorite). The menu exists since
+  T14 with disabled placeholders: items in `src/features/project/idea-menu-items.ts`, iOS
+  `Stack.Toolbar.Menu` in `project-screen.tsx`, Android `@expo/ui` Compose dropdown in
+  `android-idea-menu.android.tsx`. Enable an item by giving it an action there.
 - **Undo/redo** covers every edit, in memory per open idea (100 steps), cleared when leaving the idea. Built in
   T13: a new edit is a pure builder in `src/features/project/edit-commands.ts` returning an `Edit` (before/after
   snapshots of the rows it touches, `edit-changes.ts`), applied with `executeEdit()` from `editor-store.ts`. One
@@ -75,52 +80,14 @@ dependency changes). See the `wrap` skill.
   - Record over the middle of a take on the same track (three clips end to end), then Play several times in a
     row and seek while playing; playback must stay audible.
   - Whoever does T15 repeats its mic checks on devices (mic indicator, Bluetooth quality while armed).
-
-### T14 — Editor layout v2
-
-- **Status:** ready (after T13)
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** The idea screen gives the timeline more room: fixed-height lanes, a pinned track-controls column
-  with a volume fader per track, compact clock and transport in both orientations.
-- **Done when:**
-  - [ ] Lanes have a fixed height, so 5–6 fit in portrait on a 6.1" iPhone (around 64–72 pt; pick with
-        screenshots). Landscape shows fewer and scrolls. Replaces the fill logic of `laneSize()` in
-        `timeline-math.ts`.
-  - [ ] When tracks are off screen above or below, a subtle floating chevron with "N more" shows at that
-        edge of the lanes area. Tapping it scrolls one page.
-  - [ ] Pinned controls column on the left (narrow, ~52–56 pt), one cell per lane. It scrolls vertically with
-        the lanes and stays put when scrolling through time. Each cell has an arm button and a vertical volume
-        fader. The fader uses **relative drag** (a ~40 pt fader is too short for absolute positioning: a longer
-        finger move covers the full range), shows dB while dragging, and resets to 0 dB on double-tap. The
-        ruler, lanes and (later) section rail start to the right of the column.
-  - [ ] Track name is a small label floating at the top-left of its lane (as today), tapping it opens the
-        track sheet. The chips in `track-headers.tsx` go away (arm moves to the column).
-  - [ ] A "+ New Track" row after the last lane adds and arms a track (`addTrack()` in `editor-store.ts`). Remove
-        the header Add track button (both the iOS toolbar and Android `headerRight`).
-  - [ ] Track volume is saved to `tracks.volume` (the column exists) through the T13 store, one undo step per
-        drag (an `Edit` changing the track row, like `renameTrackEdit`; `saveChanges` already writes `volume`).
-        The engine applies it live: keep per-track `GainNode`s addressable instead of recreating them in
-        `play()`. Recording's backing playback uses the same path.
-  - [ ] Thin status strip in both orientations: time on the left, the meter on the right, with space for
-        T17's metronome toggle between them. Portrait: strip on top and a smaller transport at the bottom
-        (Play ~60 pt, others ~44 pt, less padding). Landscape: strip above the timeline (as wide as it) and a
-        narrow column on the right with the buttons stacked vertically (Record, Play, Back to start).
-  - [ ] Header: Undo · Redo · "⋯" (menu with placeholder items filled by T9/T10/T19). Undo/Redo exist since
-        T13; on iOS 26 all toolbar buttons share one glass pill (`Stack.Toolbar.Spacer width={8}` didn't split
-        them), fine for three icons. The Android `headerRight` Undo/Redo were never looked at: take one Android
-        emulator screenshot of the header in this ticket.
-  - [ ] Screenshots: portrait + landscape, light + dark, 1 track and 8 tracks.
-- **Context:** Timeline geometry: `RULER_SIZE`, `LEADING_SPACE` and `toX` / `seekable()` in
-  `src/features/timeline/timeline.tsx` (x = `LEADING_SPACE + (t - scroll) * zoom`), so the column becomes a
-  left inset. Gestures are RNGH v3 hooks composed with `useSimultaneousGestures` in `timeline.tsx`. The
-  column's fader drag must win over lane scrolling. Drawing is one `createPicture` per frame. Header button
-  patterns and both layouts are in `src/features/project/project-screen.tsx`. Read the AGENTS.md
-  "Two clocks" and "Shared values" gotchas before touching scroll shared values. `@expo/ui` has native
-  sliders, but a custom fader will probably fit the narrow column better.
+  - Mixer (T14): drag a track's volume while playing (smooth, no clicks?), mute/solo during playback and while
+    recording an overdub (backing changes, the take doesn't).
+  - OTA note: an iOS-only preview update (`01a1d6bf`, T14) is already published; Android still needs an update
+    published after its build finished (`npm run update:preview` covers both).
 
 ### T15 — Arming & input meter
 
-- **Status:** ready (after T13; easier after T14)
+- **Status:** ready
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Arming works like a DAW: toggle it, and the meter shows the live mic input while a track is armed.
 - **Done when:**
@@ -135,7 +102,8 @@ dependency changes). See the `wrap` skill.
   - [ ] Checked on a real iPhone: the orange mic indicator only shows while armed. Check Bluetooth headphones
         too: many drop to low-quality "call" audio while the mic is open. If that's bad, note it and ticket a
         fallback (e.g. meter only while recording when Bluetooth output is active).
-- **Context:** The armed track lives in the editor store since T13 (`armedTrackId`, `armTrack`,
+- **Context:** The arm buttons are in the controls column since T14 (`src/features/timeline/track-column.tsx`,
+  always visible, mixer open or not). The armed track lives in the editor store since T13 (`armedTrackId`, `armTrack`,
   `selectArmedTrack` with its fall back to the first track, in `src/features/project/editor-store.ts`); persist it
   there (write on `armTrack`, read in `openIdea`). Arming isn't an undo step. Today the meter is fed by
   `setLevel(peakLevel(samples))` in `use-transport.ts` only while recording. First check in
@@ -145,7 +113,7 @@ dependency changes). See the `wrap` skill.
 
 ### T5 — Clip editing
 
-- **Status:** ready (after T13 and T14)
+- **Status:** ready
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Move, trim, split, duplicate and delete clips on the timeline, all undoable.
 - **Done when:**
@@ -192,7 +160,7 @@ dependency changes). See the `wrap` skill.
 
 ### T20 — Pitch reference keyboard
 
-- **Status:** ready (after T14)
+- **Status:** ready
 - **Session:** Sonnet · medium effort · plan mode off
 - **Goal:** A quick piano to find and hear any note (starting note for a melody, checking a key) without
   leaving the idea.
@@ -233,7 +201,7 @@ dependency changes). See the `wrap` skill.
 
 ### T17 — Metronome & count-in
 
-- **Status:** ready (after T9 and T14)
+- **Status:** ready (after T9)
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** A metronome that follows the idea's tempo and time signature, with a count-in for recording.
 - **Done when:**
@@ -309,8 +277,9 @@ dependency changes). See the `wrap` skill.
   - [ ] Migration: `clips.gain` (1), `fade_in` (0), `fade_out` (0). The engine applies gain and fades with
         gain ramps, plus a few-millisecond automatic declick fade on every clip edge.
   - [ ] Waveform drawing reflects clip gain. Changes are undoable (T13 store).
-- **Context:** `PlayableClip.volume` in `audio-engine.ts` already gives each clip its own gain. T8's mixdown
-  must apply the same gain and fades.
+- **Context:** Since T14 clips play through one `GainNode` per track (`play()` in `audio-engine.ts`), so clip
+  gain and fades need a per-clip `GainNode` between the source and its track gain (add `gain`/fades to
+  `PlayableClip`). T8's mixdown must apply the same gain and fades.
 
 ### T19 — Folders & favorites
 
@@ -365,24 +334,23 @@ dependency changes). See the `wrap` skill.
   - [ ] Share a single take from the clip menu.
 - **Context:** The library has no "encode AudioBuffer to file" API (checked in T1); `concatAudioFiles` only joins
   recorder segments. Export files go to the cache directory and are deleted after sharing. The mixdown must
-  match playback: track volume (T14), mute/solo (T6), clip gain and fades (T16), and leave out the metronome
-  (T17). Whatever of those exists when this ticket runs.
+  match playback: track volume, mute and solo (T14: `trackOutputGain` in `src/features/project/mixer.ts`), master
+  volume (T6), clip gain and fades (T16), and leave out the metronome (T17). Whatever of those exists when this
+  ticket runs.
 
-### T6 — Mute, solo & master volume
+### T6 — Master volume & track colors
 
-- **Status:** ready (after T14)
+- **Status:** ready
 - **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** Per-track mute and solo, a master volume, and optional track colors. (Track volume moved to T14.)
+- **Goal:** A master volume and optional track colors. (Track volume, mute and solo were built in T14's mixer.)
 - **Done when:**
-  - [ ] Mute and solo persisted in `tracks.muted/solo` (columns exist). They go in T14's controls column if they
-        fit at its lane height, otherwise in the track sheet (`src/features/project/track-sheet.tsx`); decide
-        with screenshots.
-  - [ ] The engine applies them live through T14's per-track gains, including the backing playback while
-        recording; solo silences non-solo tracks.
-  - [ ] Master volume (where: status strip or Idea settings; decide in the session).
-  - [ ] Optional track color (migration), used for the clips and the name label.
-  - [ ] Undoable (T13 store).
-- **Context:** Per-track `GainNode`s come with T14.
+  - [ ] Master volume (where: the mixer's corner, status strip or Idea settings; decide in the session), saved
+        per idea (migration), applied live through the engine's master `GainNode` in `play()`, undoable.
+  - [ ] Optional track color (migration), picked in the track sheet, used for the clips and the name label.
+  - [ ] Undoable (T13 store: a `trackSettingEdit`-style command in `edit-commands.ts`).
+- **Context:** Per-track gain is `setTrackGain` in `audio-engine.ts`, fed by `trackOutputGain` (`mixer.ts`)
+  from an effect in `use-transport.ts`. A master gain needs the same "live + effect" path. Clip colors go in
+  `makePaints`/the clip loop of `timeline.tsx` (light and dark tokens).
 
 ### T11 — Identity & store prep
 
@@ -420,10 +388,20 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - Overdub polish: show the live take at its compensated position while recording (it jumps by the latency
   on Stop); count-in arrives with T17; input monitoring is above.
 - Maestro: `tapOn` by `accessibilityLabel` doesn't focus a `TextInput` on iOS (tap by point instead).
+- Timeline remounts on rotation: mixer open/closed, zoom and lane scroll reset (the portrait and landscape
+  layouts render it in different trees in `project-screen.tsx`). Keep one tree or lift that state.
+- Android emulator: the old "Idea 1" clip draws without a waveform (center line only); not investigated in
+  T14 (missing take file or peaks?). Check on a real device in T12.
 - Clock text runs ~0.1–0.3 s ahead of the playhead (the playhead includes output latency). Show the clock from
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 
 ## Done
+
+- T14 — Editor layout v2 — 2026-11-13 — fixed 88 pt lanes with "N more" chips, arm-only column that expands
+  into a mixer (mute, solo, relative-drag volume; mute/solo pulled in from T6; per-track `GainNode`s applied
+  live), "+ New Track" row, status strip + compact transport (landscape: button column), header Undo · Redo ·
+  ⋯ placeholders (Android: `@expo/ui` dropdown); iOS preview OTA `01a1d6bf` published; checked on the iOS
+  simulator (both orientations, light/dark, 1 and 8 tracks) and the Android header; e2e skipped
 
 - T13 — Editor store & undo/redo — 2026-11-13 — the open idea lives in a zustand editor store (`editor-store.ts`):
   edits are before/after row snapshots applied in memory and written through to SQLite in a serial queue,
@@ -449,5 +427,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   playhead after Stop (zoom fit runs on the UI thread)
 
 - T3 — Multitrack overdub — 2026-11-13 — add/rename/delete/arm tracks (lane headers + track sheet), record at the playhead over the other tracks with measured start + latency compensation and a Settings offset, live waveform; fixed the playhead clock (JS and UI `performance.now()` differ, `ui-clock.ts`); overdub Maestro flow
-- T2 — Timeline view — 2026-11-11 — Skia timeline (lanes, clips with cached waveform peaks, ruler, UI-thread playhead with follow), pan/pinch/ruler seek, Play from the playhead, portrait/landscape layouts; Maestro hang traced to NTKDaemon on port 5563 (e2e warns now); smoke flow covers quick capture
-- T1 — Shape the app — 2026-11-11 — idea agreed (multitrack song sketchpad), recording red, react-native-audio-api engine + background config, SQLite non-destructive data model, Ideas list with quick-capture record button, project screen recording/playing takes on track 1, T2–T11 written

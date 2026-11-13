@@ -1,0 +1,255 @@
+import { useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+import Animated, {
+  useAnimatedReaction,
+  useAnimatedStyle,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
+import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
+
+import { Icon, Text } from '@/components/ui';
+import type { Track } from '@/features/projects/projects-repo';
+import { makeStyles } from '@/theme';
+
+import { formatDb } from './fader-math';
+import { hiddenLanes, laneScrollMax, pageScroll } from './timeline-math';
+import type { FaderDraft } from './track-column';
+
+const PAGE_SCROLL_MS = 250;
+
+/**
+ * RN views over the lanes, moved with their vertical scroll: each track's name floating at the
+ * top-left of its lane (opens the track's settings; shows the dB while its volume moves, and M / S
+ * badges when it's muted or soloed, so that shows with the mixer closed), the
+ * "+ New Track" row after the last lane, and "N more" chevrons at the top / bottom edge when lanes
+ * are scrolled out of view (tap: one page).
+ */
+export function LaneOverlay({
+  tracks,
+  top,
+  left,
+  viewport,
+  lane,
+  inset,
+  footer,
+  laneScroll,
+  draft,
+  editDisabled,
+  addTrackDisabled,
+  onEdit,
+  onAddTrack,
+}: {
+  tracks: Pick<Track, 'id' | 'name' | 'muted' | 'solo'>[];
+  /** Where the lanes start (below the ruler). */
+  top: number;
+  /** Where the time area starts (after the controls column). */
+  left: number;
+  /** Visible height of the lanes area. */
+  viewport: number;
+  lane: number;
+  /** Gap between a name label and the lane edges. */
+  inset: number;
+  /** Height of the "+ New Track" row. */
+  footer: number;
+  laneScroll: SharedValue<number>;
+  draft: FaderDraft | null;
+  /** While recording: tracks can't be edited. */
+  editDisabled: boolean;
+  addTrackDisabled: boolean;
+  onEdit: (trackId: string) => void;
+  onAddTrack: () => void;
+}) {
+  const styles = useStyles();
+  const count = tracks.length;
+  const scrolled = useAnimatedStyle(() => ({ transform: [{ translateY: -laneScroll.get() }] }));
+
+  const [hidden, setHidden] = useState(() => hiddenLanes(laneScroll.get(), viewport, lane, count));
+  useAnimatedReaction(
+    () => hiddenLanes(laneScroll.get(), viewport, lane, count),
+    (next, previous) => {
+      if (previous && next.above === previous.above && next.below === previous.below) return;
+      scheduleOnRN(setHidden, next);
+    },
+  );
+
+  const max = laneScrollMax(viewport, count, lane, footer);
+  const page = (direction: 1 | -1) => {
+    scheduleOnUI(() => {
+      'worklet';
+      const target = pageScroll(laneScroll.get(), viewport, lane, direction, max);
+      laneScroll.set(withTiming(target, { duration: PAGE_SCROLL_MS }));
+    });
+  };
+
+  return (
+    <View pointerEvents="box-none" style={[styles.viewport, { top }]}>
+      <Animated.View pointerEvents="box-none" style={[styles.fill, scrolled]}>
+        {tracks.map((track, index) => {
+          const level = draft?.trackId === track.id ? formatDb(draft.gain) : null;
+          return (
+            <Pressable
+              key={track.id}
+              accessibilityRole="button"
+              accessibilityLabel={`${track.name} settings`}
+              accessibilityState={{ disabled: editDisabled }}
+              disabled={editDisabled}
+              hitSlop={6}
+              onPress={() => onEdit(track.id)}
+              style={({ pressed }) => [
+                styles.name,
+                { top: index * lane + inset, left: left + inset, maxWidth: lane * 3 },
+                pressed && styles.pressed,
+              ]}>
+              <Text variant="caption" color="textSecondary" numberOfLines={1}>
+                {track.name}
+              </Text>
+              {track.muted ? <Badge letter="M" kind="mute" /> : null}
+              {track.solo ? <Badge letter="S" kind="solo" /> : null}
+              {level ? (
+                <Text variant="caption" color="text" numberOfLines={1}>
+                  {level}
+                </Text>
+              ) : null}
+            </Pressable>
+          );
+        })}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="New track"
+          accessibilityState={{ disabled: addTrackDisabled }}
+          disabled={addTrackDisabled}
+          onPress={onAddTrack}
+          style={({ pressed }) => [
+            styles.newTrack,
+            { top: count * lane, height: footer },
+            addTrackDisabled && styles.disabled,
+            pressed && styles.pressed,
+          ]}>
+          <Icon name={{ ios: 'plus', android: 'add' }} size={16} color="textSecondary" />
+          <Text variant="subheadline" color="textSecondary">
+            New Track
+          </Text>
+        </Pressable>
+      </Animated.View>
+      {hidden.above > 0 ? (
+        <MoreChip
+          count={hidden.above}
+          direction="up"
+          style={[styles.more, { top: inset, left }]}
+          onPress={() => page(-1)}
+        />
+      ) : null}
+      {hidden.below > 0 ? (
+        <MoreChip
+          count={hidden.below}
+          direction="down"
+          style={[styles.more, { bottom: inset, left }]}
+          onPress={() => page(1)}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+function Badge({ letter, kind }: { letter: string; kind: 'mute' | 'solo' }) {
+  const styles = useStyles();
+  return (
+    <View
+      style={[styles.badge, kind === 'mute' ? styles.badgeMute : styles.badgeSolo]}
+      accessibilityLabel={kind === 'mute' ? 'muted' : 'soloed'}>
+      <Text
+        variant="caption"
+        color={kind === 'mute' ? 'onMute' : 'onSolo'}
+        style={styles.badgeText}>
+        {letter}
+      </Text>
+    </View>
+  );
+}
+
+function MoreChip({
+  count,
+  direction,
+  style,
+  onPress,
+}: {
+  count: number;
+  direction: 'up' | 'down';
+  style: object;
+  onPress: () => void;
+}) {
+  const styles = useStyles();
+  const label = `${count} more`;
+  return (
+    <View pointerEvents="box-none" style={style}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${label} ${count === 1 ? 'track' : 'tracks'} ${direction === 'up' ? 'above' : 'below'}`}
+        hitSlop={8}
+        onPress={onPress}
+        style={({ pressed }) => [styles.chip, pressed && styles.pressed]}>
+        <Icon
+          name={
+            direction === 'up'
+              ? { ios: 'chevron.up', android: 'keyboard_arrow_up' }
+              : { ios: 'chevron.down', android: 'keyboard_arrow_down' }
+          }
+          size={12}
+          color="textSecondary"
+        />
+        <Text variant="caption" color="textSecondary">
+          {label}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const useStyles = makeStyles((t) => ({
+  viewport: { position: 'absolute', left: 0, right: 0, bottom: 0, overflow: 'hidden' },
+  fill: { flex: 1 },
+  name: {
+    position: 'absolute',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: t.spacing.xs,
+    paddingVertical: t.spacing.xxs,
+    paddingHorizontal: t.spacing.sm,
+    borderRadius: t.radius.full,
+    backgroundColor: t.colors.trackHeader,
+  },
+  newTrack: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: t.spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: t.colors.border,
+    backgroundColor: t.colors.background,
+  },
+  more: { position: 'absolute', right: 0, alignItems: 'center' },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: t.spacing.xxs,
+    paddingVertical: t.spacing.xxs,
+    paddingHorizontal: t.spacing.sm,
+    borderRadius: t.radius.full,
+    backgroundColor: t.colors.trackHeader,
+  },
+  badge: {
+    minWidth: 16,
+    paddingHorizontal: t.spacing.xxs,
+    borderRadius: t.radius.sm / 2,
+    alignItems: 'center',
+  },
+  badgeMute: { backgroundColor: t.colors.mute },
+  badgeSolo: { backgroundColor: t.colors.solo },
+  badgeText: { fontWeight: '700' },
+  disabled: { opacity: 0.4 },
+  pressed: { opacity: 0.6 },
+}));

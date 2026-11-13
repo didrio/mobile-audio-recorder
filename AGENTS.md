@@ -161,6 +161,9 @@ TICKETS.md                Ordered, living backlog; one ticket per session (/star
 - **Two clocks**: the JS and UI-thread (worklet) runtimes don't share a `performance.now()` origin (seen ~29 h
   apart on iOS). Don't pass a JS timestamp to a worklet as-is; measure the offset with `runOnUISync` from
   `react-native-worklets` (UI `performance.now()` minus the JS reading taken around the call) and convert.
+- **Shared values moved on the UI thread**: don't read-modify-write them from a JS-side `useEffect`
+  (`sv.set(clamp(sv.get(), …))`). The JS read can be stale and writes an old value back over what a gesture or
+  `useAnimatedReaction` just set. Do the read-modify-write in a worklet: `scheduleOnUI(() => { 'worklet'; … })`.
 - **Variants**: `APP_VARIANT` = `development` (local scripts, `.dev` bundle ID, "<Name> Dev"), `preview`,
   `production` (default when unset). Switching variants for local native builds needs `npm run native:clean`.
 - **Base updates**: apps share the base's git history (`base` remote) and pull its improvements with

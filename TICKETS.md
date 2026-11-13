@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T4 — First preview build · Sonnet · medium effort · plan mode off
+**Next:** T4 — First preview build · Opus · high effort · plan mode off
 
 ## In progress
 
@@ -23,7 +23,8 @@ dependency changes). See the `wrap` skill.
 ### T4 — First preview build
 
 - **Status:** ready
-- **Session:** Sonnet · medium effort · plan mode off
+- **Session:** Opus · high effort · plan mode off (scripted in `docs/releasing.md`, but the first real-device
+  recording test may surface audio bugs like the stacked-clips one)
 - **Goal:** The app's own EAS project, preview builds installed on the user's devices, an OTA update received.
 - **Done when:**
   - [ ] `npx eas-cli@latest init` + `update:configure` committed (revert its `eas.json` rewrite).
@@ -43,6 +44,9 @@ dependency changes). See the `wrap` skill.
   take and play both back — they should line up; if not, tune Settings → Recording → Latency offset and note
   the value per device in `docs/releasing.md`. Also try Bluetooth headphones (much higher latency), delete a
   track from its sheet, and `npm run e2e` includes the new `.maestro/overdub.yaml`.
+  **From the post-T3 polish** (simulator-only so far): record over the middle of an existing take on the same
+  track (it should replace that part: three clips end to end), then Play several times in a row and seek while
+  playing. Playback once went silent after repeated tries before the fix; confirm it stays audible.
 
 ### T5 — Clip editing
 

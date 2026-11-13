@@ -24,8 +24,10 @@ export function ProjectScreen() {
   const styles = useStyles();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  // The native header floats over the content (iOS 26+), so start below it.
+  // The native header floats over the content on iOS 26+, so start below it there. Android's
+  // Material header is opaque and already sits above the content.
   const headerHeight = useHeaderHeight();
+  const contentTop = Platform.OS === 'ios' ? headerHeight : 0;
   const window = useWindowDimensions();
   const isLandscape = window.width > window.height;
   const params = useLocalSearchParams<{ id: string; record?: string }>();
@@ -43,6 +45,7 @@ export function ProjectScreen() {
   const isPlaying = transport.status === 'playing';
   const isBusy = transport.status === 'starting' || transport.status === 'stopping';
   const isIdle = transport.status === 'idle';
+  const addTrackDisabled = !project.data || !isIdle || addTrack.isPending;
   const hasClips = tracks.some((t) => t.clips.length > 0);
 
   const { record } = transport;
@@ -157,18 +160,36 @@ export function ProjectScreen() {
       style={[
         styles.root,
         isLandscape && styles.rootLandscape,
-        { paddingTop: headerHeight, paddingLeft: insets.left, paddingRight: insets.right },
+        { paddingTop: contentTop, paddingLeft: insets.left, paddingRight: insets.right },
       ]}>
-      <Stack.Screen options={{ title: project.data?.name ?? '' }} />
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          icon={Platform.OS === 'ios' ? 'plus' : undefined}
-          accessibilityLabel="Add track"
-          disabled={!project.data || !isIdle || addTrack.isPending}
-          onPress={() => void onAddTrack()}>
-          Add track
-        </Stack.Toolbar.Button>
-      </Stack.Toolbar>
+      {/* Android's Stack.Toolbar.Button draws only an image-source icon (no SF Symbols, no text) and
+          renders nothing without one, so Android gets a plain header button with a Material Symbol. */}
+      <Stack.Screen
+        options={{
+          title: project.data?.name ?? '',
+          ...(Platform.OS === 'android' && {
+            headerRight: () => (
+              <HeaderIconButton
+                label="Add track"
+                icon={{ ios: 'plus', android: 'add' }}
+                disabled={addTrackDisabled}
+                onPress={() => void onAddTrack()}
+              />
+            ),
+          }),
+        }}
+      />
+      {Platform.OS === 'ios' && (
+        <Stack.Toolbar placement="right">
+          <Stack.Toolbar.Button
+            icon="plus"
+            accessibilityLabel="Add track"
+            disabled={addTrackDisabled}
+            onPress={() => void onAddTrack()}>
+            Add track
+          </Stack.Toolbar.Button>
+        </Stack.Toolbar>
+      )}
 
       {isLandscape ? (
         <>
@@ -190,6 +211,37 @@ export function ProjectScreen() {
         </>
       )}
     </View>
+  );
+}
+
+/** Icon-only header action for Android (see the Stack.Screen comment above). */
+function HeaderIconButton({
+  label,
+  icon,
+  disabled,
+  onPress,
+}: {
+  label: string;
+  icon: IconName;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const styles = useStyles();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      hitSlop={8}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.headerButton,
+        disabled && styles.disabled,
+        pressed && styles.pressed,
+      ]}>
+      <Icon name={icon} size={24} />
+    </Pressable>
   );
 }
 
@@ -282,6 +334,7 @@ const useStyles = makeStyles((t) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerButton: { padding: t.spacing.sm, borderRadius: t.radius.full },
   recordButton: { backgroundColor: t.colors.primary },
   playButton: { backgroundColor: t.colors.text },
   secondaryButton: { backgroundColor: t.colors.surfacePressed },

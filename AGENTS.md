@@ -164,6 +164,10 @@ TICKETS.md                Ordered, living backlog; one ticket per session (/star
 - **Shared values moved on the UI thread**: don't read-modify-write them from a JS-side `useEffect`
   (`sv.set(clamp(sv.get(), …))`). The JS read can be stale and writes an old value back over what a gesture or
   `useAnimatedReaction` just set. Do the read-modify-write in a worklet: `scheduleOnUI(() => { 'worklet'; … })`.
+- **Android headers**: `Stack.Toolbar.Button` renders **nothing** on Android unless `icon` is an image source
+  (no SF Symbols, no text; only a dev warning). Give Android a `headerRight` with a Pressable + `Icon` instead.
+  And Android's Material header is opaque: content padding for iOS 26's floating header (`useHeaderHeight()`)
+  must be iOS-only, or Android gets a blank band under the header.
 - **Variants**: `APP_VARIANT` = `development` (local scripts, `.dev` bundle ID, "<Name> Dev"), `preview`,
   `production` (default when unset). Switching variants for local native builds needs `npm run native:clean`.
 - **Base updates**: apps share the base's git history (`base` remote) and pull its improvements with

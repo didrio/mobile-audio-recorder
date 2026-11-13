@@ -22,11 +22,16 @@ All three can be installed side by side on one phone.
 ## One-time setup
 
 1. Expo account: `npx eas-cli@latest login`
-2. Link the project: `npx eas-cli@latest init` (writes `owner` and `extra.eas.projectId` into `app.json`)
+2. Link the project: `npx eas-cli@latest init` (writes `owner` and `extra.eas.projectId` into `app.json`). If
+   your Expo login has several accounts, set `"owner"` in `app.json` first so the project lands in the right one;
+   non-interactively it needs `--non-interactive --force` to create the project.
 3. Enable OTA updates: `npx eas-cli@latest update:configure` (writes `updates.url` into `app.json`). It also
    rewrites `eas.json`: it reformats it and gives `development-simulator` its own `development-simulator` channel,
    although that profile already inherits `channel: development` via `extends`. Undo that with
-   `git checkout eas.json`; only the `app.json` change is needed.
+   `git checkout eas.json`; only the `app.json` change is needed. It can also write **resolved** config back into
+   `app.json` (seen with a config plugin that adds Android permissions: `android.permissions`,
+   `extra.appVariant: "production"`, `extra.router`). Delete those: the only keys you need are `owner`,
+   `extra.eas.projectId` and `updates.url`.
 4. Commit `app.json`.
 5. **Apple** (iOS): enroll in the Apple Developer Program (paid, yearly). On your first iOS build, EAS logs into
    your Apple account and creates/stores certificates and provisioning profiles for you. On first submit it can
@@ -105,6 +110,15 @@ What to expect:
   version (`npx eas-cli@latest build:view <id>`, or the build page) with the one `eas update` printed for that
   platform. They differ when something native changed since the build: make a new build. Local `ios/` and
   `android/` folders don't affect it (they're git-ignored, so the fingerprint skips them).
+- **Heavy native libraries can run the free Android builder out of memory.** With Skia, an audio engine and
+  Reanimated, Gradle compiles C++ for four ABIs in parallel and the build dies with "Gradle build daemon
+  disappeared unexpectedly". For internal (APK) builds, build only what phones use: add
+  `"ORG_GRADLE_PROJECT_reactNativeArchitectures": "arm64-v8a"` to the `preview` profile's `env` (it also covers
+  the emulator on Apple Silicon). Store builds need `arm64-v8a,x86_64` at least; if they hit the same wall, try
+  that or a larger `resourceClass` (paid).
+- **Reading a failed build's log without the website:** `npx eas-cli@latest build:view <id> --json` lists
+  `logFiles` (signed URLs, valid ~15 minutes). They're Brotli-compressed: `curl -s <url> | brotli -dc`, one JSON
+  object per line with the text in `msg`.
 
 ## Store release checklist
 

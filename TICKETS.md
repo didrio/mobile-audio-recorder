@@ -4,37 +4,11 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T4 — First preview build · Opus · high effort · plan mode off
+**Next:** T5 — Clip editing · Opus · high effort · plan mode on (T12 can be run any time the Android build is done)
 
 ## In progress
 
-### T4 — First preview build
-
-- **Status:** in progress
-- **Session:** Opus · high effort · plan mode off (scripted in `docs/releasing.md`, but the first real-device
-  recording test may surface audio bugs like the stacked-clips one)
-- **Goal:** The app's own EAS project, preview builds installed on the user's devices, an OTA update received.
-- **Done when:**
-  - [ ] `npx eas-cli@latest init` + `update:configure` committed (revert its `eas.json` rewrite).
-  - [ ] Android and iOS preview builds installed.
-  - [ ] An `update:preview` published after both builds finished shows up after two cold starts (Settings →
-        Update shows an update ID).
-  - [ ] Surprises added to `docs/releasing.md`.
-- **Context:** Follow "First preview build (once per app)" in `docs/releasing.md`. The user must be present for
-  the iOS build (Apple login). Devices registered and the distribution certificate created for an earlier app
-  are reused; only the App ID and provisioning profile are new. First real-device test of recording: check the
-  mic permission prompt, speaker vs. earpiece routing, and Bluetooth headphones.
-  **Milestone checks** (deferred from T2): `npm run android` on the `Pixel_API_36` emulator (first build with
-  Skia: needs a few GB of disk), timeline screenshots portrait + landscape on Android, `npm run e2e` on both
-  platforms. On devices: pinch-zoom and pan momentum feel, tap-to-seek and dragging the playhead on the ruler,
-  playhead vs. audio sync (latency), and smooth playback on a 3-minute idea with several takes.
-  **Overdub checks** (from T3, simulator-only so far): with headphones, record a clap/click against an existing
-  take and play both back — they should line up; if not, tune Settings → Recording → Latency offset and note
-  the value per device in `docs/releasing.md`. Also try Bluetooth headphones (much higher latency), delete a
-  track from its sheet, and `npm run e2e` includes the new `.maestro/overdub.yaml`.
-  **From the post-T3 polish** (simulator-only so far): record over the middle of an existing take on the same
-  track (it should replace that part: three clips end to end), then Play several times in a row and seek while
-  playing. Playback once went silent after repeated tries before the fix; confirm it stays audible.
+_None._
 
 ## Up next
 
@@ -45,6 +19,36 @@ Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/featu
 Testing cadence while iterating: unit tests + `npm run check` + simulator screenshots per ticket, then the user
 tries it; Maestro, the Android emulator and the two-platform export only at milestones (T4, releases, native
 dependency changes). See the `wrap` skill.
+
+### T12 — Android preview install, first OTA, real-device checks
+
+- **Status:** waiting on EAS build `c76cc997-894b-4588-8f0f-140d1e309725` (Android preview, queued 2026-11-13)
+- **Session:** Sonnet · medium effort · plan mode off (Opus · high if the build failed again or audio bugs show up)
+- **Goal:** Finish what T4 couldn't: Android preview installed, an OTA update received on both phones, and the
+  recording checks on real devices.
+- **Done when:**
+  - [ ] Build finished: `npx eas-cli@latest build:view c76cc997-894b-4588-8f0f-140d1e309725` (status, runtime
+        version, install URL). Failed? See "Reading a failed build's log" in `docs/releasing.md`.
+  - [ ] Android preview installed (open the build page on the phone, download the APK); Settings → Update says
+        "Embedded bundle".
+  - [ ] `npm run update:preview -- --message "…"` published **after** that build finished; after two cold starts
+        each phone's Settings → Update shows an update ID (iOS build `26395197-f570-44e6-99ba-547315ac1ea3` is
+        already installed and works).
+  - [ ] Real-device checks below done on both phones; findings fixed or ticketed; per-device latency offsets
+        noted in `docs/releasing.md`.
+- **Context:** T4 handoff: the first Android cloud build died (Gradle out of memory compiling C++ for four ABIs),
+  so preview builds are now arm64-v8a only (`eas.json`); expect 40+ minutes of free-plan queue and build. That
+  build already contains the Android header fixes (`ceccb3c`); the OTA test only needs some update published
+  after it, no throwaway visible change. Done in T4: emulator build, Android timeline screenshots, e2e on both
+  platforms, iPhone install. **Device checks:**
+  - Recording: mic permission prompt, speaker vs. earpiece routing, Bluetooth headphones.
+  - Timeline: pinch-zoom and pan momentum feel, tap-to-seek, dragging the playhead on the ruler, playhead vs.
+    audio sync, smooth playback on a 3-minute idea with several takes.
+  - Overdub (with headphones): record a clap against an existing take, play both back, they should line up; if
+    not, tune Settings → Recording → Latency offset and note the value per device. Try Bluetooth too (much
+    higher latency) and delete a track from its sheet.
+  - Record over the middle of a take on the same track (three clips end to end), then Play several times in a
+    row and seek while playing; playback must stay audible.
 
 ### T5 — Clip editing
 
@@ -179,6 +183,11 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 
 ## Done
+
+- T4 — First preview build — 2026-11-13 — EAS project `@ididrio/audio-recorder` linked with OTA updates, iOS preview
+  built and working on the iPhone, Android preview rebuilt arm64-only after an out-of-memory failure (install +
+  OTA check moved to T12); fixed on Android: missing Add track button (`Stack.Toolbar.Button` needs an image icon
+  there) and a blank band under the header; e2e green on both platforms
 
 - Polish after T3 — 2026-11-13 — timeline horizontal in both orientations (vertical portrait layout removed with
   `timeline-axis.ts`), waveforms scaled to one shared per-project level (true relative loudness), tap anywhere to

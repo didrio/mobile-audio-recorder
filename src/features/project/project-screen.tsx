@@ -1,13 +1,13 @@
 import * as Haptics from 'expo-haptics';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { useEffect, useRef } from 'react';
-import { Pressable, useWindowDimensions, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Platform, Pressable, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Text, type IconName } from '@/components/ui';
 import { formatTimecode } from '@/features/audio/format-time';
-import { useProject } from '@/features/projects/queries';
+import { useAddTrack, useProject } from '@/features/projects/queries';
 import { Timeline } from '@/features/timeline/timeline';
 import { orientationOf } from '@/features/timeline/timeline-axis';
 import { makeStyles, useTheme } from '@/theme';
@@ -17,7 +17,8 @@ import { useTransport } from './use-transport';
 /**
  * The project editor: clock, timeline and transport. Portrait stacks them (time runs down the
  * timeline); landscape puts the clock and transport in a column beside the timeline (time runs
- * left to right), so the controls stay reachable either way.
+ * left to right), so the controls stay reachable either way. One track is armed: Record records
+ * onto it while the others play. "Add track" in the header adds a track and arms it.
  */
 export function ProjectScreen() {
   const styles = useStyles();
@@ -29,24 +30,49 @@ export function ProjectScreen() {
   const orientation = orientationOf(window.width, window.height);
   const isLandscape = orientation === 'landscape';
   const params = useLocalSearchParams<{ id: string; record?: string }>();
+  const router = useRouter();
   const project = useProject(params.id);
   const transport = useTransport(project.data);
+  const addTrack = useAddTrack();
 
-  // Quick capture: opened from "Record new idea", start recording as soon as the project is loaded.
-  const autoRecordDone = useRef(false);
-  const shouldAutoRecord = params.record === '1' && project.data != null;
-  const { record } = transport;
-  useEffect(() => {
-    if (!shouldAutoRecord || autoRecordDone.current) return;
-    autoRecordDone.current = true;
-    void record();
-  }, [shouldAutoRecord, record]);
+  // The armed track; falls back to the first track (e.g. after the armed one was deleted).
+  const [armedId, setArmedId] = useState<string | null>(null);
+  const tracks = project.data?.tracks ?? [];
+  const armedTrack = tracks.find((t) => t.id === armedId) ?? tracks[0];
 
   const isRecording = transport.status === 'recording';
   const isPlaying = transport.status === 'playing';
   const isBusy = transport.status === 'starting' || transport.status === 'stopping';
-  const track = project.data?.tracks[0];
-  const hasClips = project.data?.tracks.some((t) => t.clips.length > 0) ?? false;
+  const isIdle = transport.status === 'idle';
+  const hasClips = tracks.some((t) => t.clips.length > 0);
+  const isOverdub = tracks.some((t) => t.id !== armedTrack?.id && t.clips.length > 0);
+
+  const { record } = transport;
+  const recordArmed = () => {
+    if (armedTrack) void record(armedTrack.id);
+  };
+
+  // Quick capture: opened from "Record new idea", start recording as soon as the project is loaded.
+  const autoRecordDone = useRef(false);
+  const firstTrackId = params.record === '1' ? project.data?.tracks[0]?.id : undefined;
+  useEffect(() => {
+    if (!firstTrackId || autoRecordDone.current) return;
+    autoRecordDone.current = true;
+    void record(firstTrackId);
+  }, [firstTrackId, record]);
+
+  const onAddTrack = async () => {
+    if (!project.data) return;
+    try {
+      const track = await addTrack.mutateAsync(project.data.id);
+      setArmedId(track.id);
+    } catch {
+      // The list stays as it was; nothing to clean up.
+    }
+  };
+
+  const editTrack = (trackId: string) =>
+    router.push({ pathname: '/track/[id]', params: { id: trackId, projectId: params.id } });
 
   const clock = (
     <View style={styles.clock}>
@@ -86,8 +112,8 @@ export function ProjectScreen() {
         size={RECORD_BUTTON_SIZE}
         kind="record"
         busy={isBusy}
-        disabled={isBusy || isPlaying || !track}
-        onPress={isRecording ? () => void transport.stopRecording() : () => void record()}
+        disabled={isBusy || isPlaying || !armedTrack}
+        onPress={isRecording ? () => void transport.stopRecording() : recordArmed}
       />
       {/* Balances the play button so the record button stays centered. */}
       <View style={{ width: PLAY_BUTTON_SIZE }} />
@@ -97,6 +123,10 @@ export function ProjectScreen() {
   const errorText = transport.error ? (
     <Text color="danger" align="center" variant="footnote">
       {transport.error}
+    </Text>
+  ) : isOverdub && isIdle ? (
+    <Text color="textSecondary" align="center" variant="footnote">
+      Use headphones to record over other tracks.
     </Text>
   ) : null;
 
@@ -112,8 +142,11 @@ export function ProjectScreen() {
       orientation={orientation}
       playhead={transport.playhead}
       following={isPlaying || isRecording}
-      recordingStart={transport.recordingStart}
+      liveTake={transport.liveTake}
+      armedTrackId={armedTrack?.id ?? null}
       onSeek={transport.seek}
+      onArm={setArmedId}
+      onEditTrack={editTrack}
     />
   ) : (
     <View style={styles.message} />
@@ -127,6 +160,15 @@ export function ProjectScreen() {
         { paddingTop: headerHeight, paddingLeft: insets.left, paddingRight: insets.right },
       ]}>
       <Stack.Screen options={{ title: project.data?.name ?? '' }} />
+      <Stack.Toolbar placement="right">
+        <Stack.Toolbar.Button
+          icon={Platform.OS === 'ios' ? 'plus' : undefined}
+          accessibilityLabel="Add track"
+          disabled={!project.data || !isIdle || addTrack.isPending}
+          onPress={() => void onAddTrack()}>
+          Add track
+        </Stack.Toolbar.Button>
+      </Stack.Toolbar>
 
       {isLandscape ? (
         <>

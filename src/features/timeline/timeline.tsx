@@ -6,6 +6,8 @@ import {
   PaintStyle,
   Picture,
   Skia,
+  type SkCanvas,
+  type SkPaint,
   type SkPath,
 } from '@shopify/react-native-skia';
 import { useEffect, useState } from 'react';
@@ -29,7 +31,7 @@ import {
 import type { Project } from '@/features/projects/projects-repo';
 import { useTheme, type ThemeColors } from '@/theme';
 
-import { axisLengths, axisMatrix, fromAxes, toAxes, type Orientation } from './timeline-axis';
+import { axisLengths, axisMatrix, toAxes, type Orientation } from './timeline-axis';
 import {
   clamp,
   clampScroll,
@@ -45,6 +47,7 @@ import {
   waveformLevel,
   zoomAroundPoint,
 } from './timeline-math';
+import { TrackHeaders } from './track-headers';
 import { useTakePeaks } from './use-take-peaks';
 import { waveformPaths } from './waveform-path';
 import { LEVEL_COUNT, LEVEL_FACTOR, peaksPerSecond } from './waveform-peaks';
@@ -56,6 +59,16 @@ const CLIP_RADIUS = 6;
 const PLAYHEAD_WIDTH = 2;
 /** Skia resolves fonts through the system font manager, which doesn't know RN's 'System' alias. */
 const FONT_FAMILY = Platform.select({ ios: 'Helvetica', default: 'sans-serif' });
+
+/** The take being recorded, drawn live on its track's lane. */
+export type LiveTake = {
+  /** Timeline position where recording started. */
+  start: number;
+  trackId: string;
+  /** Interleaved `[min, max]` pairs at `peaksPerSecond`, appended as audio arrives. */
+  peaks: SharedValue<number[]>;
+  peaksPerSecond: number;
+};
 
 type ClipShape = {
   start: number;
@@ -70,14 +83,18 @@ type ClipShape = {
  * The project timeline: ruler, track lanes, clips with waveforms and the playhead, drawn with Skia on
  * the UI thread. Scroll (pan, with momentum) and zoom (pinch) live in shared values; tapping the
  * ruler seeks. Works in both orientations through the time/cross mapping in `timeline-axis.ts`.
+ * Track headers (arm, name) are RN views laid over the lanes (`track-headers.tsx`).
  */
 export function Timeline({
   project,
   orientation,
   playhead,
   following,
-  recordingStart,
+  liveTake,
+  armedTrackId,
   onSeek,
+  onArm,
+  onEditTrack,
 }: {
   project: Project;
   orientation: Orientation;
@@ -85,9 +102,12 @@ export function Timeline({
   playhead: SharedValue<number>;
   /** Playing or recording: keep the playhead in view until the user scrolls. */
   following: boolean;
-  /** Timeline position where the take being recorded starts, or null. */
-  recordingStart: number | null;
+  /** The take being recorded, or null. */
+  liveTake: LiveTake | null;
+  armedTrackId: string | null;
   onSeek: (time: number) => void;
+  onArm: (trackId: string) => void;
+  onEditTrack: (trackId: string) => void;
 }) {
   const theme = useTheme();
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -117,7 +137,9 @@ export function Timeline({
       };
     }),
   );
-  const trackNames = project.tracks.map((track) => track.name);
+  const liveLane = liveTake
+    ? project.tracks.findIndex((track) => track.id === liveTake.trackId)
+    : -1;
 
   const paints = makePaints(theme.colors);
   const font = matchFont({ fontFamily: FONT_FAMILY, fontSize: theme.typography.caption.fontSize });
@@ -272,21 +294,30 @@ export function Timeline({
         }
       }
 
-      // The take being recorded (on the first track, T1/T2 behaviour).
-      if (recordingStart != null && position > recordingStart) {
-        const t0 = (recordingStart - s) * z;
-        const rect = Skia.XYWHRect(
-          t0,
-          laneStart(0) + CLIP_INSET,
-          (position - recordingStart) * z,
-          lane - CLIP_INSET * 2,
-        );
+      const visibleEnd = s + timeLength / z;
+
+      // The take being recorded, on its track's lane, with the waveform received so far.
+      if (liveTake && liveLane >= 0 && position > liveTake.start) {
+        const t0 = (liveTake.start - s) * z;
+        const c0 = laneStart(liveLane) + CLIP_INSET;
+        const height = lane - CLIP_INSET * 2;
+        const rect = Skia.XYWHRect(t0, c0, (position - liveTake.start) * z, height);
         canvas.drawRRect(Skia.RRectXY(rect, CLIP_RADIUS, CLIP_RADIUS), paints.recording);
+        drawLivePeaks(canvas, {
+          data: liveTake.peaks.get(),
+          perSecond: liveTake.peaksPerSecond,
+          start: liveTake.start,
+          from: s,
+          to: Math.min(visibleEnd, position),
+          zoom: z,
+          middle: c0 + height / 2,
+          amplitude: height / 2 - CLIP_INSET,
+          paint: paints.liveWaveform,
+        });
       }
 
       // Ruler.
       const steps = rulerSteps(z);
-      const visibleEnd = s + timeLength / z;
       canvas.drawRect(Skia.XYWHRect(0, 0, timeLength, rulerSize), paints.ruler);
       const firstTick = Math.floor(s / steps.tick);
       const lastTick = Math.ceil(visibleEnd / steps.tick);
@@ -311,16 +342,6 @@ export function Timeline({
             : { x: 4, y: point + 4 + font.getSize() };
         canvas.drawText(formatRulerTime(index * steps.label), at.x, at.y, paints.label, font);
       }
-      trackNames.forEach((name, index) => {
-        const at = fromAxes(orientation, CLIP_INSET + 6, laneStart(index) + CLIP_INSET + 4);
-        canvas.drawText(
-          name,
-          at.x + (orientation === 'portrait' ? 6 : 0),
-          at.y + font.getSize(),
-          paints.trackName,
-          font,
-        );
-      });
 
       // Playhead, on top of everything.
       const playheadPoint = (position - s) * z;
@@ -333,23 +354,81 @@ export function Timeline({
 
   const clipCount = clips.length;
   return (
-    <GestureDetector gesture={gesture}>
-      <View
-        style={styles.root}
-        accessible
-        accessibilityLabel={`Timeline, ${trackCount} ${trackCount === 1 ? 'track' : 'tracks'}, ${clipCount} ${clipCount === 1 ? 'clip' : 'clips'}`}
-        onLayout={(event) => {
-          const { width, height } = event.nativeEvent.layout;
-          setSize({ width, height });
-        }}>
-        {size.width > 0 ? (
-          <Canvas style={StyleSheet.absoluteFill}>
-            <Picture picture={picture} />
-          </Canvas>
-        ) : null}
-      </View>
-    </GestureDetector>
+    <View
+      style={styles.root}
+      onLayout={(event) => {
+        const { width, height } = event.nativeEvent.layout;
+        setSize({ width, height });
+      }}>
+      <GestureDetector gesture={gesture}>
+        <View
+          style={StyleSheet.absoluteFill}
+          accessible
+          accessibilityLabel={`Timeline, ${trackCount} ${trackCount === 1 ? 'track' : 'tracks'}, ${clipCount} ${clipCount === 1 ? 'clip' : 'clips'}`}>
+          {size.width > 0 ? (
+            <Canvas style={StyleSheet.absoluteFill}>
+              <Picture picture={picture} />
+            </Canvas>
+          ) : null}
+        </View>
+      </GestureDetector>
+      {size.width > 0 ? (
+        <TrackHeaders
+          tracks={project.tracks}
+          orientation={orientation}
+          rulerSize={rulerSize}
+          lane={lane}
+          inset={CLIP_INSET}
+          crossScroll={crossScroll}
+          armedTrackId={armedTrackId}
+          disabled={liveTake != null}
+          onArm={onArm}
+          onEdit={onEditTrack}
+        />
+      ) : null}
+    </View>
   );
+}
+
+/**
+ * The live waveform: one bar per peak (merged so there's at most about one per point), only for the
+ * visible part. Peaks are `[min, max]` pairs; peak `i` covers `start + i / perSecond`.
+ */
+function drawLivePeaks(
+  canvas: SkCanvas,
+  live: {
+    data: number[];
+    perSecond: number;
+    start: number;
+    from: number;
+    to: number;
+    zoom: number;
+    middle: number;
+    amplitude: number;
+    paint: SkPaint;
+  },
+) {
+  'worklet';
+  const count = live.data.length / 2;
+  const step = Math.max(1, Math.floor(live.perSecond / live.zoom));
+  const first = Math.max(0, Math.floor(((live.from - live.start) * live.perSecond) / step) * step);
+  const last = Math.min(count, Math.ceil((live.to - live.start) * live.perSecond));
+  if (last <= first) return;
+  const width = Math.max(1, (step / live.perSecond) * live.zoom);
+  const builder = Skia.PathBuilder.Make();
+  for (let peak = first; peak < last; peak += step) {
+    let min = 0;
+    let max = 0;
+    const end = Math.min(peak + step, last);
+    for (let i = peak; i < end; i++) {
+      min = Math.min(min, live.data[i * 2] ?? 0);
+      max = Math.max(max, live.data[i * 2 + 1] ?? 0);
+    }
+    const point = (live.start + peak / live.perSecond - live.from) * live.zoom;
+    const top = live.middle - max * live.amplitude;
+    builder.addRect(Skia.XYWHRect(point, top, width, Math.max(1, (max - min) * live.amplitude)));
+  }
+  canvas.drawPath(builder.detach(), live.paint);
 }
 
 function isMultiple(value: number, step: number): boolean {
@@ -379,11 +458,11 @@ function makePaints(colors: ThemeColors) {
     clip: fill(colors.clip),
     centerLine: stroke(colors.waveform, StyleSheet.hairlineWidth),
     waveform: fill(colors.waveform),
-    recording: fill(colors.primary, 0.3),
+    recording: fill(colors.primary, 0.2),
+    liveWaveform: fill(colors.primary, 0.8),
     ruler: fill(colors.surfaceMuted),
     tick: stroke(colors.textTertiary, 1),
     label: fill(colors.textSecondary),
-    trackName: fill(colors.textSecondary),
     playhead: stroke(colors.primary, PLAYHEAD_WIDTH),
   };
 }

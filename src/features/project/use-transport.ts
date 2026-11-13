@@ -1,10 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { randomUUID } from 'expo-crypto';
 import { useEffect, useRef, useState } from 'react';
-import { useFrameCallback, useSharedValue } from 'react-native-reanimated';
+import { useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
 
 import {
   ensureRecordPermission,
+  peakLevel,
   play,
   playbackAnchor,
   playbackPosition,
@@ -14,12 +15,27 @@ import {
   type PlaybackAnchor,
   type PlayableClip,
 } from '@/features/audio/audio-engine';
+import { placeTake } from '@/features/audio/take-alignment';
 import { storeRecordedTake } from '@/features/audio/take-files';
 import type { Project } from '@/features/projects/projects-repo';
 import { useAddTake } from '@/features/projects/queries';
+import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
 import { prefetchTakePeaks } from '@/features/timeline/use-take-peaks';
+import { createLivePeaks, LIVE_PEAKS_PER_SECOND } from '@/features/timeline/waveform-peaks';
+
+import { toUiClock } from './ui-clock';
 
 export type TransportStatus = 'idle' | 'starting' | 'recording' | 'stopping' | 'playing';
+
+/** The take being recorded, for drawing it live on the timeline. */
+export type LiveTake = {
+  /** Timeline position where recording started. */
+  start: number;
+  trackId: string;
+  /** Interleaved `[min, max]` pairs at `peaksPerSecond`, appended as audio arrives. */
+  peaks: SharedValue<number[]>;
+  peaksPerSecond: number;
+};
 
 const TICK_MS = 100;
 
@@ -27,12 +43,15 @@ const TICK_MS = 100;
  * Record / play state for the open project, and the playhead.
  *
  * - `playhead` (seconds) is a shared value animated on the UI thread every frame from an anchor
- *   (`{ from, startedAtMs }` on the `performance.now()` clock) while playing or recording; the
+ *   (`{ from, startedAtMs }`, converted to the UI thread's `performance.now()` clock by
+ *   `toUiClock`) while playing or recording; the
  *   React `position` state ticks at 10 Hz for the clock text only.
  * - Play starts at the playhead (from 0 if it's past the end). Stop leaves the playhead where it is;
  *   reaching the end returns it to where Play started.
- * - Recording still appends each take after the last clip on the first track (T3: at the playhead).
- *   Leaving the screen while recording stops and saves the take.
+ * - Record records onto the given (armed) track from the playhead while the other tracks play; the
+ *   saved clip is lined up with them (`take-alignment.ts`, plus the manual offset from Settings).
+ *   Stop returns the playhead to where recording started. Leaving the screen while recording stops
+ *   and saves the take.
  */
 export function useTransport(project: Project | null | undefined) {
   const addTake = useAddTake();
@@ -41,15 +60,16 @@ export function useTransport(project: Project | null | undefined) {
   const [position, setPosition] = useState(0);
   const [level, setLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [recordingStart, setRecordingStart] = useState<number | null>(null);
+  const [liveTake, setLiveTake] = useState<{ start: number; trackId: string } | null>(null);
   const playhead = useSharedValue(0);
   const anchor = useSharedValue<PlaybackAnchor | null>(null);
+  const livePeaks = useSharedValue<number[]>([]);
   const recordingRef = useRef<{
     recording: ActiveRecording;
     takeId: string;
     projectId: string;
     trackId: string;
-    start: number;
+    from: number;
   } | null>(null);
 
   const isRecording = status === 'recording';
@@ -88,10 +108,13 @@ export function useTransport(project: Project | null | undefined) {
     const recorded = await active.recording.stop();
     anchor.set(null);
     const path = storeRecordedTake(recorded.path, active.projectId, active.takeId);
+    const { latencyOffsetMs } = useRecordingSettingsStore.getState();
+    const placement = placeTake(active.from, recorded.alignment, latencyOffsetMs / 1000);
     await addTake.mutateAsync({
       projectId: active.projectId,
       trackId: active.trackId,
-      start: active.start,
+      start: placement.start,
+      offset: placement.offset,
       take: {
         id: active.takeId,
         path,
@@ -117,9 +140,11 @@ export function useTransport(project: Project | null | undefined) {
     [],
   );
 
-  const record = async () => {
-    const track = project?.tracks[0];
-    if (!project || !track || status !== 'idle') return;
+  /** Records onto `trackId` from the playhead while the other tracks play. */
+  const record = async (trackId: string) => {
+    if (!project || status !== 'idle') return;
+    const track = project.tracks.find((candidate) => candidate.id === trackId);
+    if (!track) return;
     setError(null);
     setStatus('starting');
     try {
@@ -129,13 +154,29 @@ export function useTransport(project: Project | null | undefined) {
         return;
       }
       const takeId = randomUUID();
-      const lastClip = track.clips.at(-1);
-      const start = lastClip ? lastClip.start + lastClip.duration : 0;
-      const recording = await startRecording({ fileName: takeId, onLevel: setLevel });
-      recordingRef.current = { recording, takeId, projectId: project.id, trackId: track.id, start };
-      playhead.set(start);
-      anchor.set({ from: start, startedAtMs: performance.now() });
-      setRecordingStart(start);
+      const from = Math.max(0, playhead.get());
+      const backing = playableClips(project, (other) => other.id !== track.id);
+      const peaks = createLivePeaks(LIVE_PEAKS_PER_SECOND);
+      livePeaks.set([]);
+      const recording = await startRecording({
+        fileName: takeId,
+        from,
+        backing,
+        onBuffer: (samples, sampleRate) => {
+          setLevel(peakLevel(samples));
+          const pairs = peaks.push(samples, sampleRate);
+          if (pairs.length === 0) return;
+          livePeaks.modify((value) => {
+            'worklet';
+            value.push(...pairs);
+            return value;
+          });
+        },
+      });
+      recordingRef.current = { recording, takeId, projectId: project.id, trackId: track.id, from };
+      playhead.set(from);
+      anchor.set(toUiClock(recording.anchor));
+      setLiveTake({ start: from, trackId: track.id });
       setPosition(0);
       setStatus('recording');
     } catch (cause) {
@@ -145,16 +186,17 @@ export function useTransport(project: Project | null | undefined) {
   };
 
   const stopRecording = async () => {
-    const start = recordingRef.current?.start ?? 0;
+    const from = recordingRef.current?.from ?? 0;
     setStatus('stopping');
     try {
       await finishRecording();
     } catch (cause) {
       setError(messageOf(cause, 'The recording could not be saved.'));
     }
-    // Back to the start of the new take, so Play plays it.
-    moveTo(start);
-    setRecordingStart(null);
+    // Back to where recording started, so Play plays the new take with the others.
+    moveTo(from);
+    setLiveTake(null);
+    livePeaks.set([]);
     setLevel(0);
     setStatus('idle');
   };
@@ -163,22 +205,7 @@ export function useTransport(project: Project | null | undefined) {
     if (!project) return;
     setError(null);
     const from = requested < project.duration ? requested : 0;
-    const clips: PlayableClip[] = project.tracks.flatMap((track) =>
-      track.clips.flatMap((clip) => {
-        const take = project.takes[clip.takeId];
-        return take
-          ? [
-              {
-                takePath: take.path,
-                start: clip.start,
-                offset: clip.offset,
-                duration: clip.duration,
-                volume: track.volume,
-              },
-            ]
-          : [];
-      }),
-    );
+    const clips = playableClips(project);
     try {
       moveTo(from);
       setStatus('playing');
@@ -189,7 +216,8 @@ export function useTransport(project: Project | null | undefined) {
           setStatus('idle');
         },
       });
-      anchor.set(playbackAnchor());
+      const started = playbackAnchor();
+      anchor.set(started ? toUiClock(started) : null);
     } catch (cause) {
       moveTo(from);
       setError(messageOf(cause, 'Playback failed.'));
@@ -225,13 +253,38 @@ export function useTransport(project: Project | null | undefined) {
     level,
     error,
     playhead,
-    recordingStart,
+    liveTake: liveTake
+      ? { ...liveTake, peaks: livePeaks, peaksPerSecond: LIVE_PEAKS_PER_SECOND }
+      : null,
     record,
     stopRecording,
     startPlayback,
     stopPlaying,
     seek,
   };
+}
+
+/** The project's clips as the engine plays them, from the tracks that pass `include`. */
+function playableClips(
+  project: Project,
+  include: (track: Project['tracks'][number]) => boolean = () => true,
+): PlayableClip[] {
+  return project.tracks.filter(include).flatMap((track) =>
+    track.clips.flatMap((clip) => {
+      const take = project.takes[clip.takeId];
+      return take
+        ? [
+            {
+              takePath: take.path,
+              start: clip.start,
+              offset: clip.offset,
+              duration: clip.duration,
+              volume: track.volume,
+            },
+          ]
+        : [];
+    }),
+  );
 }
 
 function messageOf(cause: unknown, fallback: string): string {

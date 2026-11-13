@@ -194,13 +194,18 @@ export async function createProject(name?: string): Promise<ProjectSummary> {
   return { id, name: projectName, createdAt: now, updatedAt: now, duration: 0 };
 }
 
-/** Saves a recorded take and places it on a track as one clip covering the whole take. */
+/**
+ * Saves a recorded take and places it on a track as one clip covering the take from `offset`
+ * (seconds skipped at its start, default 0) to its end.
+ */
 export async function addTakeWithClip(input: {
   projectId: string;
   trackId: string;
   take: Pick<Take, 'id' | 'path' | 'duration' | 'sampleRate' | 'channels'>;
   start: number;
+  offset?: number;
 }): Promise<void> {
+  const offset = Math.min(Math.max(0, input.offset ?? 0), input.take.duration);
   const db = await getDb();
   const now = Date.now();
   await db.withExclusiveTransactionAsync(async (tx) => {
@@ -216,14 +221,86 @@ export async function addTakeWithClip(input: {
       now,
     );
     await tx.runAsync(
-      'INSERT INTO clips (id, track_id, take_id, start, offset, duration) VALUES (?, ?, ?, ?, 0, ?)',
+      'INSERT INTO clips (id, track_id, take_id, start, offset, duration) VALUES (?, ?, ?, ?, ?, ?)',
       randomUUID(),
       input.trackId,
       input.take.id,
       input.start,
-      input.take.duration,
+      offset,
+      input.take.duration - offset,
     );
     await tx.runAsync('UPDATE projects SET updated_at = ? WHERE id = ?', now, input.projectId);
+  });
+}
+
+/** Adds an empty track after the last one, named "Track N". */
+export async function addTrack(projectId: string): Promise<Track> {
+  const db = await getDb();
+  const now = Date.now();
+  const row = await db.getFirstAsync<{ last: number | null }>(
+    'SELECT MAX(position) AS last FROM tracks WHERE project_id = ?',
+    projectId,
+  );
+  const position = (row?.last ?? -1) + 1;
+  const track: Track = {
+    id: randomUUID(),
+    projectId,
+    position,
+    name: `Track ${position + 1}`,
+    volume: 1,
+    muted: false,
+    solo: false,
+  };
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    await tx.runAsync(
+      'INSERT INTO tracks (id, project_id, position, name) VALUES (?, ?, ?, ?)',
+      track.id,
+      projectId,
+      position,
+      track.name,
+    );
+    await tx.runAsync('UPDATE projects SET updated_at = ? WHERE id = ?', now, projectId);
+  });
+  return track;
+}
+
+/** Renames a track; an empty name is ignored. */
+export async function renameTrack(input: {
+  projectId: string;
+  trackId: string;
+  name: string;
+}): Promise<void> {
+  const name = input.name.trim();
+  if (!name) return;
+  const db = await getDb();
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    await tx.runAsync('UPDATE tracks SET name = ? WHERE id = ?', name, input.trackId);
+    await tx.runAsync(
+      'UPDATE projects SET updated_at = ? WHERE id = ?',
+      Date.now(),
+      input.projectId,
+    );
+  });
+}
+
+/**
+ * Deletes a track and its clips. Its takes stay (they may be reused once clips can move between
+ * tracks) until the project is deleted. A project always keeps at least one track.
+ */
+export async function deleteTrack(input: { projectId: string; trackId: string }): Promise<void> {
+  const db = await getDb();
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    const count = await tx.getFirstAsync<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM tracks WHERE project_id = ?',
+      input.projectId,
+    );
+    if ((count?.n ?? 0) <= 1) throw new Error('An idea needs at least one track.');
+    await tx.runAsync('DELETE FROM tracks WHERE id = ?', input.trackId);
+    await tx.runAsync(
+      'UPDATE projects SET updated_at = ? WHERE id = ?',
+      Date.now(),
+      input.projectId,
+    );
   });
 }
 

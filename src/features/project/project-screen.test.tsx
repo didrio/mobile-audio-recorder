@@ -4,20 +4,50 @@ import type { ReactNode } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ensureRecordPermission, play, startRecording } from '@/features/audio/audio-engine';
-import { addTakeWithClip, getProject, type Project } from '@/features/projects/projects-repo';
+import {
+  addTakeWithClip,
+  addTrack,
+  getProject,
+  type Project,
+} from '@/features/projects/projects-repo';
 
 import { ProjectScreen } from './project-screen';
 
-jest.mock('expo-router', () => ({
-  Stack: { Screen: () => null },
-  useLocalSearchParams: () => ({ id: 'p1' }),
-}));
+jest.mock('expo-router', () => {
+  const { Pressable, Text } = jest.requireActual<typeof import('react-native')>('react-native');
+  const ToolbarButton = ({
+    accessibilityLabel,
+    disabled,
+    onPress,
+  }: {
+    accessibilityLabel: string;
+    disabled?: boolean;
+    onPress: () => void;
+  }) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}>
+      <Text>{accessibilityLabel}</Text>
+    </Pressable>
+  );
+  const Toolbar = ({ children }: { children: ReactNode }) => children;
+  Toolbar.Button = ToolbarButton;
+  return {
+    Stack: { Screen: () => null, Toolbar },
+    useLocalSearchParams: () => ({ id: 'p1' }),
+    useRouter: () => ({ push: jest.fn() }),
+  };
+});
 
 jest.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => 0 }));
 
 jest.mock('@/features/audio/audio-engine', () => ({
   ensureRecordPermission: jest.fn(),
   startRecording: jest.fn(),
+  peakLevel: jest.fn(() => 0),
   play: jest.fn(),
   playbackPosition: jest.fn(() => 0),
   playbackAnchor: jest.fn(() => null),
@@ -26,17 +56,40 @@ jest.mock('@/features/audio/audio-engine', () => ({
   forgetTakes: jest.fn(),
 }));
 
-// The Skia timeline can't render in Jest; a stand-in shows the project and exposes seeking.
+// The Skia timeline can't render in Jest; a stand-in shows the project and exposes seeking and
+// arming (the real track headers are tested in `track-headers.test.tsx`).
 jest.mock('@/features/timeline/timeline', () => {
-  const { Pressable, Text } = jest.requireActual<typeof import('react-native')>('react-native');
+  const { Pressable, Text, View } =
+    jest.requireActual<typeof import('react-native')>('react-native');
   return {
-    Timeline: ({ project, onSeek }: { project: Project; onSeek: (time: number) => void }) => (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Seek to 0:05"
-        onPress={() => onSeek(5)}>
-        <Text>{`Timeline of ${project.name}`}</Text>
-      </Pressable>
+    Timeline: ({
+      project,
+      armedTrackId,
+      onSeek,
+      onArm,
+    }: {
+      project: Project;
+      armedTrackId: string | null;
+      onSeek: (time: number) => void;
+      onArm: (trackId: string) => void;
+    }) => (
+      <View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Seek to 0:05"
+          onPress={() => onSeek(5)}>
+          <Text>{`Timeline of ${project.name}`}</Text>
+        </Pressable>
+        {project.tracks.map((track) => (
+          <Pressable
+            key={track.id}
+            accessibilityRole="button"
+            accessibilityLabel={`Arm ${track.name}`}
+            accessibilityState={{ selected: track.id === armedTrackId }}
+            onPress={() => onArm(track.id)}
+          />
+        ))}
+      </View>
     ),
   };
 });
@@ -51,6 +104,9 @@ jest.mock('@/features/audio/take-files', () => ({
 jest.mock('@/features/projects/projects-repo', () => ({
   getProject: jest.fn(),
   addTakeWithClip: jest.fn(),
+  addTrack: jest.fn(),
+  renameTrack: jest.fn(),
+  deleteTrack: jest.fn(),
   listProjects: jest.fn(),
   createProject: jest.fn(),
   deleteProject: jest.fn(),
@@ -87,6 +143,18 @@ const project: Project = {
   ],
 };
 
+const track2: Project['tracks'][number] = {
+  id: 'track2',
+  projectId: 'p1',
+  position: 1,
+  name: 'Track 2',
+  volume: 1,
+  muted: false,
+  solo: false,
+  clips: [],
+};
+const twoTracks: Project = { ...project, tracks: [...project.tracks, track2] };
+
 const safeAreaMetrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
   insets: { top: 0, left: 0, right: 0, bottom: 0 },
@@ -121,30 +189,83 @@ describe('ProjectScreen', () => {
     expect(screen.getByRole('button', { name: 'Record' })).toBeOnTheScreen();
   });
 
-  it('records a take and saves it after the last clip', async () => {
+  it('records onto the armed track at the playhead over the other tracks, lined up', async () => {
+    jest.mocked(getProject).mockResolvedValue(twoTracks);
     jest.mocked(ensureRecordPermission).mockResolvedValue(true);
     jest.mocked(startRecording).mockResolvedValue({
+      anchor: { from: 5, startedAtMs: 0 },
       stop: jest.fn(() =>
-        Promise.resolve({ path: '/cache/take.wav', duration: 3.5, sampleRate: 48000, channels: 1 }),
+        Promise.resolve({
+          path: '/cache/take.wav',
+          duration: 3.5,
+          sampleRate: 48000,
+          channels: 1,
+          alignment: {
+            playbackStartedAt: 10,
+            recorderStartedAt: 10.1,
+            outputLatency: 0.02,
+            inputLatency: 0.03,
+          },
+        }),
       ),
     });
     jest.mocked(addTakeWithClip).mockResolvedValue();
     const user = userEvent.setup();
     await renderScreen();
 
-    await screen.findByText('Timeline of Chorus riff'); // Record is disabled until loaded.
+    await user.press(await screen.findByRole('button', { name: 'Arm Track 2' }));
+    expect(screen.getByRole('button', { name: 'Arm Track 2' })).toBeSelected();
+    await user.press(screen.getByRole('button', { name: 'Seek to 0:05' }));
     await user.press(screen.getByRole('button', { name: 'Record' }));
+
+    expect(startRecording).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 5,
+        backing: [expect.objectContaining({ takePath: 'projects/p1/takes/t1.wav', start: 0 })],
+      }),
+    );
     await user.press(await screen.findByRole('button', { name: 'Stop recording' }));
 
     expect(await screen.findByRole('button', { name: 'Record' })).toBeOnTheScreen();
     expect(addTakeWithClip).toHaveBeenCalledWith(
       expect.objectContaining({
         projectId: 'p1',
-        trackId: 'track1',
-        start: 12,
+        trackId: 'track2',
+        start: expect.closeTo(5.05),
+        offset: 0,
         take: expect.objectContaining({ duration: 3.5, sampleRate: 48000, channels: 1 }),
       }),
     );
+    // Back to where recording started.
+    expect(screen.getByText('0:05.0')).toBeOnTheScreen();
+  });
+
+  it('suggests headphones when recording over other tracks', async () => {
+    jest.mocked(getProject).mockResolvedValue(twoTracks);
+    const user = userEvent.setup();
+    await renderScreen();
+
+    // Track 1 is armed and holds the only clip: nothing to record over.
+    await screen.findByText('Timeline of Chorus riff');
+    expect(screen.queryByText(/Use headphones/)).not.toBeOnTheScreen();
+    await user.press(screen.getByRole('button', { name: 'Arm Track 2' }));
+    expect(screen.getByText(/Use headphones/)).toBeOnTheScreen();
+  });
+
+  it('adds a track and arms it', async () => {
+    jest.mocked(addTrack).mockImplementation(async () => {
+      jest.mocked(getProject).mockResolvedValue(twoTracks);
+      const { clips: _clips, ...added } = track2;
+      return added;
+    });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await screen.findByText('Timeline of Chorus riff');
+    await user.press(screen.getByRole('button', { name: 'Add track' }));
+
+    expect(addTrack).toHaveBeenCalledWith('p1');
+    expect(await screen.findByRole('button', { name: 'Arm Track 2' })).toBeSelected();
   });
 
   it('explains when microphone access is denied', async () => {

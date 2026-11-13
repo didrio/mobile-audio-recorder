@@ -1,5 +1,6 @@
 import {
   computePeaks,
+  createLivePeaks,
   decodePeaks,
   downsamplePeaks,
   encodePeaks,
@@ -67,5 +68,15 @@ describe('encodePeaks / decodePeaks', () => {
     const wrongVersion = new Float32Array(bytes.slice().buffer);
     wrongVersion[0] = 99;
     expect(decodePeaks(new Uint8Array(wrongVersion.buffer))).toBeNull();
+  });
+});
+
+describe('createLivePeaks', () => {
+  it('emits pairs at a fixed rate across buffers of any size', () => {
+    const live = createLivePeaks(1000); // 48 samples per peak at 48 kHz
+    const first = live.push(new Array(70).fill(0.5), 48000);
+    expect(first).toEqual([0, 0.5]);
+    const second = live.push([-0.25, ...new Array(25).fill(0)], 48000);
+    expect(second).toEqual([-0.25, 0.5]); // the carried 22 samples + 26 new ones
   });
 });

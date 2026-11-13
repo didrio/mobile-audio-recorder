@@ -24,6 +24,14 @@ export default function RootLayout() {
           name="project/[id]"
           options={{ headerShown: true, title: '', headerBackButtonDisplayMode: 'minimal' }}
         />
+        <Stack.Screen
+          name="track/[id]"
+          options={{
+            presentation: 'formSheet',
+            sheetAllowedDetents: [0.4],
+            sheetGrabberVisible: true,
+          }}
+        />
         <Stack.Screen name="+not-found" options={{ headerShown: true, title: 'Not found' }} />
       </Stack>
     </AppProviders>

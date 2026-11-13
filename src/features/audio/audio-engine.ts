@@ -3,7 +3,12 @@
  * Features and tests use these functions, never the library directly.
  *
  * - Recording: `AudioRecorder` writes a lossless mono WAV to the cache; the caller moves it into the
- *   project (see `take-files.ts`). `onLevel` gets a 0–1 peak level per input buffer.
+ *   project (see `take-files.ts`). `onBuffer` gets every input buffer (level meter, live waveform).
+ * - Overdubs: recording plays the `backing` clips from `from`. The recorder can't be started at a
+ *   context time, so playback starts first, then the recorder, and the engine measures where the
+ *   file's first sample sits on the context clock (`ctx.currentTime − recorder.getCurrentDuration()`,
+ *   sampled for a second, keeping the minimum because the duration lags by up to one callback).
+ *   `stop()` returns that measurement with the latencies; `take-alignment.ts` turns it into a clip.
  * - Playback: one shared `AudioContext`. Every clip becomes an `AudioBufferSourceNode` started at
  *   its timeline position: source → track gain → master gain → speakers. Decoded takes are cached.
  * - Playhead: `playbackAnchor()` gives the moment (on the `performance.now()` clock, shared by the
@@ -24,12 +29,16 @@ import {
   type AudioBufferSourceNode,
 } from 'react-native-audio-api';
 
+import type { TakeAlignment } from './take-alignment';
 import { takeFilePath } from './take-files';
 
 const RECORDING_PRESET = FilePreset.Lossless;
 const RECORDING_CHANNELS = 1;
 /** Small lead time so every source is scheduled before the first one has to sound. */
 const SCHEDULE_AHEAD_SECONDS = 0.05;
+/** How long and how often the recorder's start is measured against the context clock. */
+const ALIGN_SAMPLE_MS = 20;
+const ALIGN_WINDOW_MS = 1000;
 
 export type RecordedTake = {
   /** Absolute path of the recorded file (in the cache, to be moved by the caller). */
@@ -39,8 +48,15 @@ export type RecordedTake = {
   channels: number;
 };
 
+export type FinishedRecording = RecordedTake & {
+  /** Measured start against the backing playback; `null` when nothing was playing. */
+  alignment: TakeAlignment | null;
+};
+
 export type ActiveRecording = {
-  stop(): Promise<RecordedTake>;
+  /** Playhead anchor for the take: when timeline position `from` is heard. */
+  anchor: PlaybackAnchor;
+  stop(): Promise<FinishedRecording>;
 };
 
 export type PlayableClip = {
@@ -98,8 +114,22 @@ export async function ensureRecordPermission(): Promise<boolean> {
 export async function startRecording(options: {
   /** File name without extension; must be unique (an existing file is overwritten). */
   fileName: string;
-  onLevel?: (level: number) => void;
+  /** Timeline position where the take starts (seconds). */
+  from?: number;
+  /** Clips to play while recording (the other tracks). */
+  backing?: PlayableClip[];
+  /** Every input buffer, mono samples in -1…1. */
+  onBuffer?: (samples: Float32Array, sampleRate: number) => void;
 }): Promise<ActiveRecording> {
+  const from = options.from ?? 0;
+  await play(options.backing ?? [], { from });
+  // `play` leaves `playback` null when nothing is audible from `from`.
+  const backing = playback
+    ? { startedAt: playback.startedAt, startedAtMs: playback.startedAtMs }
+    : null;
+  const ctx = backing ? getContext() : null;
+  const playbackOutputLatency = ctx ? outputLatency(ctx) : 0;
+
   await activateSession();
   const activeRecorder = (recorder ??= new AudioRecorder());
 
@@ -111,26 +141,50 @@ export async function startRecording(options: {
     fileName: options.fileName,
   });
 
-  const { onLevel } = options;
-  if (onLevel) {
+  const { onBuffer } = options;
+  if (onBuffer) {
     activeRecorder.onAudioReady(
       {
         sampleRate: AudioManager.getDevicePreferredSampleRate(),
         bufferLength: 2048,
         channelCount: 1,
       },
-      ({ buffer }) => onLevel(peakLevel(buffer.getChannelData(0))),
+      ({ buffer }) => onBuffer(buffer.getChannelData(0), buffer.sampleRate),
     );
   }
 
   const started = await activeRecorder.start();
   if (started.status === 'error') {
     activeRecorder.clearOnAudioReady();
+    stopPlayback();
     throw new Error(started.message);
   }
 
+  // Where the file's first sample sits on the context clock, and the input latency (only reported
+  // while recording).
+  let recorderStartedAt = Infinity;
+  let inputLatency = 0;
+  const measure = () => {
+    if (!ctx) return;
+    const written = activeRecorder.getCurrentDuration();
+    if (written > 0) recorderStartedAt = Math.min(recorderStartedAt, ctx.currentTime - written);
+    const latency = activeRecorder.inputLatency;
+    if (Number.isFinite(latency) && latency > 0) inputLatency = latency;
+  };
+  const measuredUntil = performance.now() + ALIGN_WINDOW_MS;
+  const measureTimer = ctx
+    ? setInterval(() => {
+        measure();
+        if (performance.now() > measuredUntil) clearInterval(measureTimer);
+      }, ALIGN_SAMPLE_MS)
+    : undefined;
+
   return {
+    anchor: { from, startedAtMs: backing?.startedAtMs ?? performance.now() },
     async stop() {
+      clearInterval(measureTimer);
+      measure();
+      stopPlayback();
       const result = await activeRecorder.stop();
       activeRecorder.clearOnAudioReady();
       if (result.status === 'error') throw new Error(result.message);
@@ -141,6 +195,15 @@ export async function startRecording(options: {
         duration: result.duration,
         sampleRate: RECORDING_PRESET.sampleRate,
         channels: RECORDING_CHANNELS,
+        alignment:
+          backing && Number.isFinite(recorderStartedAt)
+            ? {
+                playbackStartedAt: backing.startedAt,
+                recorderStartedAt,
+                outputLatency: playbackOutputLatency,
+                inputLatency,
+              }
+            : null,
       };
     },
   };

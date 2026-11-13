@@ -1,0 +1,40 @@
+# Overdub: quick-capture a first take, add a track (it gets armed), record a second take over the first and
+# land on a timeline with two tracks and two clips. The microphone prompt is accepted if it appears.
+# Run with `npm run e2e` (see scripts/e2e.mjs). Docs: https://docs.maestro.dev
+appId: ${APP_ID}
+name: Overdub
+---
+- runFlow: subflows/launch.yaml
+- extendedWaitUntil:
+    visible: 'Record new idea'
+    timeout: 60000
+
+- tapOn: 'Record new idea'
+- runFlow:
+    when:
+      visible: 'Allow'
+    commands:
+      - tapOn: 'Allow'
+- extendedWaitUntil:
+    visible: 'Stop recording'
+    timeout: 15000
+- tapOn: 'Stop recording'
+- extendedWaitUntil:
+    visible: 'Timeline, 1 track, 1 clip'
+    timeout: 15000
+
+- tapOn: 'Add track'
+- extendedWaitUntil:
+    visible: 'Arm Track 2'
+    timeout: 5000
+- assertVisible: 'Use headphones.*'
+- tapOn: 'Record'
+- extendedWaitUntil:
+    visible: 'Stop recording'
+    timeout: 15000
+- takeScreenshot: overdub-recording
+- tapOn: 'Stop recording'
+- extendedWaitUntil:
+    visible: 'Timeline, 2 tracks, 2 clips'
+    timeout: 15000
+- takeScreenshot: overdub-timeline

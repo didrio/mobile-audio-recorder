@@ -40,6 +40,8 @@ export const lightColors = {
   /** Timeline: clip (region) fill and its waveform. */
   clip: '#DCE7FB',
   waveform: '#2F5FBF',
+  /** Timeline: track header chip floating over the lane (slightly translucent). */
+  trackHeader: '#F2F2F7EB',
 } as const;
 
 export type ThemeColors = { readonly [K in keyof typeof lightColors]: string };
@@ -63,6 +65,7 @@ export const darkColors: ThemeColors = {
   laneAlt: '#0E0E10',
   clip: '#1C2940',
   waveform: '#82A9F2',
+  trackHeader: '#1C1C1EEB',
 };
 
 /** 4pt spacing scale. Use for padding, margin and gap. */

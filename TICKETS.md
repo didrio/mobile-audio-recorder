@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T3 — Multitrack overdub · Opus · high effort · plan mode on
+**Next:** T4 — First preview build · Sonnet · medium effort · plan mode off
 
 ## In progress
 
@@ -19,34 +19,6 @@ Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/featu
 Testing cadence while iterating: unit tests + `npm run check` + simulator screenshots per ticket, then the user
 tries it; Maestro, the Android emulator and the two-platform export only at milestones (T4, releases, native
 dependency changes). See the `wrap` skill.
-
-### T3 — Multitrack overdub
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Record new tracks while hearing the existing ones, lined up in time.
-- **Done when:**
-  - [ ] Add / rename / delete tracks (repo functions + UI on the timeline); one track is **armed** for recording.
-  - [ ] Record starts playback of the other tracks from the playhead and records onto the armed track at the
-        playhead position (not appended like T1).
-  - [ ] Latency compensation: the new clip's `start` is shifted by input + output latency
-        (`AudioRecorder.inputLatency`, `AudioContext.outputLatency`) plus a manual offset in Settings
-        (persist in `@/lib/storage`). Verify by recording a click/clap against an existing track.
-  - [ ] Live waveform of the take being recorded (from the `onAudioReady` buffers the engine already receives).
-  - [ ] Tests for the new repo functions' callers and the transport states; Maestro flow if practical.
-- **Context:** Engine: recording and playback share one session (`playAndRecord`, `defaultToSpeaker`) in
-  `audio-engine.ts`; headphones are recommended for overdubs (speaker bleed) — say so in the UI.
-  Timeline (T2): `src/features/timeline/timeline.tsx` draws the take being recorded from the `recordingStart`
-  prop on lane 0 — pass the armed track's lane instead. Transport (`src/features/project/use-transport.ts`) owns
-  the `playhead` shared value and a `{ from, startedAtMs }` anchor on the `performance.now()` clock; recording
-  currently appends after the last clip and returns the playhead to the take's start on Stop. The playhead
-  already includes `outputLatency` (the clock text doesn't), so reuse that number for compensation. New takes
-  get waveform peaks via `prefetchTakePeaks` (`use-take-peaks.ts`). Track names are drawn in Skia per lane; a
-  track header UI (rename/delete/arm) needs RN views laid out with the same lane size (`laneSize` in
-  `timeline-math.ts`, ruler size in `RULER_SIZE`). Echo
-  cancellation (`iosVoiceProcessing` / `voiceCommunication`) is deliberately **off**: it degrades music.
-  Recording/playback start must be scheduled on the same `AudioContext` clock; check whether the recorder can be
-  started at a context time or measure the start offset.
 
 ### T4 — First preview build
 
@@ -67,6 +39,10 @@ dependency changes). See the `wrap` skill.
   Skia: needs a few GB of disk), timeline screenshots portrait + landscape on Android, `npm run e2e` on both
   platforms. On devices: pinch-zoom and pan momentum feel, playhead vs. audio sync (latency), and smooth
   playback on a 3-minute idea with several takes.
+  **Overdub checks** (from T3, simulator-only so far): with headphones, record a clap/click against an existing
+  take and play both back — they should line up; if not, tune Settings → Recording → Latency offset and note
+  the value per device in `docs/releasing.md`. Also try Bluetooth headphones (much higher latency), delete a
+  track from its sheet, and `npm run e2e` includes the new `.maestro/overdub.yaml`.
 
 ### T5 — Clip editing
 
@@ -87,6 +63,9 @@ dependency changes). See the `wrap` skill.
   (`timeline-axis.ts`) and times with `pointToTime` (`timeline-math.ts`) so both orientations work. Waveform
   paths are cached per clip window (`waveform-path.ts`), so a trim just asks for a new window. Drawing is one
   `createPicture` per frame: add selection/handles there, driven by shared values.
+  Since T3: track header chips (`track-headers.tsx`, RN views over the lane corners) take touches there; the
+  armed track is `useState` in `project-screen.tsx` (move it into the editor store); moving a clip between
+  tracks can reuse takes left by `deleteTrack` (they're kept).
 
 ### T6 — Mixer basics
 
@@ -98,7 +77,10 @@ dependency changes). See the `wrap` skill.
   - [ ] The engine applies them live during playback (keep per-track `GainNode`s addressable instead of
         recreating them in `play()`); solo silences non-solo tracks.
   - [ ] Optional track color (needs a migration v2 in `src/lib/db.ts`).
-- **Context:** `audio-engine.ts` `play()` currently builds one gain per clip from `PlayableClip.volume`.
+- **Context:** `audio-engine.ts` `play()` currently builds one gain per clip from `PlayableClip.volume`;
+  recording plays the other tracks through the same `play()` (backing), so mute/solo must apply there too.
+  Header controls go in the chips of `src/features/timeline/track-headers.tsx` (or the track sheet,
+  `src/features/project/track-sheet.tsx`, if the chips get crowded in portrait).
   `@expo/ui` has native sliders (skill `expo:expo-ui`).
 
 ### T7 — Background recording & interruptions
@@ -183,10 +165,14 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - iOS Live Activity while recording (lock screen timer + stop).
 - Timeline performance with many tracks × long ideas: if frames drop, cache one `SkPicture` per clip (redrawn
   only when the clip or zoom level changes) instead of drawing every path each frame.
+- Overdub polish: show the live take at its compensated position while recording (it jumps by the latency
+  on Stop); count-in arrives with T9; input monitoring is above.
+- Maestro: `tapOn` by `accessibilityLabel` doesn't focus a `TextInput` on iOS (tap by point instead).
 - Clock text runs ~0.1–0.3 s ahead of the playhead (the playhead includes output latency). Show the clock from
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 
 ## Done
 
+- T3 — Multitrack overdub — 2026-11-13 — add/rename/delete/arm tracks (lane headers + track sheet), record at the playhead over the other tracks with measured start + latency compensation and a Settings offset, live waveform; fixed the playhead clock (JS and UI `performance.now()` differ, `ui-clock.ts`); overdub Maestro flow
 - T2 — Timeline view — 2026-11-11 — Skia timeline (lanes, clips with cached waveform peaks, ruler, UI-thread playhead with follow), pan/pinch/ruler seek, Play from the playhead, portrait/landscape layouts; Maestro hang traced to NTKDaemon on port 5563 (e2e warns now); smoke flow covers quick capture
 - T1 — Shape the app — 2026-11-11 — idea agreed (multitrack song sketchpad), recording red, react-native-audio-api engine + background config, SQLite non-destructive data model, Ideas list with quick-capture record button, project screen recording/playing takes on track 1, T2–T11 written

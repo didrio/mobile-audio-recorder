@@ -103,3 +103,36 @@ export function decodePeaks(bytes: Uint8Array): Peaks | null {
   if (floats.length !== HEADER_LENGTH + count * 2) return null;
   return { sampleRate, samplesPerPeak, data: floats.slice(HEADER_LENGTH) };
 }
+
+/** Resolution of the live waveform drawn while recording. */
+export const LIVE_PEAKS_PER_SECOND = 100;
+
+/**
+ * Peaks of audio arriving in buffers (the take being recorded), at a fixed `peaksPerSecond`
+ * whatever the buffer sizes: each `push` returns the completed `[min, max]` pairs, carrying a
+ * partial block over to the next buffer.
+ */
+export function createLivePeaks(peaksPerSecond = LIVE_PEAKS_PER_SECOND) {
+  let filled = 0;
+  let min = 0;
+  let max = 0;
+  return {
+    push(samples: ArrayLike<number>, sampleRate: number): number[] {
+      const block = sampleRate / peaksPerSecond;
+      const out: number[] = [];
+      for (let i = 0; i < samples.length; i++) {
+        const value = samples[i] ?? 0;
+        if (value < min) min = value;
+        if (value > max) max = value;
+        filled++;
+        if (filled >= block) {
+          out.push(Math.max(-1, min), Math.min(1, max));
+          filled -= block;
+          min = 0;
+          max = 0;
+        }
+      }
+      return out;
+    },
+  };
+}

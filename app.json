@@ -67,6 +67,15 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "owner": "ididrio",
+    "extra": {
+      "eas": {
+        "projectId": "e69c54c5-6f5a-4b17-8084-3806ca15e917"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e69c54c5-6f5a-4b17-8084-3806ca15e917"
     }
   }
 }

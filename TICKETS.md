@@ -8,21 +8,9 @@ Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
 ## In progress
 
-_None._
-
-## Up next
-
-Product in one line: a quick multitrack sketchpad for musicians (2–3 min song ideas), with a simple horizontal
-timeline (time left→right, tracks are rows) that works well in both portrait and landscape.
-Not a DAW: no software instruments. Local only. Architecture and data model: `docs/decisions.md` (Audio engine,
-Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/features/audio/audio-engine.ts`.
-Testing cadence while iterating: unit tests + `npm run check` + simulator screenshots per ticket, then the user
-tries it; Maestro, the Android emulator and the two-platform export only at milestones (T4, releases, native
-dependency changes). See the `wrap` skill.
-
 ### T4 — First preview build
 
-- **Status:** ready
+- **Status:** in progress
 - **Session:** Opus · high effort · plan mode off (scripted in `docs/releasing.md`, but the first real-device
   recording test may surface audio bugs like the stacked-clips one)
 - **Goal:** The app's own EAS project, preview builds installed on the user's devices, an OTA update received.
@@ -47,6 +35,16 @@ dependency changes). See the `wrap` skill.
   **From the post-T3 polish** (simulator-only so far): record over the middle of an existing take on the same
   track (it should replace that part: three clips end to end), then Play several times in a row and seek while
   playing. Playback once went silent after repeated tries before the fix; confirm it stays audible.
+
+## Up next
+
+Product in one line: a quick multitrack sketchpad for musicians (2–3 min song ideas), with a simple horizontal
+timeline (time left→right, tracks are rows) that works well in both portrait and landscape.
+Not a DAW: no software instruments. Local only. Architecture and data model: `docs/decisions.md` (Audio engine,
+Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/features/audio/audio-engine.ts`.
+Testing cadence while iterating: unit tests + `npm run check` + simulator screenshots per ticket, then the user
+tries it; Maestro, the Android emulator and the two-platform export only at milestones (T4, releases, native
+dependency changes). See the `wrap` skill.
 
 ### T5 — Clip editing
 

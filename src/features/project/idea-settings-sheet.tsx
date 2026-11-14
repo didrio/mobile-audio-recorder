@@ -13,6 +13,7 @@ import {
   Text,
   type IconName,
 } from '@/components/ui';
+import { setMetronome } from '@/features/audio/audio-engine';
 import {
   addTap,
   BPM_MAX,
@@ -22,6 +23,8 @@ import {
   TIME_SIGNATURES,
   timeSignatureLabel,
 } from '@/features/audio/tempo';
+import { formatDb } from '@/features/timeline/fader-math';
+import { VolumeSlider } from '@/features/timeline/volume-slider';
 import { makeStyles, useTheme } from '@/theme';
 
 import { setIdeaSettings, useEditorStore } from './editor-store';
@@ -36,8 +39,8 @@ const signatureOptions = TIME_SIGNATURES.map(({ beatsPerBar, beatUnit }) => ({
 
 /**
  * Idea settings, shown as a sheet over the open idea (editor store): name, tempo (stepper, typed
- * value or Tap tempo), time signature and the grid switch. Every change is one undo step from the
- * idea's header. Tempo changes made in quick succession become one step. Setting a different
+ * value or Tap tempo), time signature, the grid switch and the metronome volume. Every change is one
+ * undo step from the idea's header (a volume drag is one step, heard live while it moves). Tempo changes made in quick succession become one step. Setting a different
  * tempo turns the grid on (`setIdeaSettingsEdit`).
  */
 export function IdeaSettingsSheet() {
@@ -57,6 +60,20 @@ function IdeaSettingsForm() {
   const pendingBpm = useRef<number | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const taps = useRef<number[]>([]);
+  const metronomeOn = useEditorStore((state) => state.metronome);
+  /** The metronome volume while its slider is dragged (saved on release). */
+  const [dragVolume, setDragVolume] = useState<number | null>(null);
+  const metronomeVolume = dragVolume ?? project.metronomeVolume;
+
+  const previewVolume = (volume: number) => {
+    setDragVolume(volume);
+    // Hear it at once if clicks are playing; the transport sets the saved value again afterwards.
+    if (metronomeOn) setMetronome({ meter: project, volume });
+  };
+  const saveVolume = (volume: number) => {
+    setDragVolume(null);
+    void setIdeaSettings({ metronomeVolume: volume });
+  };
 
   const commitBpm = () => {
     if (timer.current) clearTimeout(timer.current);
@@ -202,6 +219,21 @@ function IdeaSettingsForm() {
         />
       </ListSection>
 
+      <ListSection title="Metronome">
+        <View style={styles.volumeRow}>
+          <Text>Volume</Text>
+          <VolumeSlider
+            label="Metronome volume"
+            gain={metronomeVolume}
+            onDrag={previewVolume}
+            onRelease={saveVolume}
+          />
+          <Text variant="footnote" color="textSecondary" style={styles.volumeValue}>
+            {formatDb(metronomeVolume)}
+          </Text>
+        </View>
+      </ListSection>
+
       <Text variant="footnote" color="textSecondary" style={styles.footer}>
         Changing the tempo moves only the grid, not the audio. In x/8 signatures a beat is an eighth
         note.
@@ -265,6 +297,14 @@ const useStyles = makeStyles((t) => ({
   tapRow: { padding: t.spacing.md },
   segmentRow: { padding: t.spacing.md },
   footer: { paddingHorizontal: t.spacing.lg },
+  volumeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: t.spacing.md,
+    paddingHorizontal: t.spacing.lg,
+    paddingVertical: t.spacing.sm,
+  },
+  volumeValue: { minWidth: 52, textAlign: 'right', fontVariant: ['tabular-nums'] },
   stepButton: {
     width: 36,
     height: 36,

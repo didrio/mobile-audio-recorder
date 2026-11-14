@@ -320,7 +320,7 @@ export function deleteClipEdit(project: Project, clipId: string): Edit | null {
 }
 
 /**
- * Changes the idea's name, tempo, time signature and/or grid in one step. A blank name is ignored and the
+ * Changes the idea's name, tempo, time signature, grid and/or metronome volume in one step. A blank name is ignored and the
  * tempo is clamped; setting a tempo that differs from the current one turns the grid on, unless the same
  * patch says otherwise. `null` when nothing would change.
  */
@@ -336,12 +336,16 @@ export function setIdeaSettingsEdit(project: Project, patch: Partial<IdeaSetting
   if (patch.beatsPerBar !== undefined) after.beatsPerBar = patch.beatsPerBar;
   if (patch.beatUnit !== undefined) after.beatUnit = patch.beatUnit;
   if (patch.grid !== undefined) after.grid = patch.grid;
+  if (patch.metronomeVolume !== undefined && Number.isFinite(patch.metronomeVolume)) {
+    after.metronomeVolume = Math.max(0, patch.metronomeVolume);
+  }
   if (
     after.name === before.name &&
     after.bpm === before.bpm &&
     after.beatsPerBar === before.beatsPerBar &&
     after.beatUnit === before.beatUnit &&
-    after.grid === before.grid
+    after.grid === before.grid &&
+    after.metronomeVolume === before.metronomeVolume
   ) {
     return null;
   }

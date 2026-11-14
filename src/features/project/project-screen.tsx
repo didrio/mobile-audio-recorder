@@ -28,6 +28,7 @@ import {
   setTrackVolume,
   toggleMute,
   toggleArm,
+  toggleMetronome,
   togglePreRoll,
   toggleSolo,
   undo,
@@ -40,8 +41,7 @@ import { useInputMeter } from './use-input-meter';
 import { useTransport } from './use-transport';
 
 /**
- * The project editor: a thin status strip (clock, pre-roll toggle, room for T17's metronome toggle,
- * meter), the timeline, then a compact transport row (Back to start · Play · Record). Record while
+ * The project editor: a thin status strip (clock, pre-roll and metronome toggles, meter), the timeline, then a compact transport row (Back to start · Play · Record). Record while
  * playing punches in on the fly; with pre-roll on, Record starts with a run-up (`use-transport.ts`). The app is portrait-only
  * (`orientation` in app.json), so there is no landscape layout. One track is
  * armed: Record records onto it while the others play. Tracks are added from the timeline's
@@ -65,6 +65,7 @@ export function ProjectScreen() {
   const saveError = useEditorStore((state) => state.saveError);
   const armedTrack = useEditorStore(selectArmedTrack);
   const preRoll = useEditorStore((state) => state.preRoll);
+  const metronome = useEditorStore((state) => state.metronome);
   const canUndo = useEditorStore(selectCanUndo);
   const canRedo = useEditorStore(selectCanRedo);
   const transport = useTransport(project);
@@ -139,8 +140,9 @@ export function ProjectScreen() {
   const editTrack = (trackId: string) =>
     router.push({ pathname: '/track/[id]', params: { id: trackId, projectId: params.id } });
 
-  // Time on the left, the meter on the right, toggles before it (T17's metronome goes next to
-  // pre-roll). The clock turns red once the take has started (not during the run-up).
+  // Time on the left, the meter on the right, toggles before it. The clock turns red once the take
+  // has started (not during the run-up). Pre-roll is fixed while recording; the metronome can be
+  // switched any time (it applies live), except while the transport starts or stops.
   const taking = isRecording && !transport.isPreRolling;
   const statusStrip = (
     <View style={styles.strip}>
@@ -153,28 +155,20 @@ export function ProjectScreen() {
         {formatTimecode(transport.position)}
       </Text>
       <View style={styles.stripSpacer} />
-      <Pressable
-        accessibilityRole="switch"
-        accessibilityLabel="Pre-roll"
-        accessibilityState={{ checked: preRoll, disabled: isRecording || isBusy }}
+      <StripToggle
+        label="Metronome"
+        icon={{ ios: 'metronome', android: 'timer' }}
+        on={metronome}
+        disabled={isBusy || !project}
+        onPress={() => void toggleMetronome()}
+      />
+      <StripToggle
+        label="Pre-roll"
+        icon={{ ios: 'arrow.right.to.line', android: 'start' }}
+        on={preRoll}
         disabled={isRecording || isBusy}
-        hitSlop={8}
-        onPress={() => {
-          void Haptics.selectionAsync();
-          void togglePreRoll();
-        }}
-        style={({ pressed }) => [
-          styles.stripToggle,
-          preRoll && styles.stripToggleOn,
-          (isRecording || isBusy) && styles.disabled,
-          pressed && styles.pressed,
-        ]}>
-        <Icon
-          name={{ ios: 'arrow.right.to.line', android: 'start' }}
-          size={16}
-          color={preRoll ? 'background' : 'textSecondary'}
-        />
-      </Pressable>
+        onPress={() => void togglePreRoll()}
+      />
       <View style={styles.meter} accessibilityElementsHidden importantForAccessibility="no">
         <View style={[styles.meterFill, { width: `${Math.round(meterLevel * 100)}%` }]} />
       </View>
@@ -396,6 +390,43 @@ function HeaderIconButton({
         pressed && styles.pressed,
       ]}>
       <Icon name={icon} size={24} />
+    </Pressable>
+  );
+}
+
+/** An icon-only on/off switch in the status strip (filled when on). */
+function StripToggle({
+  label,
+  icon,
+  on,
+  disabled,
+  onPress,
+}: {
+  label: string;
+  icon: IconName;
+  on: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const styles = useStyles();
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: on, disabled }}
+      disabled={disabled}
+      hitSlop={8}
+      onPress={() => {
+        void Haptics.selectionAsync();
+        onPress();
+      }}
+      style={({ pressed }) => [
+        styles.stripToggle,
+        on && styles.stripToggleOn,
+        disabled && styles.disabled,
+        pressed && styles.pressed,
+      ]}>
+      <Icon name={icon} size={16} color={on ? 'background' : 'textSecondary'} />
     </Pressable>
   );
 }

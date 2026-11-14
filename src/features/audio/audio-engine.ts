@@ -21,6 +21,13 @@
  * - Mixer: `setTrackGain` keeps each track's gain (track volume; later × mute/solo). Playback builds
  *   one `GainNode` per track from it, and changes apply live (short ramp) to the playing graph,
  *   including the backing playback while recording.
+ * - Metronome: `setMetronome` sets (or clears) the click's meter and volume, live. Every playback
+ *   runs a small lookahead scheduler that starts click buffers (`metronome.ts`) on the context clock
+ *   at their timeline positions, exactly like clips, so the click lines up with the backing and,
+ *   after latency compensation, with takes. The run-up before 0:00 clicks too (the count-in).
+ *   Clicks skip the track gains (mute, solo and volume never touch them).
+ *   Recording keeps its playback running until Stop (`endless`), so the click doesn't stop after the
+ *   last clip, and with the metronome on there is a playback even when no clip is audible.
  * - Playhead: `playbackAnchor()` gives the moment (on the `performance.now()` clock, shared by the
  *   JS and UI threads) when timeline position `from` is heard, so the UI can animate the playhead
  *   per frame without calling into the engine.
@@ -40,8 +47,10 @@ import {
   type GainNode,
 } from 'react-native-audio-api';
 
+import { clicksBetween, clickSamples, type ClickAccent } from './metronome';
 import type { TakeAlignment } from './take-alignment';
 import { takeFilePath } from './take-files';
+import type { Meter } from './tempo';
 
 const RECORDING_PRESET = FilePreset.Lossless;
 const RECORDING_CHANNELS = 1;
@@ -99,6 +108,25 @@ const GAIN_RAMP_SECONDS = 0.015;
 /** Fade-out length when a track is cut at the punch point (no click). */
 const CUT_FADE_SECONDS = 0.005;
 
+/** How far ahead clicks are scheduled, and how often the scheduler looks. */
+const CLICK_LOOKAHEAD_SECONDS = 0.25;
+const CLICK_TICK_MS = 50;
+
+export type MetronomeConfig = { meter: Meter; volume: number };
+let metronome: MetronomeConfig | null = null;
+/** Click sounds, made once per accent at the context's sample rate. */
+const clickBuffers = new Map<ClickAccent, AudioBuffer>();
+
+type ClickScheduler = {
+  /** Every click goes through this gain (the metronome volume) to the playback output. */
+  gain: GainNode;
+  timer: ReturnType<typeof setInterval>;
+  /** Clicks before this timeline position have been scheduled (or skipped). */
+  scheduledUntil: number;
+  /** Started click sources with their context start time, for cancelling ones not heard yet. */
+  sources: { source: AudioBufferSourceNode; at: number }[];
+};
+
 /** Bumped by every `play` and `stopPlayback`, so a `play` still loading audio knows it was superseded. */
 let playGeneration = 0;
 
@@ -110,7 +138,9 @@ let playback: {
   tracks: Map<string, GainNode>;
   /** Tracks silenced by `cutTrackAt`: gain changes no longer reach them. */
   cutTracks: Set<string>;
-  endTimer: ReturnType<typeof setTimeout>;
+  /** Ends the playback after the last clip; `undefined` for an endless (recording) playback. */
+  endTimer: ReturnType<typeof setTimeout> | undefined;
+  clicks: ClickScheduler;
   /** Called when the last clip finishes; recording clears it so the take keeps going. */
   onEnded: (() => void) | undefined;
   startedAt: number;
@@ -215,11 +245,15 @@ export async function startRecording(options: {
   let from: number;
   if ('clips' in options.playback) {
     from = options.playback.from;
-    await play(options.playback.clips, { from });
+    await play(options.playback.clips, { from, endless: true });
   } else {
     from = playback?.from ?? options.playback.continueFrom;
-    // The take keeps going past the last clip.
-    if (playback) playback.onEnded = undefined;
+    // The take (and the click) keeps going past the last clip.
+    if (playback) {
+      playback.onEnded = undefined;
+      clearTimeout(playback.endTimer);
+      playback.endTimer = undefined;
+    }
   }
   // `playback` is null when nothing is audible from `from`.
   const backing = playback
@@ -351,17 +385,19 @@ export function forgetTakes(takePaths: string[]) {
 
 /**
  * Plays the clips from timeline position `from` (seconds). Resolves once playback has started.
- * `onEnded` fires when the last clip finishes (not when `stopPlayback` is called).
+ * `onEnded` fires when the last clip finishes (not when `stopPlayback` is called). An `endless`
+ * playback (recording) runs until `stopPlayback`, and exists without audible clips when the
+ * metronome is on.
  */
 export async function play(
   clips: PlayableClip[],
-  options: { from?: number; onEnded?: () => void } = {},
+  options: { from?: number; onEnded?: () => void; endless?: boolean } = {},
 ): Promise<void> {
   stopPlayback();
   const generation = playGeneration;
   const from = options.from ?? 0;
   const audible = clips.filter((clip) => clip.start + clip.duration > from);
-  if (audible.length === 0) {
+  if (audible.length === 0 && !(options.endless && metronome)) {
     options.onEnded?.();
     return;
   }
@@ -406,25 +442,127 @@ export async function play(
     return source;
   });
 
+  const clickGain = ctx.createGain();
+  clickGain.gain.value = metronome?.volume ?? 1;
+  clickGain.connect(master);
+
   const current: NonNullable<typeof playback> = {
     sources,
     output: master,
     tracks,
     cutTracks: new Set(),
-    endTimer: setTimeout(
-      () => {
-        master.disconnect();
-        if (playback === current) playback = null;
-        current.onEnded?.();
-      },
-      (end + SCHEDULE_AHEAD_SECONDS) * 1000,
-    ),
+    endTimer: options.endless
+      ? undefined
+      : setTimeout(
+          () => {
+            endPlayback(current);
+            if (playback === current) playback = null;
+            current.onEnded?.();
+          },
+          (end + SCHEDULE_AHEAD_SECONDS) * 1000,
+        ),
+    clicks: {
+      gain: clickGain,
+      timer: setInterval(() => scheduleClicks(current), CLICK_TICK_MS),
+      scheduledUntil: from,
+      sources: [],
+    },
     onEnded: options.onEnded,
     startedAt,
     from,
     startedAtMs,
   };
   playback = current;
+  scheduleClicks(current);
+}
+
+/** Starts the clicks that fall in the next lookahead window (none while the metronome is off). */
+function scheduleClicks(current: NonNullable<typeof playback>) {
+  if (!context) return;
+  const ctx = context;
+  const clicks = current.clicks;
+  const now = ctx.currentTime;
+  const position = current.from + (now - current.startedAt);
+  const until = position + CLICK_LOOKAHEAD_SECONDS;
+  if (metronome && until > clicks.scheduledUntil) {
+    // A click whose time has passed (the JS thread stalled) is skipped rather than played late.
+    for (const click of clicksBetween(
+      metronome.meter,
+      Math.max(clicks.scheduledUntil, position),
+      until,
+    )) {
+      const at = current.startedAt + (click.position - current.from);
+      const source = ctx.createBufferSource();
+      source.buffer = clickBuffer(ctx, click.accent);
+      source.connect(clicks.gain);
+      source.start(at);
+      clicks.sources.push({ source, at });
+    }
+    clicks.scheduledUntil = until;
+  } else if (!metronome) {
+    clicks.scheduledUntil = Math.max(clicks.scheduledUntil, position);
+  }
+  // Forget clicks that have finished.
+  clicks.sources = clicks.sources.filter(({ at }) => at > now - 1);
+}
+
+/** Stops clicks that haven't sounded yet, and schedules from now on again. */
+function cancelClicks(current: NonNullable<typeof playback>) {
+  if (!context) return;
+  const now = context.currentTime;
+  for (const { source, at } of current.clicks.sources) {
+    if (at <= now) continue;
+    try {
+      source.stop();
+    } catch {
+      // Already finished.
+    }
+  }
+  current.clicks.sources = current.clicks.sources.filter(({ at }) => at <= now);
+  current.clicks.scheduledUntil = current.from + (now - current.startedAt);
+}
+
+function clickBuffer(ctx: AudioContext, accent: ClickAccent): AudioBuffer {
+  let buffer = clickBuffers.get(accent);
+  if (!buffer || buffer.sampleRate !== ctx.sampleRate) {
+    const samples = clickSamples(accent, ctx.sampleRate);
+    buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
+    buffer.copyToChannel(samples, 0);
+    clickBuffers.set(accent, buffer);
+  }
+  return buffer;
+}
+
+/**
+ * Turns the metronome on with a meter and volume (linear gain, 1 = 0 dB), or off with `null`. Applies
+ * live to the playback that's running: volume changes ramp, and a new meter (or turning it off)
+ * drops the clicks scheduled ahead so the next ones follow the change.
+ */
+export function setMetronome(config: MetronomeConfig | null) {
+  const previous = metronome;
+  metronome = config;
+  if (!playback || !context) return;
+  const meterChanged =
+    !config ||
+    !previous ||
+    config.meter.bpm !== previous.meter.bpm ||
+    config.meter.beatsPerBar !== previous.meter.beatsPerBar ||
+    config.meter.beatUnit !== previous.meter.beatUnit;
+  if (meterChanged) cancelClicks(playback);
+  if (config) {
+    playback.clicks.gain.gain.setTargetAtTime(
+      config.volume,
+      context.currentTime,
+      GAIN_RAMP_SECONDS,
+    );
+    if (meterChanged) scheduleClicks(playback);
+  }
+}
+
+/** Releases a playback's graph and stops its click scheduler. */
+function endPlayback(current: NonNullable<typeof playback>) {
+  clearInterval(current.clicks.timer);
+  current.output.disconnect();
 }
 
 /**
@@ -459,14 +597,14 @@ export function stopPlayback() {
   playGeneration++;
   if (!playback) return;
   clearTimeout(playback.endTimer);
-  for (const source of playback.sources) {
+  for (const source of [...playback.sources, ...playback.clicks.sources.map((c) => c.source)]) {
     try {
       source.stop();
     } catch {
       // Already finished.
     }
   }
-  playback.output.disconnect();
+  endPlayback(playback);
   playback = null;
 }
 

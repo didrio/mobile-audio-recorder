@@ -34,6 +34,8 @@ export function testProject(tracks: ProjectTrack[]): Project {
     beatsPerBar: 4,
     beatUnit: 4,
     grid: false,
+    metronome: false,
+    metronomeVolume: 1,
     takes: {},
     tracks,
   };

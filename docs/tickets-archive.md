@@ -2,6 +2,15 @@
 
 Oldest finished tickets, moved out of `TICKETS.md` to keep it lean. Newest first.
 
+- T29 — Record button: stop, not pause — 2026-11-13 — stop square while recording, larger record glyph nudged up 1 pt (stop glyph checked mid-recording on iOS)
+- T23 — Reorder tracks — 2026-11-13 — long-press a grip to lift and drag a track, other lanes glide aside,
+  edge auto-scroll, one undo step (`moveTrackEdit`), screen-reader Move up / Move down
+- T15 — Arming & input meter — 2026-11-13 — tapping a name pill toggles arming, saved per idea (migration v2),
+  nothing armed → Record grayed out; live input meter while armed and idle (`use-input-meter.ts`)
+- T28 — Track column v2 — 2026-11-13 — 38 pt column with one grip per track, arm by tapping the name pill, the
+  mixer's info button opens the track sheet, 0:00 flush with the column
+- T22 — Transport & playhead polish — 2026-11-13 — Back to start stops playback, Play ↔ Pause, playhead ends at
+  the last lane
 - Backlog planning 3 — 2026-11-13 — new T28 (track column v2: arm button only in the mixer, narrow grab-handle column, armed track marked on its name label); T15 and T23 rewired onto it, T23's grab target is now the handle
 - Backlog planning 2 — 2026-11-13 — new T22 (transport & playhead polish), T23 (reorder tracks), T24 (idea notes), T25 (pre-roll), T26 (loop region), T27 (loop recording & takes); T17's count-in now builds on T25, T18 gets per-section notes; chord progressions, comping and four pitched ideas added to Backlog
 - T14 — Editor layout v2 — 2026-11-13 — fixed 88 pt lanes with "N more" chips, arm-only column that expands into a mixer (mute, solo, relative-drag volume; mute/solo pulled in from T6; per-track `GainNode`s applied live), "+ New Track" row, status strip + compact transport (landscape: button column), header Undo · Redo · ⋯ placeholders (Android: `@expo/ui` dropdown); iOS preview OTA `01a1d6bf` published; checked on the iOS simulator (both orientations, light/dark, 1 and 8 tracks) and the Android header; e2e skipped

@@ -9,6 +9,7 @@ import {
   play,
   playbackPosition,
   setMetering,
+  setMetronome,
   setTrackGain,
   startRecording,
 } from '@/features/audio/audio-engine';
@@ -18,6 +19,7 @@ import {
   getProject,
   saveChanges,
   setArmedTrack,
+  setMetronome as saveMetronome,
   setPreRoll,
   type Project,
 } from '@/features/projects/projects-repo';
@@ -103,6 +105,7 @@ jest.mock('@/features/audio/audio-engine', () => ({
   peakLevel: jest.fn(() => 0),
   play: jest.fn(),
   setTrackGain: jest.fn(),
+  setMetronome: jest.fn(),
   playbackPosition: jest.fn(() => 0),
   playbackAnchor: jest.fn(() => null),
   decodeTake: jest.fn(),
@@ -194,6 +197,7 @@ jest.mock('@/features/projects/projects-repo', () => ({
   saveChanges: jest.fn(),
   setArmedTrack: jest.fn(() => Promise.resolve()),
   setPreRoll: jest.fn(() => Promise.resolve()),
+  setMetronome: jest.fn(() => Promise.resolve()),
   deleteUnusedTakes: jest.fn(),
   listProjects: jest.fn(),
   createProject: jest.fn(),
@@ -212,6 +216,8 @@ const project: Project = {
   beatsPerBar: 4,
   beatUnit: 4,
   grid: false,
+  metronome: false,
+  metronomeVolume: 1,
   takes: {
     t1: {
       id: 't1',
@@ -384,6 +390,54 @@ describe('ProjectScreen', () => {
 
     expect(screen.getByRole('switch', { name: 'Pre-roll' })).toBeChecked();
     expect(setPreRoll).toHaveBeenCalledWith('p1', true);
+  });
+
+  it('toggles the metronome: saved with the idea, turns the grid on, and drives the engine', async () => {
+    jest.mocked(saveChanges).mockResolvedValue();
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await screen.findByText('Timeline of Chorus riff');
+    expect(setMetronome).toHaveBeenLastCalledWith(null);
+    await user.press(screen.getByRole('switch', { name: 'Metronome' }));
+
+    expect(screen.getByRole('switch', { name: 'Metronome' })).toBeChecked();
+    expect(saveMetronome).toHaveBeenCalledWith('p1', true);
+    expect(saveChanges).toHaveBeenCalledWith(
+      'p1',
+      [
+        expect.objectContaining({
+          table: 'projects',
+          after: expect.objectContaining({ grid: true }),
+        }),
+      ],
+      undefined,
+    );
+    expect(setMetronome).toHaveBeenLastCalledWith({
+      meter: { bpm: 120, beatsPerBar: 4, beatUnit: 4 },
+      volume: 1,
+    });
+
+    await user.press(screen.getByRole('switch', { name: 'Metronome' }));
+    expect(saveMetronome).toHaveBeenLastCalledWith('p1', false);
+    expect(setMetronome).toHaveBeenLastCalledWith(null);
+  });
+
+  it('with the metronome on, the count-in is whole bars even with the grid off', async () => {
+    // 60 BPM in 4/4: one bar is 4 s, so the run-up starts at 5 - 4 = 1.
+    jest
+      .mocked(getProject)
+      .mockResolvedValue({ ...project, preRoll: true, metronome: true, grid: false, bpm: 60 });
+    mockRecording({ from: 1, startedAtMs: performance.now() + 60_000 });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Seek to 0:05' }));
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+
+    expect(startRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ playback: expect.objectContaining({ from: 1 }) }),
+    );
   });
 
   it('with pre-roll, plays every track from before the playhead and punches in at it', async () => {

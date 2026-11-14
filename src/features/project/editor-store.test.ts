@@ -4,6 +4,7 @@ import {
   getProject,
   saveChanges,
   setArmedTrack,
+  setMetronome,
 } from '@/features/projects/projects-repo';
 
 import { deleteTrackEdit, renameTrackEdit } from './edit-commands';
@@ -20,6 +21,7 @@ import {
   selectCanUndo,
   setTrackVolume,
   toggleArm,
+  toggleMetronome,
   toggleMute,
   toggleSolo,
   undo,
@@ -31,6 +33,7 @@ jest.mock('@/features/projects/projects-repo', () => ({
   getProject: jest.fn(),
   saveChanges: jest.fn(),
   setArmedTrack: jest.fn(),
+  setMetronome: jest.fn(),
   deleteUnusedTakes: jest.fn(),
 }));
 
@@ -198,6 +201,22 @@ describe('editor store', () => {
     expect(trackNames()).toEqual(['Track 1', 'Track 2']);
     expect(selectCanUndo(state())).toBe(false);
     expect(state().saveError).toMatch(/could not be saved/);
+  });
+
+  it('toggles the metronome (saved, not undoable); turning it on turns the grid on as one undo step', async () => {
+    jest.mocked(setMetronome).mockResolvedValue();
+    await toggleMetronome();
+    expect(state()).toMatchObject({ metronome: true, project: { grid: true } });
+    expect(setMetronome).toHaveBeenLastCalledWith('p1', true);
+
+    await toggleMetronome();
+    expect(state()).toMatchObject({ metronome: false, project: { grid: true } });
+    expect(setMetronome).toHaveBeenLastCalledWith('p1', false);
+
+    // Only the grid change is in the history.
+    await undo();
+    expect(state()).toMatchObject({ metronome: false, project: { grid: false } });
+    expect(selectCanUndo(state())).toBe(false);
   });
 
   it('forgets history when the idea closes', async () => {

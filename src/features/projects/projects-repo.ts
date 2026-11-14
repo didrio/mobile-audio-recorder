@@ -63,6 +63,8 @@ export type IdeaSettings = {
   beatUnit: number;
   /** Show the bar/beat grid on the timeline and snap to it. */
   grid: boolean;
+  /** Metronome click volume (linear gain, 1 = 0 dB). */
+  metronomeVolume: number;
 };
 
 export type Project = ProjectSummary &
@@ -71,6 +73,8 @@ export type Project = ProjectSummary &
     armedTrackId: string | null;
     /** Record starts with a run-up: playback begins the pre-roll length before the playhead. */
     preRoll: boolean;
+    /** The metronome clicks during playback and recording (and the pre-roll counts in). */
+    metronome: boolean;
     tracks: (Track & { clips: Clip[] })[];
     takes: Record<string, Take>;
   };
@@ -86,6 +90,8 @@ type ProjectRow = {
   beats_per_bar: number;
   beat_unit: number;
   grid: number;
+  metronome: number;
+  metronome_volume: number;
   duration: number;
 };
 type TrackRow = {
@@ -117,7 +123,7 @@ type ClipRow = {
 
 const PROJECT_COLUMNS = `
   p.id, p.name, p.created_at, p.updated_at, p.armed_track_id, p.pre_roll,
-  p.bpm, p.beats_per_bar, p.beat_unit, p.grid,
+  p.bpm, p.beats_per_bar, p.beat_unit, p.grid, p.metronome, p.metronome_volume,
   COALESCE((
     SELECT MAX(c.start + c.duration) FROM clips c JOIN tracks t ON t.id = c.track_id
     WHERE t.project_id = p.id
@@ -200,6 +206,8 @@ export async function getProject(id: string): Promise<Project | null> {
     beatsPerBar: row.beats_per_bar,
     beatUnit: row.beat_unit,
     grid: row.grid === 1,
+    metronome: row.metronome === 1,
+    metronomeVolume: row.metronome_volume,
     tracks,
     takes,
   };
@@ -215,6 +223,12 @@ export async function setArmedTrack(projectId: string, trackId: string | null): 
 export async function setPreRoll(projectId: string, on: boolean): Promise<void> {
   const db = await getDb();
   await db.runAsync('UPDATE projects SET pre_roll = ? WHERE id = ?', on ? 1 : 0, projectId);
+}
+
+/** Remembers whether the metronome is on. Not an edit: it leaves `updated_at` alone. */
+export async function setMetronome(projectId: string, on: boolean): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('UPDATE projects SET metronome = ? WHERE id = ?', on ? 1 : 0, projectId);
 }
 
 /** Creates a project with one empty track, armed. Without a name it's called "Idea N". */
@@ -289,8 +303,9 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
     }
     await db.withExclusiveTransactionAsync(async (tx) => {
       await tx.runAsync(
-        `INSERT INTO projects (id, name, created_at, updated_at, pre_roll, bpm, beats_per_bar, beat_unit, grid)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (id, name, created_at, updated_at, pre_roll, bpm, beats_per_bar, beat_unit, grid,
+           metronome, metronome_volume)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         newId,
         name,
         now,
@@ -300,6 +315,8 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
         source.beatsPerBar,
         source.beatUnit,
         source.grid ? 1 : 0,
+        source.metronome ? 1 : 0,
+        source.metronomeVolume,
       );
       for (const track of source.tracks) {
         await tx.runAsync(
@@ -392,12 +409,13 @@ export async function saveChanges(
       if (change.table !== 'projects') continue;
       const settings = change.after;
       await tx.runAsync(
-        'UPDATE projects SET name = ?, bpm = ?, beats_per_bar = ?, beat_unit = ?, grid = ? WHERE id = ?',
+        'UPDATE projects SET name = ?, bpm = ?, beats_per_bar = ?, beat_unit = ?, grid = ?, metronome_volume = ? WHERE id = ?',
         settings.name,
         settings.bpm,
         settings.beatsPerBar,
         settings.beatUnit,
         settings.grid ? 1 : 0,
+        settings.metronomeVolume,
         projectId,
       );
     }

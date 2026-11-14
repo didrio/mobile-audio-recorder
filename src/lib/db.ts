@@ -19,7 +19,7 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 
 const DATABASE_NAME = 'audio-recorder.db';
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 let database: Promise<SQLiteDatabase> | null = null;
 
@@ -108,6 +108,13 @@ async function migrate(db: SQLiteDatabase) {
         ALTER TABLE projects ADD COLUMN beats_per_bar INTEGER NOT NULL DEFAULT 4;
         ALTER TABLE projects ADD COLUMN beat_unit INTEGER NOT NULL DEFAULT 4;
         ALTER TABLE projects ADD COLUMN grid INTEGER NOT NULL DEFAULT 0;
+      `);
+    }
+    if (version < 5) {
+      // Metronome on/off and its volume per idea (T17).
+      await tx.execAsync(`
+        ALTER TABLE projects ADD COLUMN metronome INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE projects ADD COLUMN metronome_volume REAL NOT NULL DEFAULT 1;
       `);
     }
     await tx.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, userEvent } from '@testing-library/react-native';
 import { act } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import type { Project } from '@/features/projects/projects-repo';
 
@@ -9,7 +10,10 @@ import { IdeaSettingsSheet } from './idea-settings-sheet';
 
 jest.mock('expo-router', () => ({ useLocalSearchParams: () => ({ id: 'p1' }) }));
 
-jest.mock('@/features/audio/audio-engine', () => ({ forgetTakes: jest.fn() }));
+jest.mock('@/features/audio/audio-engine', () => ({
+  forgetTakes: jest.fn(),
+  setMetronome: jest.fn(),
+}));
 
 jest.mock('@/features/projects/projects-repo', () => ({
   getProject: jest.fn(),
@@ -17,6 +21,7 @@ jest.mock('@/features/projects/projects-repo', () => ({
   deleteUnusedTakes: jest.fn(),
   setArmedTrack: jest.fn(),
   setPreRoll: jest.fn(),
+  setMetronome: jest.fn(),
 }));
 
 jest.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }));
@@ -34,7 +39,11 @@ async function openSheet() {
   await act(async () => {
     await openIdea('p1');
   });
-  return render(<IdeaSettingsSheet />);
+  return render(
+    <GestureHandlerRootView>
+      <IdeaSettingsSheet />
+    </GestureHandlerRootView>,
+  );
 }
 
 const savedSettings = () =>
@@ -146,5 +155,18 @@ describe('IdeaSettingsSheet', () => {
     await unmount();
 
     expect(useEditorStore.getState().project?.bpm).toBe(119);
+  });
+
+  it('saves a metronome volume step as one undoable edit', async () => {
+    await openSheet();
+    const slider = screen.getByRole('adjustable', { name: 'Metronome volume' });
+    expect(screen.getByText('0.0 dB')).toBeOnTheScreen();
+
+    await fireEvent(slider, 'accessibilityAction', { nativeEvent: { actionName: 'decrement' } });
+
+    const volume = useEditorStore.getState().project!.metronomeVolume;
+    expect(volume).toBeLessThan(1);
+    expect(savedSettings()).toEqual([expect.objectContaining({ metronomeVolume: volume })]);
+    expect(screen.getByText('−1.0 dB')).toBeOnTheScreen();
   });
 });

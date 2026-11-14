@@ -59,6 +59,19 @@ describe('setIdeaSettingsEdit', () => {
     expect(setIdeaSettingsEdit(project, { bpm: 120 })).toBeNull();
   });
 
+  it('sets the metronome volume (never below silence), and undo restores it', () => {
+    const edit = setIdeaSettingsEdit(project, { metronomeVolume: 0.5 })!;
+    expect(applyToProject(project, edit.changes)).toMatchObject({
+      metronomeVolume: 0.5,
+      grid: false,
+    });
+    expect(undo(edit)).toEqual(project);
+    const negative = setIdeaSettingsEdit(project, { metronomeVolume: -1 })!;
+    expect(applyToProject(project, negative.changes).metronomeVolume).toBe(0);
+    expect(setIdeaSettingsEdit(project, { metronomeVolume: 1 })).toBeNull();
+    expect(setIdeaSettingsEdit(project, { metronomeVolume: Number.NaN })).toBeNull();
+  });
+
   it('ignores a blank name and does nothing when nothing changes', () => {
     expect(setIdeaSettingsEdit(project, { name: '   ' })).toBeNull();
     expect(setIdeaSettingsEdit(project, { name: 'Idea 1', grid: false })).toBeNull();

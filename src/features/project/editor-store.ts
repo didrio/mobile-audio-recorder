@@ -22,6 +22,7 @@ import {
   getProject,
   saveChanges,
   setArmedTrack,
+  setMetronome,
   setPreRoll,
   type IdeaSettings,
   type Project,
@@ -57,6 +58,8 @@ export type EditorState = {
   armedTrackId: string | null;
   /** Record starts with a run-up (T25). Saved per idea, but not an undo step. */
   preRoll: boolean;
+  /** The metronome toggle (T17). Saved per idea, but not an undo step. */
+  metronome: boolean;
   /** Set when a change couldn't be saved (the idea was reloaded). */
   saveError: string | null;
 };
@@ -68,6 +71,7 @@ const closedState: EditorState = {
   history: emptyHistory,
   armedTrackId: null,
   preRoll: false,
+  metronome: false,
   saveError: null,
 };
 
@@ -113,6 +117,7 @@ async function reload(projectId: string) {
     history: emptyHistory,
     armedTrackId: project ? project.armedTrackId : state.armedTrackId,
     preRoll: project ? project.preRoll : state.preRoll,
+    metronome: project ? project.metronome : state.metronome,
     saveError: SAVE_ERROR,
   });
 }
@@ -145,6 +150,7 @@ export function openIdea(projectId: string, options: { onSaved?: () => void } = 
             project,
             armedTrackId: project.armedTrackId,
             preRoll: project.preRoll,
+            metronome: project.metronome,
             status: 'ready',
           }
         : { status: 'error' },
@@ -214,7 +220,7 @@ export function addTrack(): Promise<void> {
   return Promise.all([saved, armed]).then(() => {});
 }
 
-/** Changes the idea's name, tempo, time signature and/or grid as one undo step (see the command). */
+/** Changes the idea's settings (name, tempo, meter, grid, metronome volume) as one undo step (see the command). */
 export function setIdeaSettings(patch: Partial<IdeaSettings>): Promise<void> {
   const { project } = useEditorStore.getState();
   return executeEdit(project ? setIdeaSettingsEdit(project, patch) : null);
@@ -297,6 +303,19 @@ export function togglePreRoll(): Promise<void> {
   useEditorStore.setState({ preRoll: !preRoll });
   if (!projectId) return Promise.resolve();
   return enqueue(() => setPreRoll(projectId, !preRoll));
+}
+
+/**
+ * The metronome toggle in the status strip. Saved, not undoable. Turning it on also turns the grid on
+ * (that part is an Idea settings edit, so one undo step when the grid was off).
+ */
+export function toggleMetronome(): Promise<void> {
+  const { projectId, metronome, project } = useEditorStore.getState();
+  const on = !metronome;
+  useEditorStore.setState({ metronome: on });
+  const grid = on && project && !project.grid ? setIdeaSettings({ grid: true }) : Promise.resolve();
+  if (!projectId) return grid;
+  return Promise.all([grid, enqueue(() => setMetronome(projectId, on))]).then(() => {});
 }
 
 /** Tapping a track's name: arms it, or disarms it when it is the armed one. */

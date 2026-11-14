@@ -45,8 +45,8 @@ function invertChange(change: Change): Change {
 
 /** The settings columns of a project. */
 export function ideaSettings(project: Project): IdeaSettings {
-  const { name, bpm, beatsPerBar, beatUnit, grid } = project;
-  return { name, bpm, beatsPerBar, beatUnit, grid };
+  const { name, bpm, beatsPerBar, beatUnit, grid, metronomeVolume } = project;
+  return { name, bpm, beatsPerBar, beatUnit, grid, metronomeVolume };
 }
 
 /** A track without its clips, as stored in the `tracks` table. */

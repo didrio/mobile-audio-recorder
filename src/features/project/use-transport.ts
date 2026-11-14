@@ -10,6 +10,7 @@ import {
   play,
   playbackAnchor,
   playbackPosition,
+  setMetronome,
   setTrackGain,
   startRecording,
   stopPlayback,
@@ -76,6 +77,10 @@ const PUNCH_LEAD_SECONDS = 0.03;
  *   playhead waits), the recorder starts with it, and at the punch point the armed track is cut and
  *   the take begins. Record while playing does the same with the playback already running, punching
  *   in as soon as the recorder has audio. Stop before the punch point saves nothing.
+ * - Metronome (T17): the engine clicks along with playback and recording while the idea's toggle is
+ *   on, following its tempo, meter and metronome volume live. The pre-roll's run-up clicks too, so
+ *   it is the count-in; with the metronome on it is always whole bars, so the punch lands on a beat
+ *   as counted.
  */
 export function useTransport(project: Project | null | undefined) {
   const queryClient = useQueryClient();
@@ -152,6 +157,21 @@ export function useTransport(project: Project | null | undefined) {
     for (const track of tracks ?? []) setTrackGain(track.id, trackOutputGain(track, anySolo));
   }, [tracks]);
 
+  // Metronome: on/off, tempo, meter and volume reach the engine live (also mid-playback).
+  const metronomeOn = useEditorStore((state) => state.metronome);
+  const bpm = project?.bpm;
+  const beatsPerBar = project?.beatsPerBar;
+  const beatUnit = project?.beatUnit;
+  const metronomeVolume = project?.metronomeVolume;
+  useEffect(() => {
+    setMetronome(
+      metronomeOn && bpm && beatsPerBar && beatUnit && metronomeVolume !== undefined
+        ? { meter: { bpm, beatsPerBar, beatUnit }, volume: metronomeVolume }
+        : null,
+    );
+  }, [metronomeOn, bpm, beatsPerBar, beatUnit, metronomeVolume]);
+  useEffect(() => () => setMetronome(null), []);
+
   const moveTo = (time: number) => {
     anchor.set(null);
     playhead.set(time);
@@ -215,7 +235,7 @@ export function useTransport(project: Project | null | undefined) {
     const track = project.tracks.find((candidate) => candidate.id === trackId);
     if (!track) return;
     const onTheFly = status === 'playing';
-    const preRoll = useEditorStore.getState().preRoll;
+    const { preRoll, metronome } = useEditorStore.getState();
     const punchIn = onTheFly || preRoll;
     setError(null);
     setStatus('starting');
@@ -230,9 +250,10 @@ export function useTransport(project: Project | null | undefined) {
         ? (playbackPosition() ?? playhead.get())
         : Math.max(0, playhead.get());
       const { preRollSeconds, preRollBars } = useRecordingSettingsStore.getState();
-      // Whole bars with the grid on (so the punch lands on the beat as counted), seconds without.
+      // Whole bars with the grid or the metronome on (so the punch lands on the beat as counted),
+      // seconds otherwise.
       const runUp = preRollLength(
-        { grid: project.grid, meter: project },
+        { grid: project.grid || metronome, meter: project },
         { seconds: preRollSeconds, bars: preRollBars },
       );
       const playback: RecordingPlayback = onTheFly

@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T17 — Metronome & count-in · Opus · high effort · plan mode on
+**Next:** T31 — Grid visibility & snap; pre-roll button in the transport · Sonnet · high effort · plan mode off
 
 ## In progress
 
@@ -51,6 +51,37 @@ releases, native dependency changes). See the `wrap` skill.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
 
+### T31 — Grid visibility & snap; pre-roll button in the transport
+
+- **Status:** ready
+- **Session:** Sonnet · high effort · plan mode off
+- **Goal:** Separate seeing the grid from snapping to it, so people with a set tempo can still place clips
+  freely, and quick-capture ideas aren't cluttered with bars nobody played to. Free the status strip by
+  moving the pre-roll (lead-in) toggle down to the transport.
+- **Done when:**
+  - [ ] Pre-roll toggle moves to the transport row, right of Record, as a plain icon (same look as today's
+        strip toggle, no circle). Back to start, Play and Record keep their exact positions (balance the row,
+        e.g. an equal-width empty slot on the left). Still disabled while recording.
+  - [ ] Every idea has a tempo and time signature (already true: 120, 4/4 by default). **Show grid** stays a
+        per-idea setting in Idea settings (`grid` column). **Record new idea** creates the idea with the grid
+        off; a blank idea from "+" creates it with the grid on (`createProject` option, both call sites in
+        `projects-screen.tsx`).
+  - [ ] New per-idea **Snap** toggle (migration: `projects.snap INTEGER NOT NULL DEFAULT 1`), in the status
+        strip where pre-roll was (SF `square.grid.3x3`-like / Material `grid_on`, pick something clear).
+        Saved, not an undo step (like pre-roll). With the grid hidden, Snap is disabled (nothing to snap to).
+  - [ ] Snap off: clip drags/trims don't snap to grid lines (other clips' edges: decide, probably still snap),
+        and the lane grid lines are drawn dotted/fainter (Ableton-style). Snap on: solid lines as today.
+  - [ ] Duplicate copies `snap`. Unit tests (snap off passes `gridStep` 0) + screenshots of both line styles.
+- **Context:** Discussed with the user at the end of T17: the app is a sketchpad, not a DAW, so the grid is
+  off for quick capture but on for deliberately created ideas; a second strip button for show/hide was
+  rejected because the strip is filling up (metronome T17, notes T24, keyboard T20) — show/hide stays in Idea
+  settings. Metronome on still turns the grid on (`toggleMetronome` in `editor-store.ts`); it leaves Snap
+  alone. Grid drawing and snapping are in `src/features/timeline/timeline.tsx` (`gridSnapStep` passed to
+  `snapDrag` ~line 476; grid paths ~line 777, Skia paints) and `grid-math.ts` / `clip-edit-math.ts`. Strip
+  and transport layout: `project-screen.tsx` (`StripToggle`, `TransportButton`, `styles.buttons`). Pre-roll
+  wiring stays as is (`togglePreRoll`); with the metronome or grid on the run-up is whole bars
+  (`use-transport.ts`).
+
 ### T26 — Loop region
 
 - **Status:** ready
@@ -95,33 +126,6 @@ releases, native dependency changes). See the `wrap` skill.
   no UI. Per-section notes are part of T18, and first-class chord progressions are in Backlog. The status strip
   and menu items are in `project-screen.tsx` and `src/features/project/idea-menu-items.ts`. Time formatting is
   in `src/features/audio/format-time.ts`. A later Search (T10/T19) could match notes too.
-
-### T17 — Metronome & count-in
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** A metronome that follows the idea's tempo and time signature, with a count-in for recording.
-- **Done when:**
-  - [ ] Click generated in code (short buffers scheduled on the context clock — not an instrument), with an
-        accented downbeat. 6/8 and 12/8 accent each group of three eighths, the bar's first more strongly.
-  - [ ] Metronome on/off toggle in the status strip, saved per idea. Metronome volume in Idea settings
-        (migration).
-  - [ ] Clicks during playback and recording, never recorded into takes (with headphones). The click lines up
-        with takes after latency compensation (record a clap on the click on a device and check).
-  - [ ] Count-in is T25's pre-roll with clicks: with the metronome on, the run-up clicks (whole bars, so the
-        punch lands on the beat as counted). No separate count-in toggle. The take starts at the playhead, not
-        before.
-- **Context:** Tempo and meter (T9) are on the project (`bpm`, `beatsPerBar`, `beatUnit`, `grid`) with pure
-  helpers in `src/features/audio/tempo.ts` (`beatSeconds`, `barSeconds`, `isCompound`, `preRollLength`);
-  `bpm` counts beats of the `1/beatUnit` note (6/8 at 120 = 3 s bars). The Idea settings sheet is
-  `src/features/project/idea-settings-sheet.tsx` (add the metronome volume there, with a `setIdeaSettings`
-  field + migration v5). With the grid on, the pre-roll is whole bars (`use-transport.ts`), so the count-in
-  already lands on the beat. Scheduling and playback helpers live in `audio-engine.ts`. Recording start and latency
-  compensation: `take-alignment.ts` and `use-transport.ts`. Turning the metronome on also turns the grid on.
-  The pre-roll (T25): `record()` in `use-transport.ts` starts playback at `runUpStart(punch, length)` (can be
-  negative: silence before 0:00) via `startRecording({ playback })`, and the run-up is visible as
-  `isPreRolling`. Clicks are scheduled on the same context clock (`playback.startedAt` / `from` in the engine),
-  so they line up with the backing and the punch.
 
 ### T20 — Pitch reference keyboard
 
@@ -235,7 +239,7 @@ releases, native dependency changes). See the `wrap` skill.
 
 ### T21 — Speaker mode (echo cancellation)
 
-- **Status:** ready (after T17)
+- **Status:** ready
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Overdub without headphones: while recording, cancel the app's own output (backing tracks,
   metronome, keyboard) from the mic, so the user hears the song from the speaker and the new take stays
@@ -313,6 +317,12 @@ skill). Fix or ticket what fails, then delete the line.
   menu, Rename dialog, Duplicate then delete the original (the copy still plays), "+" → New Idea, sort menu
   persists, search (on iOS 26 the search field may sit in the bottom toolbar: check it's findable), Settings →
   Storage updates after deleting. Android: header Sort/Add dropdowns (Compose, never run), long-press alert.
+- Metronome (T17, simulator has no sound, so never heard): with headphones, metronome on, record a clap on the
+  click and check it sits on the beat line (else the click and takes disagree: `scheduleClicks` in
+  `audio-engine.ts` vs `take-alignment.ts`); the click never shows up in the take; accents (4/4 downbeat, 6/8
+  groups) sound distinct; pre-roll with the metronome on counts in whole bars, also from 0:00 (clicks before
+  0:00); clicks keep going past the last clip while recording, and on an empty idea; toggling it and moving the
+  volume slider while playing apply at once without stutter. Clicks at very low volume / loudness vs. takes.
 - Android: the old "Idea 1" clip drew without a waveform on the emulator (missing take file or peaks?).
 
 ## Backlog
@@ -374,6 +384,10 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T17 — Metronome & count-in — 2026-11-14 — clicks synthesized in code (`metronome.ts`, accented downbeat, 6/8
+  and 12/8 groups) scheduled on the context clock with playback and recording (lookahead scheduler in the
+  engine, also before 0:00 so pre-roll is the count-in, whole bars with the metronome on); strip toggle (saved,
+  turns the grid on) and volume slider in Idea settings (undoable), migration v5. Device clap check pending
 - T9 — Idea settings, tempo & grid — 2026-11-14 — "Idea settings" sheet from the "⋯" menu (name, BPM with ±, typed
   value and Tap tempo, time signature 2/4…12/8, Grid switch; undoable, migration v4), grid lines + bar numbers on
   the ruler (beat lines fade when zoomed out), clips snap to grid lines, pre-roll is 1 or 2 bars with the grid on
@@ -395,12 +409,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - Transport check (no ticket) — 2026-11-13 — Back to start keeps playing and always reveals 0:00
   (`revealPlayhead`), recording clock shows the timeline position; kept Stop → take start; record-while-playing
   added to T25
-- T29 — Record button: stop, not pause — 2026-11-13 — stop square while recording, larger record glyph nudged up 1 pt (stop glyph checked mid-recording on iOS)
-- T23 — Reorder tracks — 2026-11-13 — long-press a grip to lift and drag a track, other lanes glide aside,
-  edge auto-scroll, one undo step (`moveTrackEdit`), screen-reader Move up / Move down
-- T15 — Arming & input meter — 2026-11-13 — tapping a name pill toggles arming, saved per idea (migration v2),
-  nothing armed → Record grayed out; live input meter while armed and idle (`use-input-meter.ts`)
-- T28 — Track column v2 — 2026-11-13 — 38 pt column with one grip per track, arm by tapping the name pill, the
-  mixer's info button opens the track sheet, 0:00 flush with the column
-- T22 — Transport & playhead polish — 2026-11-13 — Back to start stops playback, Play ↔ Pause, playhead ends at
-  the last lane

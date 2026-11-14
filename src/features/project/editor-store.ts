@@ -21,6 +21,7 @@ import {
   deleteUnusedTakes,
   getProject,
   saveChanges,
+  setArmedTrack,
   type Project,
   type Take,
 } from '@/features/projects/projects-repo';
@@ -43,7 +44,7 @@ export type EditorState = {
   project: Project | null;
   status: 'closed' | 'loading' | 'ready' | 'error';
   history: History;
-  /** The track Record records onto (see `selectArmedTrack`). Not saved yet (T15). */
+  /** The track Record records onto; `null` = nothing armed. Saved per idea, but not an undo step. */
   armedTrackId: string | null;
   /** Set when a change couldn't be saved (the idea was reloaded). */
   saveError: string | null;
@@ -98,8 +99,14 @@ async function reload(projectId: string) {
     project: project ?? state.project,
     status: project ? 'ready' : 'error',
     history: emptyHistory,
+    armedTrackId: project ? project.armedTrackId : state.armedTrackId,
     saveError: SAVE_ERROR,
   });
+}
+
+/** `armedTrackId` if that track is still in `project`, else `null` (deleting the armed track disarms). */
+function stillArmed(project: Project, armedTrackId: string | null): string | null {
+  return project.tracks.some((track) => track.id === armedTrackId) ? armedTrackId : null;
 }
 
 /**
@@ -119,7 +126,11 @@ export function openIdea(projectId: string, options: { onSaved?: () => void } = 
     }
     const project = await getProject(projectId).catch(() => null);
     if (opened !== session) return;
-    useEditorStore.setState(project ? { project, status: 'ready' } : { status: 'error' });
+    useEditorStore.setState(
+      project
+        ? { project, armedTrackId: project.armedTrackId, status: 'ready' }
+        : { status: 'error' },
+    );
   });
 }
 
@@ -136,9 +147,11 @@ export function closeIdea() {
 export function executeEdit(edit: Edit | null): Promise<void> {
   const { project, projectId, history } = useEditorStore.getState();
   if (!edit || !project || !projectId) return Promise.resolve();
+  const next = applyToProject(project, edit.changes);
   useEditorStore.setState({
-    project: applyToProject(project, edit.changes),
+    project: next,
     history: pushEdit(history, edit),
+    armedTrackId: stillArmed(next, useEditorStore.getState().armedTrackId),
     saveError: null,
   });
   return enqueueWrite(projectId, edit.changes);
@@ -149,9 +162,11 @@ export function undo(): Promise<void> {
   const step = undoStep(history);
   if (!step || !project || !projectId) return Promise.resolve();
   const inverse = invertEdit(step.edit);
+  const next = applyToProject(project, inverse.changes);
   useEditorStore.setState({
-    project: applyToProject(project, inverse.changes),
+    project: next,
     history: step.history,
+    armedTrackId: stillArmed(next, useEditorStore.getState().armedTrackId),
     saveError: null,
   });
   return enqueueWrite(projectId, inverse.changes);
@@ -161,9 +176,11 @@ export function redo(): Promise<void> {
   const { project, projectId, history } = useEditorStore.getState();
   const step = redoStep(history);
   if (!step || !project || !projectId) return Promise.resolve();
+  const next = applyToProject(project, step.edit.changes);
   useEditorStore.setState({
-    project: applyToProject(project, step.edit.changes),
+    project: next,
     history: step.history,
+    armedTrackId: stillArmed(next, useEditorStore.getState().armedTrackId),
     saveError: null,
   });
   return enqueueWrite(projectId, step.edit.changes);
@@ -175,8 +192,8 @@ export function addTrack(): Promise<void> {
   if (!project) return Promise.resolve();
   const { edit, trackId } = addTrackEdit(project);
   const saved = executeEdit(edit);
-  armTrack(trackId);
-  return saved;
+  const armed = armTrack(trackId);
+  return Promise.all([saved, armed]).then(() => {});
 }
 
 /** Sets a track's volume (linear gain) as one undo step: call it once, when a fader drag ends. */
@@ -202,8 +219,18 @@ export function toggleSolo(trackId: string): Promise<void> {
   return executeEdit(setTrackSoloEdit(project, trackId, !track.solo));
 }
 
-export function armTrack(trackId: string) {
+/** Arms `trackId` (disarming the previous one), or disarms everything with `null`. Saved, not undoable. */
+export function armTrack(trackId: string | null): Promise<void> {
+  const { projectId } = useEditorStore.getState();
   useEditorStore.setState({ armedTrackId: trackId });
+  if (!projectId) return Promise.resolve();
+  // Through the queue so a track added just before is written first. A failure only loses the arming.
+  return enqueue(() => setArmedTrack(projectId, trackId));
+}
+
+/** Tapping a track's name: arms it, or disarms it when it is the armed one. */
+export function toggleArm(trackId: string): Promise<void> {
+  return armTrack(useEditorStore.getState().armedTrackId === trackId ? null : trackId);
 }
 
 export type RecordTakeInput = Omit<RecordedTakeInput, 'take'> & {
@@ -267,10 +294,9 @@ function placeInOpenIdea(input: RecordTakeInput, take: Take): Change[] | null {
 
 // Selectors
 
-/** The armed track, falling back to the first track (e.g. after the armed one was deleted). */
+/** The armed track, or `undefined` when nothing is armed. */
 export function selectArmedTrack(state: EditorState) {
-  const tracks = state.project?.tracks ?? [];
-  return tracks.find((track) => track.id === state.armedTrackId) ?? tracks[0];
+  return state.project?.tracks.find((track) => track.id === state.armedTrackId);
 }
 
 export const selectCanUndo = (state: EditorState) => state.history.past.length > 0;

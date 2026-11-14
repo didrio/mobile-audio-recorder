@@ -1,7 +1,12 @@
 import { forgetTakes } from '@/features/audio/audio-engine';
-import { deleteUnusedTakes, getProject, saveChanges } from '@/features/projects/projects-repo';
+import {
+  deleteUnusedTakes,
+  getProject,
+  saveChanges,
+  setArmedTrack,
+} from '@/features/projects/projects-repo';
 
-import { renameTrackEdit } from './edit-commands';
+import { deleteTrackEdit, renameTrackEdit } from './edit-commands';
 import { testClip, testProject, testTrack } from './edit-test-data';
 import {
   addTrack,
@@ -14,6 +19,7 @@ import {
   selectCanRedo,
   selectCanUndo,
   setTrackVolume,
+  toggleArm,
   toggleMute,
   toggleSolo,
   undo,
@@ -24,6 +30,7 @@ jest.mock('@/features/audio/audio-engine', () => ({ forgetTakes: jest.fn() }));
 jest.mock('@/features/projects/projects-repo', () => ({
   getProject: jest.fn(),
   saveChanges: jest.fn(),
+  setArmedTrack: jest.fn(),
   deleteUnusedTakes: jest.fn(),
 }));
 
@@ -44,6 +51,7 @@ describe('editor store', () => {
   beforeEach(async () => {
     jest.mocked(getProject).mockResolvedValue(project);
     jest.mocked(saveChanges).mockResolvedValue();
+    jest.mocked(setArmedTrack).mockReset().mockResolvedValue();
     jest.mocked(deleteUnusedTakes).mockResolvedValue(['old.wav']);
     await openIdea('p1');
   });
@@ -80,8 +88,35 @@ describe('editor store', () => {
 
     expect(trackNames()).toEqual(['Track 1', 'Track 2', 'Track 3']);
     expect(selectArmedTrack(state())?.name).toBe('Track 3');
+    expect(setArmedTrack).toHaveBeenLastCalledWith('p1', expect.any(String));
     await undo();
-    expect(selectArmedTrack(state())?.name).toBe('Track 1'); // falls back to the first track
+    expect(selectArmedTrack(state())).toBeUndefined(); // the armed track is gone: nothing armed
+  });
+
+  it('toggles arming: one track at a time, tapping the armed one disarms it', async () => {
+    await toggleArm('b');
+    expect(selectArmedTrack(state())?.id).toBe('b');
+    expect(setArmedTrack).toHaveBeenLastCalledWith('p1', 'b');
+
+    await toggleArm('b');
+    expect(selectArmedTrack(state())).toBeUndefined();
+    expect(setArmedTrack).toHaveBeenLastCalledWith('p1', null);
+    expect(selectCanUndo(state())).toBe(false); // arming isn't an undo step
+  });
+
+  it('disarms when the armed track is deleted, and undo does not re-arm it', async () => {
+    await executeEdit(deleteTrackEdit(project, 'a'));
+    expect(selectArmedTrack(state())).toBeUndefined();
+
+    await undo();
+    expect(trackNames()).toEqual(['Track 1', 'Track 2']);
+    expect(selectArmedTrack(state())).toBeUndefined();
+  });
+
+  it('opens with nothing armed when the idea was saved that way', async () => {
+    jest.mocked(getProject).mockResolvedValue({ ...project, armedTrackId: null });
+    await openIdea('p1');
+    expect(selectArmedTrack(state())).toBeUndefined();
   });
 
   it('sets a track volume as one undo step', async () => {

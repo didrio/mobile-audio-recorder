@@ -22,5 +22,14 @@ export function testTrack(id: string, position: number, clips: Clip[] = []): Pro
 
 export function testProject(tracks: ProjectTrack[]): Project {
   const duration = Math.max(0, ...tracks.flatMap((t) => t.clips.map((c) => c.start + c.duration)));
-  return { id: 'p1', name: 'Idea 1', createdAt: 0, updatedAt: 0, duration, takes: {}, tracks };
+  return {
+    id: 'p1',
+    name: 'Idea 1',
+    createdAt: 0,
+    updatedAt: 0,
+    duration,
+    armedTrackId: tracks[0]?.id ?? null,
+    takes: {},
+    tracks,
+  };
 }

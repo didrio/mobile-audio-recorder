@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useIsFocused, useLocalSearchParams, useRouter } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useEffect, useRef } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
@@ -14,13 +14,13 @@ import { makeStyles, useTheme } from '@/theme';
 import { AndroidIdeaMenu } from './android-idea-menu';
 import {
   addTrack,
-  armTrack,
   redo,
   selectArmedTrack,
   selectCanRedo,
   selectCanUndo,
   setTrackVolume,
   toggleMute,
+  toggleArm,
   toggleSolo,
   undo,
   useEditorStore,
@@ -28,6 +28,7 @@ import {
 } from './editor-store';
 import { IDEA_MENU_ITEMS } from './idea-menu-items';
 import { hasSolo, trackOutputGain } from './mixer';
+import { useInputMeter } from './use-input-meter';
 import { useTransport } from './use-transport';
 
 /**
@@ -63,6 +64,12 @@ export function ProjectScreen() {
   const isPlaying = transport.status === 'playing';
   const isBusy = transport.status === 'starting' || transport.status === 'stopping';
   const isIdle = transport.status === 'idle';
+
+  // The meter listens to the mic only while a track is armed and this screen is the one showing
+  // (the track sheet on top, or another screen, releases it); recording feeds the meter itself.
+  const focused = useIsFocused();
+  const inputLevel = useInputMeter(!!armedTrack && isIdle && focused);
+  const meterLevel = isRecording ? transport.level : inputLevel;
   const addTrackDisabled = !project || !isIdle;
   const undoDisabled = !isIdle || !canUndo;
   const redoDisabled = !isIdle || !canRedo;
@@ -111,7 +118,7 @@ export function ProjectScreen() {
       </Text>
       <View style={styles.stripSpacer} />
       <View style={styles.meter} accessibilityElementsHidden importantForAccessibility="no">
-        <View style={[styles.meterFill, { width: `${Math.round(transport.level * 100)}%` }]} />
+        <View style={[styles.meterFill, { width: `${Math.round(meterLevel * 100)}%` }]} />
       </View>
     </View>
   );
@@ -181,7 +188,7 @@ export function ProjectScreen() {
       armedTrackId={armedTrack?.id ?? null}
       addTrackDisabled={addTrackDisabled}
       onSeek={transport.seek}
-      onArm={armTrack}
+      onArm={(trackId) => void toggleArm(trackId)}
       onEditTrack={editTrack}
       onAddTrack={() => void addTrack()}
       onToggleMute={(trackId) => void toggleMute(trackId)}

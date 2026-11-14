@@ -19,7 +19,7 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 
 const DATABASE_NAME = 'audio-recorder.db';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 let database: Promise<SQLiteDatabase> | null = null;
 
@@ -86,6 +86,15 @@ async function migrate(db: SQLiteDatabase) {
           duration REAL NOT NULL
         );
         CREATE INDEX clips_track ON clips(track_id);
+      `);
+    }
+    if (version < 2) {
+      // The track Record records onto (T15). Null = nothing armed; deleting the track clears it.
+      await tx.execAsync(`
+        ALTER TABLE projects ADD COLUMN armed_track_id TEXT REFERENCES tracks(id) ON DELETE SET NULL;
+        UPDATE projects SET armed_track_id = (
+          SELECT t.id FROM tracks t WHERE t.project_id = projects.id ORDER BY t.position LIMIT 1
+        );
       `);
     }
     await tx.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);

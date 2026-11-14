@@ -50,6 +50,8 @@ export type Clip = {
 };
 
 export type Project = ProjectSummary & {
+  /** The track Record records onto; `null` when nothing is armed. */
+  armedTrackId: string | null;
   tracks: (Track & { clips: Clip[] })[];
   takes: Record<string, Take>;
 };
@@ -59,6 +61,7 @@ type ProjectRow = {
   name: string;
   created_at: number;
   updated_at: number;
+  armed_track_id: string | null;
   duration: number;
 };
 type TrackRow = {
@@ -89,7 +92,7 @@ type ClipRow = {
 };
 
 const PROJECT_COLUMNS = `
-  p.id, p.name, p.created_at, p.updated_at,
+  p.id, p.name, p.created_at, p.updated_at, p.armed_track_id,
   COALESCE((
     SELECT MAX(c.start + c.duration) FROM clips c JOIN tracks t ON t.id = c.track_id
     WHERE t.project_id = p.id
@@ -164,14 +167,21 @@ export async function getProject(id: string): Promise<Project | null> {
       })),
   }));
 
-  return { ...toSummary(row), tracks, takes };
+  return { ...toSummary(row), armedTrackId: row.armed_track_id, tracks, takes };
 }
 
-/** Creates a project with one empty track. Without a name it's called "Idea N". */
+/** Remembers which track is armed (`null`: none). Not an edit: it leaves `updated_at` alone. */
+export async function setArmedTrack(projectId: string, trackId: string | null): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('UPDATE projects SET armed_track_id = ? WHERE id = ?', trackId, projectId);
+}
+
+/** Creates a project with one empty track, armed. Without a name it's called "Idea N". */
 export async function createProject(name?: string): Promise<ProjectSummary> {
   const db = await getDb();
   const now = Date.now();
   const id = randomUUID();
+  const firstTrackId = randomUUID();
   let projectName = name?.trim();
   if (!projectName) {
     const count = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM projects');
@@ -188,10 +198,11 @@ export async function createProject(name?: string): Promise<ProjectSummary> {
     );
     await tx.runAsync(
       'INSERT INTO tracks (id, project_id, position, name) VALUES (?, ?, 0, ?)',
-      randomUUID(),
+      firstTrackId,
       id,
       'Track 1',
     );
+    await tx.runAsync('UPDATE projects SET armed_track_id = ? WHERE id = ?', firstTrackId, id);
   });
 
   return { id, name: projectName, createdAt: now, updatedAt: now, duration: 0 };

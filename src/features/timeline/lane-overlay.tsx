@@ -58,7 +58,7 @@ export function LaneOverlay({
   footer: number;
   laneScroll: SharedValue<number>;
   draft: FaderDraft | null;
-  /** The track Record records onto: its name gets a red outline and dot. */
+  /** The track Record records onto: its name gets a red outline and dot (every pill has a dot, grey when unarmed). */
   armedTrackId: string | null;
   /** While recording: arming can't change. */
   armDisabled: boolean;
@@ -116,7 +116,7 @@ export function LaneOverlay({
                 armed && styles.nameArmed,
                 pressed && styles.pressed,
               ]}>
-              {armed ? <View style={styles.armDot} /> : null}
+              <View style={[styles.armDot, armed && styles.armDotOn]} />
               <Text variant="caption" color="textSecondary" numberOfLines={1}>
                 {track.name}
               </Text>
@@ -242,7 +242,13 @@ const useStyles = makeStyles((t) => ({
     backgroundColor: t.colors.trackHeader,
   },
   nameArmed: { borderColor: t.colors.primary },
-  armDot: { width: 8, height: 8, borderRadius: t.radius.full, backgroundColor: t.colors.primary },
+  armDot: {
+    width: 8,
+    height: 8,
+    borderRadius: t.radius.full,
+    backgroundColor: t.colors.textTertiary,
+  },
+  armDotOn: { backgroundColor: t.colors.primary },
   newTrack: {
     position: 'absolute',
     left: 0,

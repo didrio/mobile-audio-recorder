@@ -49,6 +49,7 @@ const project = (tracks: Project['tracks']): Project => ({
   createdAt: 0,
   updatedAt: 0,
   duration: 1,
+  armedTrackId: null,
   takes: {},
   tracks,
 });

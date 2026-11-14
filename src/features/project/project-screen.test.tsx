@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
   ensureRecordPermission,
   play,
+  setMetering,
   setTrackGain,
   startRecording,
 } from '@/features/audio/audio-engine';
@@ -13,6 +14,7 @@ import {
   deleteUnusedTakes,
   getProject,
   saveChanges,
+  setArmedTrack,
   type Project,
 } from '@/features/projects/projects-repo';
 
@@ -72,6 +74,7 @@ jest.mock('expo-router', () => {
   };
   return {
     Stack: { Screen: () => null, Toolbar },
+    useIsFocused: () => true,
     useLocalSearchParams: () => ({ id: 'p1' }),
     useRouter: () => ({ push: jest.fn() }),
   };
@@ -81,6 +84,7 @@ jest.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => 0 }));
 
 jest.mock('@/features/audio/audio-engine', () => ({
   ensureRecordPermission: jest.fn(),
+  setMetering: jest.fn(() => Promise.resolve()),
   startRecording: jest.fn(),
   peakLevel: jest.fn(() => 0),
   play: jest.fn(),
@@ -173,6 +177,7 @@ jest.mock('@/features/audio/take-files', () => ({
 jest.mock('@/features/projects/projects-repo', () => ({
   getProject: jest.fn(),
   saveChanges: jest.fn(),
+  setArmedTrack: jest.fn(() => Promise.resolve()),
   deleteUnusedTakes: jest.fn(),
   listProjects: jest.fn(),
   createProject: jest.fn(),
@@ -185,6 +190,7 @@ const project: Project = {
   createdAt: 0,
   updatedAt: 0,
   duration: 12,
+  armedTrackId: 'track1',
   takes: {
     t1: {
       id: 't1',
@@ -278,6 +284,23 @@ describe('ProjectScreen', () => {
       ),
     });
   }
+
+  it('disarms on a second tap, which grays out Record and releases the mic', async () => {
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await screen.findByText('Timeline of Chorus riff');
+    expect(screen.getByRole('button', { name: 'Arm Track 1' })).toBeSelected();
+    expect(screen.getByRole('button', { name: 'Record' })).toBeEnabled();
+    expect(setMetering).toHaveBeenLastCalledWith(expect.any(Function)); // armed: meter listens
+
+    await user.press(screen.getByRole('button', { name: 'Arm Track 1' }));
+
+    expect(screen.getByRole('button', { name: 'Arm Track 1' })).not.toBeSelected();
+    expect(screen.getByRole('button', { name: 'Record' })).toBeDisabled();
+    expect(setMetering).toHaveBeenLastCalledWith(null);
+    expect(setArmedTrack).toHaveBeenCalledWith('p1', null);
+  });
 
   it('records onto the armed track at the playhead over the other tracks, lined up', async () => {
     jest.mocked(getProject).mockResolvedValue(twoTracks);

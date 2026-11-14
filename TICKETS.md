@@ -4,8 +4,8 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T15 — Arming & input meter · Opus · high effort · plan mode on, then T23 (T12 can be run any time the
-Android build is done)
+**Next:** T23 — Reorder tracks · Opus · high effort · plan mode on, then T25 (T12, which now also holds T15's mic
+checks, can be run any time the Android build is done)
 
 ## In progress
 
@@ -82,42 +82,20 @@ dependency changes). See the `wrap` skill.
     higher latency) and delete a track from its sheet.
   - Record over the middle of a take on the same track (three clips end to end), then Play several times in a
     row and seek while playing; playback must stay audible.
-  - Whoever does T15 repeats its mic checks on devices (mic indicator, Bluetooth quality while armed).
+  - Arming & meter (T15, never run on a device yet): the orange mic indicator shows only while a track is
+    armed (off after disarming, opening the track sheet, or backgrounding); the meter moves with the voice
+    while armed and idle; Record right after arming still starts fine and the take lines up; Bluetooth
+    headphones: many drop to low-quality "call" audio while the mic is open. If that's bad, ticket a fallback
+    (meter only while recording when Bluetooth output is active). If the library can't open the mic without a
+    file (`setMetering` in `audio-engine.ts`), the meter just stays empty; fix it there.
   - Mixer (T14): drag a track's volume while playing (smooth, no clicks?), mute/solo during playback and while
     recording an overdub (backing changes, the take doesn't).
   - OTA note: an iOS-only preview update (`01a1d6bf`, T14) is already published; Android still needs an update
     published after its build finished (`npm run update:preview` covers both).
 
-### T15 — Arming & input meter
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Arming works like a DAW: toggle it, and the meter shows the live mic input while a track is armed.
-- **Done when:**
-  - [ ] Tapping a track's name pill toggles arming: tapping the armed track unarms it (the user asked for this again on
-        2026-11-13). Arming a track disarms the previous one (one armed track at a time). Nothing armed → Record
-        is grayed out.
-  - [ ] The armed track is saved per idea (`projects.armed_track_id`, nullable, in the next migration of
-        `src/lib/db.ts`). New ideas (quick capture and T10's New Idea) arm Track 1. Deleting the armed track
-        clears it.
-  - [ ] Input meter: while a track is armed, the idea is on screen and the app is in the foreground, the mic
-        input runs for metering only (not written to a file). Unarmed, backgrounded or leaving the screen
-        releases the mic. Nothing armed → the meter shows empty/dimmed.
-  - [ ] Checked on a real iPhone: the orange mic indicator only shows while armed. Check Bluetooth headphones
-        too: many drop to low-quality "call" audio while the mic is open. If that's bad, note it and ticket a
-        fallback (e.g. meter only while recording when Bluetooth output is active).
-- **Context:** Arming is the track's name pill since T28 (`lane-overlay.tsx`: tap = `onArm`, label `Arm <name>`,
-  selected when armed; red outline and dot); the mixer's info button opens the track sheet. The armed track lives in the editor store since T13 (`armedTrackId`, `armTrack`,
-  `selectArmedTrack` with its fall back to the first track, in `src/features/project/editor-store.ts`); persist it
-  there (write on `armTrack`, read in `openIdea`). Arming isn't an undo step. Today the meter is fed by
-  `setLevel(peakLevel(samples))` in `use-transport.ts` only while recording. First check in
-  `node_modules/react-native-audio-api` (types/docs) how to get input samples
-  without recording to a file, and whether opening the input changes the audio session for playback. Multi-arm
-  with per-track inputs is in Backlog.
-
 ### T23 — Reorder tracks
 
-- **Status:** ready (after T15, which also changes `track-column.tsx`; T28 added the grab handles)
+- **Status:** ready (T28 added the grab handles; T15 didn't touch `track-column.tsx`)
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Move tracks up and down without adding any buttons: long-press a track's grab handle (its cell in
   the collapsed column, T28), drag it, let go.
@@ -139,7 +117,7 @@ dependency changes). See the `wrap` skill.
 
 ### T25 — Pre-roll (punch in at the playhead)
 
-- **Status:** ready (after T15; T17 builds its count-in on it)
+- **Status:** ready (T17 builds its count-in on it)
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Record into an exact spot with a run-up: playback starts a little before the playhead, including
   the armed track's own audio, and recording kicks in exactly at the playhead. The user asked for this on
@@ -350,7 +328,7 @@ dependency changes). See the `wrap` skill.
 
 ### T21 — Speaker mode (echo cancellation)
 
-- **Status:** ready (after T15 and T17)
+- **Status:** ready (after T17)
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Overdub without headphones: while recording, cancel the app's own output (backing tracks,
   metronome, keyboard) from the mic, so the user hears the song from the speaker and the new take stays
@@ -546,6 +524,14 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 
 ## Done
+
+- T15 — Arming & input meter — 2026-11-13 — tapping a name pill toggles arming (tap the armed one to disarm,
+  nothing armed → Record grayed out), saved per idea (`projects.armed_track_id`, migration v2, new ideas arm Track 1,
+  deleting the armed track disarms it, not an undo step); every pill always shows its dot, grey when unarmed (user
+  request); live input meter: `setMetering` in `audio-engine.ts` opens the mic without a file only while armed +
+  idle + screen focused + not backgrounded (`use-input-meter.ts`), `startRecording` closes it first; only uses
+  permission already granted (no prompt from the meter); unit tests + `npm run check` pass, **not tried on a device
+  or simulator** (checks are in T12)
 
 - T28 — Track column v2 — 2026-11-13 — collapsed column 44→38 pt, one faint grip glyph per track (no gesture; T23 builds on it), armed track = red outline + dot on its name pill; same day, per the user: tapping the pill arms (label `Arm <name>`), the mixer's arm button became an info button that opens the track sheet, pills 4 pt further from the lane edges, 0:00 flush with the column (`LEADING_SPACE` 0); `overdub.yaml` waits on `Arm Track 2`; checked on the iOS simulator (dark, 1 track, closed/open); light mode, 8 tracks and Maestro not run
 

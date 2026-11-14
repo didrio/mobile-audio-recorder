@@ -4,6 +4,8 @@
  *
  * - Recording: `AudioRecorder` writes a lossless mono WAV to the cache; the caller moves it into the
  *   project (see `take-files.ts`). `onBuffer` gets every input buffer (level meter, live waveform).
+ * - Metering: `setMetering` opens the mic without a file while a track is armed (the input meter) and
+ *   closes it again; only permission already granted is used, the prompt comes with the first Record.
  * - Overdubs: recording plays the `backing` clips from `from`. The recorder can't be started at a
  *   context time, so playback starts first, then the recorder, and the engine measures where the
  *   file's first sample sits on the context clock (`ctx.currentTime − recorder.getCurrentDuration()`,
@@ -126,6 +128,61 @@ export async function ensureRecordPermission(): Promise<boolean> {
   return (await AudioManager.requestRecordingPermissions()) === 'Granted';
 }
 
+/** Whether the mic may be opened without asking (the meter never triggers the permission prompt). */
+export async function hasRecordPermission(): Promise<boolean> {
+  return (await AudioManager.checkRecordingPermissions()) === 'Granted';
+}
+
+let metering = false;
+/** Meter starts and stops run one after another, and recording waits for them. */
+let meterQueue: Promise<void> = Promise.resolve();
+
+/**
+ * Input metering: with a callback the mic opens and feeds it every input buffer without writing a
+ * file; with `null` it closes again. Safe to call in any order (they're queued), and failures just
+ * leave the meter off. `startRecording` closes the meter first, since both use the one recorder.
+ */
+export function setMetering(
+  onBuffer: ((samples: Float32Array, sampleRate: number) => void) | null,
+): Promise<void> {
+  meterQueue = meterQueue
+    .then(async () => {
+      if (onBuffer) await beginMetering(onBuffer);
+      else await endMetering();
+    })
+    .catch(() => {});
+  return meterQueue;
+}
+
+async function beginMetering(onBuffer: (samples: Float32Array, sampleRate: number) => void) {
+  if (metering || !(await hasRecordPermission())) return;
+  await activateSession();
+  const activeRecorder = (recorder ??= new AudioRecorder());
+  if (activeRecorder.isRecording()) return;
+  await activeRecorder.disableFileOutput();
+  activeRecorder.onAudioReady(
+    {
+      sampleRate: AudioManager.getDevicePreferredSampleRate(),
+      bufferLength: 2048,
+      channelCount: 1,
+    },
+    ({ buffer }) => onBuffer(buffer.getChannelData(0), buffer.sampleRate),
+  );
+  const started = await activeRecorder.start();
+  if (started.status === 'error') {
+    activeRecorder.clearOnAudioReady();
+    throw new Error(started.message);
+  }
+  metering = true;
+}
+
+async function endMetering() {
+  if (!metering || !recorder) return;
+  metering = false;
+  recorder.clearOnAudioReady();
+  await recorder.stop();
+}
+
 export async function startRecording(options: {
   /** File name without extension; must be unique (an existing file is overwritten). */
   fileName: string;
@@ -137,6 +194,8 @@ export async function startRecording(options: {
   onBuffer?: (samples: Float32Array, sampleRate: number) => void;
 }): Promise<ActiveRecording> {
   const from = options.from ?? 0;
+  // The meter uses the same recorder; close it before anything is scheduled.
+  await setMetering(null);
   await play(options.backing ?? [], { from });
   // `play` leaves `playback` null when nothing is audible from `from`.
   const backing = playback

@@ -139,7 +139,10 @@ export function LaneOverlay({
           style={({ pressed }) => [
             styles.newTrack,
             // Starts one hairline early so its top border sits on the last lane's separator pixel.
-            { top: count * lane - StyleSheet.hairlineWidth, height: footer + StyleSheet.hairlineWidth },
+            {
+              top: count * lane - StyleSheet.hairlineWidth,
+              height: footer + StyleSheet.hairlineWidth,
+            },
             addTrackDisabled && styles.disabled,
             pressed && styles.pressed,
           ]}>

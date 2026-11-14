@@ -35,7 +35,7 @@ import type { Project } from '@/features/projects/projects-repo';
 import { useTheme, type ThemeColors } from '@/theme';
 
 import { LaneOverlay } from './lane-overlay';
-import { laneTopDuringDrag } from './reorder-math';
+import { laneSlotDuringDrag, laneTopDuringDrag } from './reorder-math';
 import {
   clamp,
   clampScroll,
@@ -377,6 +377,10 @@ export function Timeline({
       const lifted = dragId == null ? -1 : trackIds.indexOf(dragId);
       const dragTop = drag.top.get();
       const progress = drag.progress.get();
+      const target = drag.target.get();
+      // Each lane takes the stripe of the slot it's heading to, so the rows keep alternating.
+      const stripe = (index: number) =>
+        laneSlotDuringDrag(index, lifted, target) % 2 === 1 ? paints.laneAlt : paints.lane;
       const laneTop = (index: number) =>
         RULER_SIZE + laneTopDuringDrag(index, lane, lifted, dragTop, progress) - ls;
       const visibleStart = s - LEADING_SPACE / z;
@@ -387,7 +391,7 @@ export function Timeline({
         const top = laneTop(index);
         canvas.drawRect(
           Skia.XYWHRect(0, top, viewWidth, lane),
-          index === lifted ? paints.laneLifted : index % 2 === 1 ? paints.laneAlt : paints.lane,
+          index === lifted ? paints.laneLifted : stripe(index),
         );
         canvas.drawLine(0, top + lane, viewWidth, top + lane, paints.separator);
       };
@@ -454,7 +458,7 @@ export function Timeline({
         const rect = Skia.XYWHRect(x0, top, (position - liveTake.start) * z, height);
         // It replaces what's under it on the track, so cover that up first.
         const rrect = Skia.RRectXY(rect, CLIP_RADIUS, CLIP_RADIUS);
-        canvas.drawRRect(rrect, liveLane % 2 === 1 ? paints.laneAlt : paints.lane);
+        canvas.drawRRect(rrect, stripe(liveLane));
         canvas.drawRRect(rrect, paints.recording);
         drawLivePeaks(canvas, {
           data: liveTake.peaks.get(),

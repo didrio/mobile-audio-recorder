@@ -32,6 +32,7 @@ function renderOverlay(overrides: Partial<Parameters<typeof LaneOverlay>[0]> = {
         {
           id: { get: () => null, set: () => {} },
           top: { get: () => 0, set: () => {} },
+          target: { get: () => 0, set: () => {} },
           progress: { get: () => 0, set: () => {} },
           lift: { get: () => 0, set: () => {} },
           dropped: { get: () => -1, set: () => {} },

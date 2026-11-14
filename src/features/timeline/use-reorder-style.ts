@@ -5,7 +5,7 @@ import {
   type SharedValue,
 } from 'react-native-reanimated';
 
-import { laneShift } from './reorder-math';
+import { laneShift, laneSlotDuringDrag } from './reorder-math';
 
 /** How much a lifted track grows, and how see-through it gets (at full lift). */
 export const LIFT_SCALE = 0.03;
@@ -24,7 +24,9 @@ export type TrackDrag = {
   id: SharedValue<string | null>;
   /** Content y of the lifted lane's top (lane `i` normally sits at `i * lane`). */
   top: SharedValue<number>;
-  /** The slot it would drop into, animated, so the other lanes glide aside. */
+  /** The slot it would drop into now (a whole slot). */
+  target: SharedValue<number>;
+  /** `target`, animated, so the other lanes glide aside. */
   progress: SharedValue<number>;
   /** 0 → 1 while it's picked up: drives the scale, transparency and shadow. */
   lift: SharedValue<number>;
@@ -42,6 +44,7 @@ export type TrackDrag = {
 export function useTrackDrag(trackIds: string[]): TrackDrag {
   const id = useSharedValue<string | null>(null);
   const top = useSharedValue(0);
+  const target = useSharedValue(0);
   const progress = useSharedValue(0);
   const lift = useSharedValue(0);
   const dropped = useSharedValue(-1);
@@ -59,7 +62,7 @@ export function useTrackDrag(trackIds: string[]): TrackDrag {
     },
     [order],
   );
-  return { id, top, progress, lift, dropped };
+  return { id, top, target, progress, lift, dropped };
 }
 
 /**
@@ -73,12 +76,15 @@ export function useReorderStyle(
   lane: number,
   {
     shadow = false,
-    background,
+    stripes,
     liftedBackground,
   }: {
     shadow?: boolean;
-    /** The row's own background, and the raised one it gets while lifted (both or neither). */
-    background?: string;
+    /**
+     * The alternating row backgrounds (even slot, odd slot), and the raised one a row gets while
+     * lifted (both or neither). A row sliding aside takes the color of the slot it's heading to.
+     */
+    stripes?: readonly [string, string];
     liftedBackground?: string;
   } = {},
 ) {
@@ -86,8 +92,9 @@ export function useReorderStyle(
     const id = drag.id.get();
     const from = id == null ? -1 : trackIds.indexOf(id);
     if (index !== from) {
+      const slot = laneSlotDuringDrag(index, from, drag.target.get());
       return {
-        ...(background ? { backgroundColor: background } : null),
+        ...(stripes ? { backgroundColor: stripes[slot % 2] } : null),
         zIndex: 0,
         opacity: 1,
         boxShadow: 'none',

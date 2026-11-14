@@ -45,6 +45,20 @@ export function laneShift(index: number, from: number, progress: number, lane: n
 }
 
 /**
+ * The slot lane `index` is heading to while the lane lifted from `from` would drop into `target`
+ * (whole slots, not animated). Lanes take that slot's stripe color as soon as they start sliding, so
+ * the rows keep alternating throughout the drag instead of recoloring after the drop.
+ */
+export function laneSlotDuringDrag(index: number, from: number, target: number): number {
+  'worklet';
+  if (from < 0) return index;
+  if (index === from) return target;
+  if (index > from && index <= target) return index - 1;
+  if (index < from && index >= target) return index + 1;
+  return index;
+}
+
+/**
  * Where lane `index` is drawn (content y of its top) during a drag. `from` is the lifted lane's index
  * (-1: no drag), `dragTop` where the lifted lane is.
  */

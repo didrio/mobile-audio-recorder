@@ -12,6 +12,7 @@ const sharedValue = (value: unknown) => ({ get: () => value, set: () => {}, valu
 const drag = {
   id: sharedValue(null),
   top: sharedValue(0),
+  target: sharedValue(0),
   progress: sharedValue(0),
   lift: sharedValue(0),
   dropped: sharedValue(-1),

@@ -442,6 +442,9 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- Reorder stripes (no ticket) — 2026-11-13 — during a track drag, lanes and column cells take the stripe of
+  the slot they're heading to (`laneSlotDuringDrag`, `drag.target`), so rows keep alternating; fresh preview
+  builds of 11db62a + this fix as a preview OTA
 - Transport check (no ticket) — 2026-11-13 — Back to start keeps playing and always reveals 0:00
   (`revealPlayhead`), recording clock shows the timeline position; kept Stop → take start; record-while-playing
   added to T25

@@ -112,8 +112,7 @@ export function TrackColumn({
   const startFinger = useSharedValue(0);
   const startTop = useSharedValue(0);
   const startScroll = useSharedValue(0);
-  /** The slot it drops into now (`drag.progress` animates toward it). */
-  const target = useSharedValue(0);
+  const target = drag.target;
   /** The grip being held (before pickup), and how far along the hold is (0…1). */
   const pressIndex = useSharedValue(-1);
   const press = useSharedValue(0);
@@ -299,7 +298,7 @@ function ColumnCell({
   const { colors } = useTheme();
   const reorder = useReorderStyle(index, trackIds, drag, lane, {
     shadow: true,
-    background: index % 2 === 1 ? colors.laneAlt : colors.background,
+    stripes: [colors.background, colors.laneAlt],
     liftedBackground: colors.laneLifted,
   });
   const pressed = useAnimatedStyle(() => ({
@@ -313,14 +312,7 @@ function ColumnCell({
     : [];
 
   return (
-    <Animated.View
-      style={[
-        styles.cell,
-        { height: lane },
-        index % 2 === 1 && styles.cellAlt,
-        expanded && styles.cellMixer,
-        reorder,
-      ]}>
+    <Animated.View style={[styles.cell, { height: lane }, expanded && styles.cellMixer, reorder]}>
       {expanded ? (
         <View style={styles.mixer}>
           <View style={[styles.armArea, { width: armWidth }]}>
@@ -449,7 +441,6 @@ const useStyles = makeStyles((t) => ({
     borderRightColor: t.colors.border,
     backgroundColor: t.colors.background,
   },
-  cellAlt: { backgroundColor: t.colors.laneAlt },
   cellMixer: { paddingHorizontal: t.spacing.sm },
   armArea: { alignItems: 'center', justifyContent: 'center' },
   info: { width: INFO_SIZE, height: INFO_SIZE, alignItems: 'center', justifyContent: 'center' },

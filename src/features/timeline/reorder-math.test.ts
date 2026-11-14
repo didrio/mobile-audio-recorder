@@ -2,6 +2,7 @@ import {
   autoScrollSpeed,
   dropIndex,
   laneShift,
+  laneSlotDuringDrag,
   laneTopDuringDrag,
   moveIndex,
 } from './reorder-math';
@@ -35,6 +36,24 @@ describe('dropIndex', () => {
     expect(dropIndex(-200, LANE, 4)).toBe(0);
     expect(dropIndex(10 * LANE, LANE, 4)).toBe(3);
     expect(dropIndex(100, LANE, 0)).toBe(0);
+  });
+});
+
+describe('laneSlotDuringDrag', () => {
+  const slots = (from: number, target: number) =>
+    [0, 1, 2, 3].map((index) => laneSlotDuringDrag(index, from, target));
+
+  it('keeps every lane in its slot without a drag or before the target moves', () => {
+    expect(slots(-1, 0)).toEqual([0, 1, 2, 3]);
+    expect(slots(1, 1)).toEqual([0, 1, 2, 3]);
+  });
+
+  it('dragging down: the lanes passed head up a slot, the lifted one to the target', () => {
+    expect(slots(0, 2)).toEqual([2, 0, 1, 3]);
+  });
+
+  it('dragging up: the lanes passed head down a slot', () => {
+    expect(slots(3, 1)).toEqual([0, 2, 3, 1]);
   });
 });
 

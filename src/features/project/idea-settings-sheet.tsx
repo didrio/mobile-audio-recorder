@@ -14,6 +14,7 @@ import {
   type IconName,
 } from '@/components/ui';
 import { setMetronome } from '@/features/audio/audio-engine';
+import { clickVolume, type MetronomeOutput } from '@/features/audio/metronome';
 import {
   addTap,
   BPM_MAX,
@@ -37,9 +38,16 @@ const signatureOptions = TIME_SIGNATURES.map(({ beatsPerBar, beatUnit }) => ({
   label: timeSignatureLabel(beatsPerBar, beatUnit),
 }));
 
+const outputOptions: { value: MetronomeOutput; label: string }[] = [
+  { value: 'sound', label: 'Sound' },
+  { value: 'visual', label: 'Visual' },
+  { value: 'both', label: 'Both' },
+];
+
 /**
  * Idea settings, shown as a sheet over the open idea (editor store): name, tempo (stepper, typed
- * value or Tap tempo), time signature, the grid switch and the metronome volume. Every change is one
+ * value or Tap tempo), time signature, the grid switch and the metronome's output (Sound / Visual /
+ * Both: clicks, the beat display, or both) and volume (hidden for Visual). Every change is one
  * undo step from the idea's header (a volume drag is one step, heard live while it moves). Tempo changes made in quick succession become one step. Setting a different
  * tempo turns the grid on (`setIdeaSettingsEdit`).
  */
@@ -68,7 +76,9 @@ function IdeaSettingsForm() {
   const previewVolume = (volume: number) => {
     setDragVolume(volume);
     // Hear it at once if clicks are playing; the transport sets the saved value again afterwards.
-    if (metronomeOn) setMetronome({ meter: project, volume });
+    if (metronomeOn) {
+      setMetronome({ meter: project, volume: clickVolume(project.metronomeOutput, volume) });
+    }
   };
   const saveVolume = (volume: number) => {
     setDragVolume(null);
@@ -219,19 +229,31 @@ function IdeaSettingsForm() {
         />
       </ListSection>
 
-      <ListSection title="Metronome">
-        <View style={styles.volumeRow}>
-          <Text>Volume</Text>
-          <VolumeSlider
-            label="Metronome volume"
-            gain={metronomeVolume}
-            onDrag={previewVolume}
-            onRelease={saveVolume}
+      <ListSection
+        title="Metronome"
+        footer="Visual shows the beats as big blocks above the timeline. Record without headphones and keep the click out of the take.">
+        <View style={styles.segmentRow}>
+          <SegmentedControl
+            accessibilityLabel="Metronome output"
+            options={outputOptions}
+            value={project.metronomeOutput}
+            onChange={(metronomeOutput) => void setIdeaSettings({ metronomeOutput })}
           />
-          <Text variant="footnote" color="textSecondary" style={styles.volumeValue}>
-            {formatDb(metronomeVolume)}
-          </Text>
         </View>
+        {project.metronomeOutput !== 'visual' && (
+          <View style={styles.volumeRow}>
+            <Text>Volume</Text>
+            <VolumeSlider
+              label="Metronome volume"
+              gain={metronomeVolume}
+              onDrag={previewVolume}
+              onRelease={saveVolume}
+            />
+            <Text variant="footnote" color="textSecondary" style={styles.volumeValue}>
+              {formatDb(metronomeVolume)}
+            </Text>
+          </View>
+        )}
       </ListSection>
 
       <Text variant="footnote" color="textSecondary" style={styles.footer}>

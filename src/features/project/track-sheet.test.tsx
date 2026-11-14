@@ -57,6 +57,7 @@ const project = (tracks: Project['tracks']): Project => ({
   grid: false,
   metronome: false,
   metronomeVolume: 1,
+  metronomeOutput: 'both',
   takes: {},
   tracks,
 });

@@ -53,6 +53,9 @@ export const lightColors = {
   onMute: '#FFFFFF',
   solo: '#F5B800',
   onSolo: '#000000',
+  /** Visual metronome: the lit downbeat (other beats light in `text`), and its number. */
+  downbeat: '#1FA34A',
+  onDownbeat: '#FFFFFF',
   /** Dimmed backdrop behind dialogs. */
   scrim: '#00000066',
 } as const;
@@ -86,6 +89,8 @@ export const darkColors: ThemeColors = {
   onMute: '#FFFFFF',
   solo: '#FFD60A',
   onSolo: '#000000',
+  downbeat: '#30D158',
+  onDownbeat: '#000000',
   /** Dimmed backdrop behind dialogs. */
   scrim: '#00000066',
 };
@@ -136,6 +141,8 @@ export const typography = {
   mono: { fontSize: 13, lineHeight: 18, fontWeight: '400', fontFamily: fonts.mono },
   /** Transport clock in the editor's status strip. Monospaced so digits don't jitter. */
   timecode: { fontSize: 22, lineHeight: 28, fontWeight: '600', fontFamily: fonts.mono },
+  /** Beat numbers in the visual metronome, read from across a room. */
+  beatNumber: { fontSize: 40, lineHeight: 46, fontWeight: '700', fontFamily: fonts.rounded },
 } as const satisfies Record<
   string,
   {

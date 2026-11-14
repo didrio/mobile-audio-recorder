@@ -36,6 +36,7 @@ export function testProject(tracks: ProjectTrack[]): Project {
     grid: false,
     metronome: false,
     metronomeVolume: 1,
+    metronomeOutput: 'both',
     takes: {},
     tracks,
   };

@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { Stack, useIsFocused, useLocalSearchParams, useRouter } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,11 +9,13 @@ import { AndroidHeaderMenu } from '@/components/android-header-menu';
 import { Icon, Text, type IconName } from '@/components/ui';
 import { setTrackGain } from '@/features/audio/audio-engine';
 import { formatTimecode } from '@/features/audio/format-time';
+import { showsBeats } from '@/features/audio/metronome';
 import { confirmDeleteIdea } from '@/features/projects/idea-actions';
 import { useDeleteProject, useDuplicateProject } from '@/features/projects/queries';
 import { Timeline, type ClipEditing } from '@/features/timeline/timeline';
 import { makeStyles, useTheme } from '@/theme';
 
+import { BeatDisplay } from './beat-display';
 import {
   addTrack,
   deleteClip,
@@ -25,6 +27,7 @@ import {
   splitClip,
   selectCanRedo,
   selectCanUndo,
+  setIdeaSettings,
   setTrackVolume,
   toggleMute,
   toggleArm,
@@ -42,7 +45,8 @@ import { useSpeakerMode } from './use-speaker-mode';
 import { useTransport } from './use-transport';
 
 /**
- * The project editor: a thin status strip (clock, pre-roll and metronome toggles, meter), the timeline, then a compact transport row (Back to start · Play · Record). Record while
+ * The project editor: a thin status strip (clock, pre-roll and metronome toggles, meter), the beat
+ * display while the metronome is on and shown (Visual / Both, `beat-display.tsx`), the timeline, then a compact transport row (Back to start · Play · Record). Record while
  * playing punches in on the fly; with pre-roll on, Record starts with a run-up (`use-transport.ts`). The app is portrait-only
  * (`orientation` in app.json), so there is no landscape layout. One track is
  * armed: Record records onto it while the others play. Tracks are added from the timeline's
@@ -176,6 +180,48 @@ export function ProjectScreen() {
       </View>
     </View>
   );
+
+  // The visual metronome, under the strip. In Speaker mode (no headphones) a clicking metronome
+  // bleeds into the take, so suggest Visual before recording; dismissed until the screen is left.
+  const beatDisplay =
+    project && metronome && showsBeats(project.metronomeOutput) ? (
+      <BeatDisplay clock={transport.beatClock} meter={project} />
+    ) : null;
+  const [visualHintDismissed, setVisualHintDismissed] = useState(false);
+  const visualHint =
+    project &&
+    speakerMode &&
+    metronome &&
+    project.metronomeOutput !== 'visual' &&
+    armedTrack &&
+    isIdle &&
+    !visualHintDismissed ? (
+      <View style={styles.hint}>
+        <Text variant="footnote" color="textSecondary" style={styles.hintText}>
+          No headphones: the click can bleed into the take.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => {
+            void Haptics.selectionAsync();
+            void setIdeaSettings({ metronomeOutput: 'visual' });
+          }}
+          style={({ pressed }) => [styles.hintButton, pressed && styles.pressed]}>
+          <Text variant="footnote" color="primary">
+            Use Visual
+          </Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss"
+          hitSlop={8}
+          onPress={() => setVisualHintDismissed(true)}
+          style={({ pressed }) => pressed && styles.pressed}>
+          <Icon name={{ ios: 'xmark', android: 'close' }} size={14} color="textSecondary" />
+        </Pressable>
+      </View>
+    ) : null;
 
   const backToStart = (
     <TransportButton
@@ -347,6 +393,8 @@ export function ProjectScreen() {
       )}
 
       {statusStrip}
+      {beatDisplay}
+      {visualHint}
       {errorText}
       <View style={styles.timeline}>{timeline}</View>
       {/* Android's gesture bar reports almost no inset, so it gets more room under the buttons. */}
@@ -500,6 +548,15 @@ const useStyles = makeStyles((t) => ({
     borderBottomColor: t.colors.border,
   },
   stripSpacer: { flex: 1 },
+  hint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: t.spacing.md,
+    paddingHorizontal: t.spacing.lg,
+    paddingVertical: t.spacing.xs,
+  },
+  hintText: { flex: 1 },
+  hintButton: { paddingVertical: t.spacing.xxs },
   stripToggle: {
     paddingHorizontal: t.spacing.sm,
     paddingVertical: t.spacing.xxs,

@@ -21,6 +21,7 @@ import {
   type RecordingPlayback,
 } from '@/features/audio/audio-engine';
 import { echoPlan } from '@/features/audio/echo-reference';
+import { clickVolume } from '@/features/audio/metronome';
 import {
   choosePunch,
   displayPosition,
@@ -71,7 +72,9 @@ const PUNCH_LEAD_SECONDS = 0.03;
  *
  * - `playhead` (seconds) is a shared value animated on the UI thread every frame from an anchor
  *   (`{ from, startedAtMs }`, converted to the UI thread's `performance.now()` clock by
- *   `toUiClock`) while playing or recording; the
+ *   `toUiClock`) while playing or recording. It includes the output latency, so it shows what's
+ *   heard. `beatClock` is the same time without waiting at 0:00 (negative in a run-up that starts
+ *   before it; `null` when stopped), for the beat display (T33). The
  *   React `position` state ticks at 10 Hz for the clock text only.
  *   The clock always shows the timeline position, recording included.
  * - Play starts at the playhead (from 0 if it's past the end). Pause leaves the playhead where it is;
@@ -92,7 +95,7 @@ const PUNCH_LEAD_SECONDS = 0.03;
  * - Metronome (T17): the engine clicks along with playback and recording while the idea's toggle is
  *   on, following its tempo, meter and metronome volume live. The pre-roll's run-up clicks too, so
  *   it is the count-in; with the metronome on it is always whole bars, so the punch lands on a beat
- *   as counted.
+ *   as counted. With the idea's output set to Visual it runs silently (`clickVolume`).
  */
 export function useTransport(project: Project | null | undefined, speakerMode = false) {
   const queryClient = useQueryClient();
@@ -110,6 +113,7 @@ export function useTransport(project: Project | null | undefined, speakerMode = 
     trackId: string;
   } | null>(null);
   const playhead = useSharedValue(0);
+  const beatClock = useSharedValue<number | null>(null);
   const anchor = useSharedValue<PlaybackAnchor | null>(null);
   const livePeaks = useSharedValue<number[]>([]);
   const livePeak = useSharedValue(0);
@@ -139,9 +143,13 @@ export function useTransport(project: Project | null | undefined, speakerMode = 
   // moving while Record starts during playback.
   const frameCallback = useFrameCallback(() => {
     const current = anchor.get();
-    if (!current) return;
+    if (!current) {
+      beatClock.set(null);
+      return;
+    }
     const time = current.from + Math.max(0, performance.now() - current.startedAtMs) / 1000;
     playhead.set(Math.max(0, time));
+    beatClock.set(time);
   }, false);
   useEffect(() => {
     frameCallback.setActive(!isIdle);
@@ -179,17 +187,22 @@ export function useTransport(project: Project | null | undefined, speakerMode = 
   const beatsPerBar = project?.beatsPerBar;
   const beatUnit = project?.beatUnit;
   const metronomeVolume = project?.metronomeVolume;
+  const metronomeOutput = project?.metronomeOutput;
   useEffect(() => {
     setMetronome(
       metronomeOn && bpm && beatsPerBar && beatUnit && metronomeVolume !== undefined
-        ? { meter: { bpm, beatsPerBar, beatUnit }, volume: metronomeVolume }
+        ? {
+            meter: { bpm, beatsPerBar, beatUnit },
+            volume: clickVolume(metronomeOutput ?? 'both', metronomeVolume),
+          }
         : null,
     );
-  }, [metronomeOn, bpm, beatsPerBar, beatUnit, metronomeVolume]);
+  }, [metronomeOn, bpm, beatsPerBar, beatUnit, metronomeVolume, metronomeOutput]);
   useEffect(() => () => setMetronome(null), []);
 
   const moveTo = (time: number) => {
     anchor.set(null);
+    beatClock.set(null);
     playhead.set(time);
     setPosition(time);
   };
@@ -468,6 +481,8 @@ export function useTransport(project: Project | null | undefined, speakerMode = 
     level,
     error,
     playhead,
+    /** Timeline time heard now, before 0:00 too (a run-up); `null` when stopped. UI thread. */
+    beatClock,
     revealPlayhead,
     liveTake: liveTake
       ? { ...liveTake, peaks: livePeaks, peak: livePeak, peaksPerSecond: LIVE_PEAKS_PER_SECOND }

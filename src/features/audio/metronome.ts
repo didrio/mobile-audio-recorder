@@ -6,8 +6,37 @@
  * and with takes. The grid continues before 0:00, which makes the pre-roll's run-up a count-in.
  * Accents: the first beat of a bar is the strongest; compound meters (6/8, 12/8) also accent the
  * start of each group of three eighths.
+ *
+ * The visual metronome (`beat-display.tsx`) reads the same grid on the UI thread with `beatAt`, so
+ * what's lit is the click that's heard.
  */
 import { beatSeconds, isCompound, type Meter } from './tempo';
+
+/** Rounding slack in beats, so a position computed as 1.9999999 still counts as beat 2. */
+const EPSILON = 1e-9;
+
+/** How the metronome keeps time: clicks you hear, beats you see (`beat-display.tsx`), or both. */
+export type MetronomeOutput = 'sound' | 'visual' | 'both';
+
+export const METRONOME_OUTPUTS: readonly MetronomeOutput[] = ['sound', 'visual', 'both'];
+
+export function isMetronomeOutput(value: unknown): value is MetronomeOutput {
+  return value === 'sound' || value === 'visual' || value === 'both';
+}
+
+/**
+ * The click volume the engine plays. Visual only still runs the engine's metronome, silently: the
+ * playback (and its clock, which the beat display follows) runs as with clicks, and takes line up
+ * the same way.
+ */
+export function clickVolume(output: MetronomeOutput, volume: number): number {
+  return output === 'visual' ? 0 : volume;
+}
+
+/** Whether the beat display shows. */
+export function showsBeats(output: MetronomeOutput): boolean {
+  return output !== 'sound';
+}
 
 export type ClickAccent = 'bar' | 'group' | 'beat';
 
@@ -37,8 +66,41 @@ export function clicksBetween(meter: Meter, from: number, to: number): Click[] {
   return clicks;
 }
 
-/** Rounding slack in beats, so a position computed as 1.9999999 still counts as beat 2. */
-const EPSILON = 1e-9;
+export type BeatPosition = {
+  /** Beat number on the grid: 0 = the first beat of 0:00's bar, negative before it. */
+  beat: number;
+  /** Place in its bar, 0 = the downbeat. */
+  inBar: number;
+  /** Seconds since the beat started. */
+  sinceBeat: number;
+};
+
+/**
+ * The beat that timeline position `time` falls in (the one whose click has sounded last), or `null`
+ * for an unusable tempo or time. Runs on the UI thread too. Agrees with `clicksBetween`: at a
+ * click's position this is that click's beat.
+ */
+export function beatAt(meter: Meter, time: number): BeatPosition | null {
+  'worklet';
+  const length = beatSeconds(meter);
+  if (!(length > 0 && Number.isFinite(length)) || !Number.isFinite(time)) return null;
+  const beat = Math.floor(time / length + EPSILON);
+  const bar = meter.beatsPerBar;
+  return {
+    beat,
+    inBar: ((beat % bar) + bar) % bar,
+    sinceBeat: Math.max(0, time - beat * length),
+  };
+}
+
+/**
+ * How a bar's beats are grouped on screen: in threes for compound meters (6/8 → [3, 3]), otherwise
+ * one group of the whole bar (7/8 → [7]).
+ */
+export function beatGroups(beatsPerBar: number, beatUnit: number): number[] {
+  if (!isCompound(beatsPerBar, beatUnit)) return [beatsPerBar];
+  return Array.from({ length: beatsPerBar / 3 }, () => 3);
+}
 
 const CLICK_SECONDS = 0.05;
 const ATTACK_SECONDS = 0.001;

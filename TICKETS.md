@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T33 — Visual metronome · Opus · high effort · plan mode on
+**Next:** T34 — Silent recording (playback drops out at the punch) · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -54,33 +54,9 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
 
-### T33 — Visual metronome
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Keep time without the click coming out of the speaker: a metronome you watch, in sync with the
-  timeline, readable from a phone lying ~1.5 m (5 ft) away on a desk. With T20's keyboard it makes
-  recording without headphones work without any sound to cancel (T21 still cleans the backing tracks).
-- **Done when:**
-  - [ ] A beat display under the status strip while the metronome is on: one large block per beat of the bar
-        (spanning the screen width, grouped for 6/8 and 12/8), the current beat lit and numbered, the
-        downbeat in a distinct color (green-ish token, light and dark), with a short bright flash on each
-        beat so it reads in peripheral vision. Sized for distance, but the timeline stays mostly in view
-        (decide the height with screenshots; maybe it replaces the strip's empty space while recording).
-  - [ ] Driven on the UI thread from the playhead (which already includes output latency), so it lines up
-        with what's heard and with the grid; no per-beat React renders. It counts in during the pre-roll
-        run-up (before 0:00 too).
-  - [ ] Metronome output choice: Sound / Visual / Both (per idea, next to the metronome toggle or in Idea
-        settings; decide). In Speaker mode, suggest Visual while recording.
-  - [ ] Unit tests for the beat/accent math (reuse `clicksBetween` / `clickAccent` in `metronome.ts`).
-- **Context:** Asked for by the user on 2026-11-14 after T21's first iPhone test: the backing tracks cancel
-  decently, the click still bleeds through. Their ideas: a green dot on the downbeat and white dots for the
-  other beats, or 1·2·3·4 highlighting in turn. Playhead and anchor: `use-transport.ts` (`playhead`,
-  `toUiClock`); the strip is in `project-screen.tsx`. Mind the "Two clocks" gotcha in `AGENTS.md`.
-
 ### T34 — Silent recording (playback drops out at the punch)
 
-- **Status:** ready (best after T33)
+- **Status:** ready (T33 done: the visual metronome keeps time in the silence)
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Record without headphones and without any bleed: everything plays as usual (tracks and the
   click) up to the punch, then all audio fades out just before it and the take is recorded in silence,
@@ -343,6 +319,11 @@ skill). Fix or ticket what fails, then delete the line.
 - Clip editing (T5): drag a clip near the left/right and top/bottom edges (the view auto-scrolls; never tried),
   long-press pickup feel (250 ms) and the snap haptic; move/trim/split while playing restarts playback from
   where it is without a long gap or a click.
+- Visual metronome (T33): phone flat on a desk ~1.5 m away, metronome on (Both): the lit block and the
+  click land together, the flash reads in peripheral vision, numbers are legible. Early/late → tune
+  `DISPLAY_LEAD_SECONDS` / `FLASH_SECONDS` / `LIT_REST_OPACITY` in `src/features/project/beat-display.tsx`
+  (a bigger `BEAT_DISPLAY_HEIGHT` if too small). With pre-roll, the run-up counts in on the blocks before 0:00.
+  Speaker mode without headphones: the "Use Visual" line shows when armed and idle; Visual records no click.
 - Mixer: drag a volume while playing (smooth, no clicks), mute/solo during playback and during an overdub
   (backing changes, the take doesn't).
 - Reorder: grip lights up at once, haptic after the hold, other lanes glide, auto-scroll near the edges with
@@ -430,6 +411,11 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T33 — Visual metronome — 2026-11-14 — beat display under the strip while the metronome is on (one block per
+  beat, 6/8 and 12/8 grouped, current beat lit with a flash, green downbeat token), driven on the UI thread by
+  the transport's unclamped `beatClock` (counts in before 0:00) with `beatAt` in `metronome.ts`; per-idea
+  output Sound / Visual / Both in Idea settings (undoable, migration v6; Visual = engine click at volume 0, so
+  timing and alignment are unchanged); "Use Visual" hint in Speaker mode. Simulator only; device check pending
 - T21 — Speaker mode (echo cancellation) — 2026-11-14 — after Stop, the backing that played is removed from
   takes recorded without headphones (local module `modules/echo-canceller`: C core with a fixed
   speaker → room → mic model incl. distortion, delay search, measured click suppression; Swift wrapper, iOS
@@ -451,7 +437,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   and trims (back out to the take), long-press picks up, snaps to clip edges/playhead/0:00, drops replace what's
   under them, one undo step each; edits while playing restart playback; tap no longer fires on swipes (T30);
   `/wrap` now publishes a preview OTA (`scripts/ota-check.mjs`)
-- T25 — Pre-roll (punch in at the playhead) — 2026-11-13 — pre-roll toggle per idea (migration v3), 1/2/4 s
-  length in Settings, run-up plays every track and cuts the armed one at the punch (`cutTrackAt`), dashed punch
-  marker, stop in the run-up saves nothing, Record while playing punches in on the fly; clap test is in Device
-  checks

@@ -169,4 +169,16 @@ describe('IdeaSettingsSheet', () => {
     expect(savedSettings()).toEqual([expect.objectContaining({ metronomeVolume: volume })]);
     expect(screen.getByText('−1.0 dB')).toBeOnTheScreen();
   });
+
+  it('picks the metronome output as an undoable edit; Visual hides the volume', async () => {
+    const user = userEvent.setup();
+    await openSheet();
+    expect(screen.getByRole('radio', { name: 'Both' })).toBeChecked();
+
+    await user.press(screen.getByRole('radio', { name: 'Visual' }));
+
+    expect(useEditorStore.getState().project?.metronomeOutput).toBe('visual');
+    expect(savedSettings()).toEqual([expect.objectContaining({ metronomeOutput: 'visual' })]);
+    expect(screen.queryByRole('adjustable', { name: 'Metronome volume' })).not.toBeOnTheScreen();
+  });
 });

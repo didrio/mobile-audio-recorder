@@ -72,6 +72,13 @@ describe('setIdeaSettingsEdit', () => {
     expect(setIdeaSettingsEdit(project, { metronomeVolume: Number.NaN })).toBeNull();
   });
 
+  it('sets the metronome output, and undo restores it', () => {
+    const edit = setIdeaSettingsEdit(project, { metronomeOutput: 'visual' })!;
+    expect(applyToProject(project, edit.changes).metronomeOutput).toBe('visual');
+    expect(undo(edit)).toEqual(project);
+    expect(setIdeaSettingsEdit(project, { metronomeOutput: 'both' })).toBeNull();
+  });
+
   it('ignores a blank name and does nothing when nothing changes', () => {
     expect(setIdeaSettingsEdit(project, { name: '   ' })).toBeNull();
     expect(setIdeaSettingsEdit(project, { name: 'Idea 1', grid: false })).toBeNull();

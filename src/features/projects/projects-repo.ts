@@ -6,6 +6,7 @@
  */
 import { randomUUID } from 'expo-crypto';
 
+import { isMetronomeOutput, type MetronomeOutput } from '@/features/audio/metronome';
 import {
   copyTakeFiles,
   deleteProjectFiles,
@@ -65,6 +66,8 @@ export type IdeaSettings = {
   grid: boolean;
   /** Metronome click volume (linear gain, 1 = 0 dB). */
   metronomeVolume: number;
+  /** Whether the metronome is heard, seen (the beat display) or both. */
+  metronomeOutput: MetronomeOutput;
 };
 
 export type Project = ProjectSummary &
@@ -92,6 +95,7 @@ type ProjectRow = {
   grid: number;
   metronome: number;
   metronome_volume: number;
+  metronome_output: string;
   duration: number;
 };
 type TrackRow = {
@@ -124,6 +128,7 @@ type ClipRow = {
 const PROJECT_COLUMNS = `
   p.id, p.name, p.created_at, p.updated_at, p.armed_track_id, p.pre_roll,
   p.bpm, p.beats_per_bar, p.beat_unit, p.grid, p.metronome, p.metronome_volume,
+  p.metronome_output,
   COALESCE((
     SELECT MAX(c.start + c.duration) FROM clips c JOIN tracks t ON t.id = c.track_id
     WHERE t.project_id = p.id
@@ -208,6 +213,7 @@ export async function getProject(id: string): Promise<Project | null> {
     grid: row.grid === 1,
     metronome: row.metronome === 1,
     metronomeVolume: row.metronome_volume,
+    metronomeOutput: isMetronomeOutput(row.metronome_output) ? row.metronome_output : 'both',
     tracks,
     takes,
   };
@@ -304,8 +310,8 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
     await db.withExclusiveTransactionAsync(async (tx) => {
       await tx.runAsync(
         `INSERT INTO projects (id, name, created_at, updated_at, pre_roll, bpm, beats_per_bar, beat_unit, grid,
-           metronome, metronome_volume)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           metronome, metronome_volume, metronome_output)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         newId,
         name,
         now,
@@ -317,6 +323,7 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
         source.grid ? 1 : 0,
         source.metronome ? 1 : 0,
         source.metronomeVolume,
+        source.metronomeOutput,
       );
       for (const track of source.tracks) {
         await tx.runAsync(
@@ -409,13 +416,14 @@ export async function saveChanges(
       if (change.table !== 'projects') continue;
       const settings = change.after;
       await tx.runAsync(
-        'UPDATE projects SET name = ?, bpm = ?, beats_per_bar = ?, beat_unit = ?, grid = ?, metronome_volume = ? WHERE id = ?',
+        'UPDATE projects SET name = ?, bpm = ?, beats_per_bar = ?, beat_unit = ?, grid = ?, metronome_volume = ?, metronome_output = ? WHERE id = ?',
         settings.name,
         settings.bpm,
         settings.beatsPerBar,
         settings.beatUnit,
         settings.grid ? 1 : 0,
         settings.metronomeVolume,
+        settings.metronomeOutput,
         projectId,
       );
     }

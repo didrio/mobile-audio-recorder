@@ -225,6 +225,7 @@ const project: Project = {
   grid: false,
   metronome: false,
   metronomeVolume: 1,
+  metronomeOutput: 'both',
   takes: {
     t1: {
       id: 't1',
@@ -520,6 +521,70 @@ describe('ProjectScreen', () => {
     await user.press(screen.getByRole('switch', { name: 'Metronome' }));
     expect(saveMetronome).toHaveBeenLastCalledWith('p1', false);
     expect(setMetronome).toHaveBeenLastCalledWith(null);
+  });
+
+  it('shows the beat display while the metronome is on, unless its output is Sound', async () => {
+    jest.mocked(getProject).mockResolvedValue({ ...project, metronome: true, grid: true });
+    const user = userEvent.setup();
+    const { unmount } = await renderScreen();
+
+    expect(await screen.findByRole('image', { name: 'Visual metronome' })).toBeOnTheScreen();
+    // One block per beat of 4/4 (each number drawn dim and lit).
+    expect(screen.getAllByText('4')).toHaveLength(2);
+    expect(screen.queryByText('5')).not.toBeOnTheScreen();
+    await user.press(screen.getByRole('switch', { name: 'Metronome' }));
+    expect(screen.queryByRole('image', { name: 'Visual metronome' })).not.toBeOnTheScreen();
+    await unmount();
+
+    jest
+      .mocked(getProject)
+      .mockResolvedValue({ ...project, metronome: true, metronomeOutput: 'sound' });
+    await renderScreen();
+    await screen.findByText('Timeline of Chorus riff');
+    expect(screen.queryByRole('image', { name: 'Visual metronome' })).not.toBeOnTheScreen();
+  });
+
+  it('with the output set to Visual, runs the clicks silently', async () => {
+    jest
+      .mocked(getProject)
+      .mockResolvedValue({ ...project, metronome: true, metronomeOutput: 'visual' });
+    await renderScreen();
+
+    expect(await screen.findByRole('image', { name: 'Visual metronome' })).toBeOnTheScreen();
+    expect(setMetronome).toHaveBeenLastCalledWith({ meter: METER, volume: 0 });
+  });
+
+  it('in speaker mode, suggests the visual metronome instead of clicks', async () => {
+    useRecordingSettingsStore.setState({ speakerMode: true });
+    jest
+      .mocked(getProject)
+      .mockResolvedValue({ ...project, metronome: true, metronomeOutput: 'both' });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    expect(
+      await screen.findByText('No headphones: the click can bleed into the take.'),
+    ).toBeOnTheScreen();
+    await user.press(screen.getByRole('button', { name: 'Use Visual' }));
+
+    expect(saveChanges).toHaveBeenLastCalledWith(
+      'p1',
+      [expect.objectContaining({ after: expect.objectContaining({ metronomeOutput: 'visual' }) })],
+      undefined,
+    );
+    expect(setMetronome).toHaveBeenLastCalledWith({ meter: METER, volume: 0 });
+    expect(screen.queryByRole('button', { name: 'Use Visual' })).not.toBeOnTheScreen();
+  });
+
+  it('lets the visual metronome suggestion be dismissed', async () => {
+    useRecordingSettingsStore.setState({ speakerMode: true });
+    jest.mocked(getProject).mockResolvedValue({ ...project, metronome: true });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('button', { name: 'Use Visual' })).not.toBeOnTheScreen();
+    expect(saveChanges).not.toHaveBeenCalled();
   });
 
   it('with the metronome on, the count-in is whole bars even with the grid off', async () => {

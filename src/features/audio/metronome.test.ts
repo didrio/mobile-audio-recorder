@@ -1,4 +1,4 @@
-import { clickAccent, clicksBetween, clickSamples } from './metronome';
+import { beatAt, beatGroups, clickAccent, clicksBetween, clickSamples } from './metronome';
 
 describe('clickAccent', () => {
   it('accents the first beat of each bar in simple meters', () => {
@@ -107,5 +107,51 @@ describe('clickSamples', () => {
     expect(bar).toBeGreaterThan(group);
     expect(group).toBeGreaterThan(beat);
     expect(bar).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('beatAt', () => {
+  const meter = { bpm: 120, beatsPerBar: 4, beatUnit: 4 };
+
+  it('finds the beat, its place in the bar and the time since it', () => {
+    expect(beatAt(meter, 0)).toEqual({ beat: 0, inBar: 0, sinceBeat: 0 });
+    const later = beatAt(meter, 2.7);
+    expect(later).toMatchObject({ beat: 5, inBar: 1 });
+    expect(later?.sinceBeat).toBeCloseTo(0.2);
+  });
+
+  it('counts in before 0:00 on the same grid', () => {
+    expect(beatAt(meter, -2)).toEqual({ beat: -4, inBar: 0, sinceBeat: 0 });
+    const runUp = beatAt(meter, -0.25);
+    expect(runUp).toMatchObject({ beat: -1, inBar: 3 });
+    expect(runUp?.sinceBeat).toBeCloseTo(0.25);
+  });
+
+  it('agrees with the clicks: each click lights its own beat, the downbeat on bar accents', () => {
+    for (const m of [meter, { bpm: 97, beatsPerBar: 6, beatUnit: 8 }]) {
+      for (const click of clicksBetween(m, -5, 20)) {
+        const position = beatAt(m, click.position);
+        expect(position?.sinceBeat).toBeCloseTo(0);
+        expect(position?.inBar === 0).toBe(click.accent === 'bar');
+      }
+    }
+  });
+
+  it('treats a time a hair before a beat (rounding) as that beat', () => {
+    expect(beatAt({ bpm: 90, beatsPerBar: 3, beatUnit: 4 }, (60 / 90) * 3 - 1e-12)?.beat).toBe(3);
+  });
+
+  it('has no beat for an unusable tempo or time', () => {
+    expect(beatAt({ ...meter, bpm: 0 }, 1)).toBeNull();
+    expect(beatAt(meter, Number.NaN)).toBeNull();
+  });
+});
+
+describe('beatGroups', () => {
+  it('groups compound meters in threes and leaves the others whole', () => {
+    expect(beatGroups(6, 8)).toEqual([3, 3]);
+    expect(beatGroups(12, 8)).toEqual([3, 3, 3, 3]);
+    expect(beatGroups(4, 4)).toEqual([4]);
+    expect(beatGroups(7, 8)).toEqual([7]);
   });
 });

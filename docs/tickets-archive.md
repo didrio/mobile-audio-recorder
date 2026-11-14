@@ -2,6 +2,10 @@
 
 Oldest finished tickets, moved out of `TICKETS.md` to keep it lean. Newest first.
 
+- T25 — Pre-roll (punch in at the playhead) — 2026-11-13 — pre-roll toggle per idea (migration v3), 1/2/4 s
+  length in Settings, run-up plays every track and cuts the armed one at the punch (`cutTrackAt`), dashed punch
+  marker, stop in the run-up saves nothing, Record while playing punches in on the fly; clap test is in Device
+  checks
 - Reorder stripes (no ticket) — 2026-11-13 — during a track drag, lanes and column cells take the stripe of
   the slot they're heading to (`laneSlotDuringDrag`, `drag.target`), so rows keep alternating; fresh preview
   builds of 11db62a + this fix as a preview OTA

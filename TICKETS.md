@@ -541,7 +541,7 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
-- T28 — Track column v2 — 2026-11-13 — collapsed column 44→30 pt, one faint grip glyph per track (no gesture; T23 builds on it), armed track = red outline + dot on its name pill; same day, per the user: tapping the pill arms (label `Arm <name>`), the mixer's arm button became an info button that opens the track sheet, pills 4 pt further from the lane edges, 0:00 flush with the column (`LEADING_SPACE` 0); `overdub.yaml` waits on `Arm Track 2`; checked on the iOS simulator (dark, 1 track, closed/open); light mode, 8 tracks and Maestro not run
+- T28 — Track column v2 — 2026-11-13 — collapsed column 44→38 pt, one faint grip glyph per track (no gesture; T23 builds on it), armed track = red outline + dot on its name pill; same day, per the user: tapping the pill arms (label `Arm <name>`), the mixer's arm button became an info button that opens the track sheet, pills 4 pt further from the lane edges, 0:00 flush with the column (`LEADING_SPACE` 0); `overdub.yaml` waits on `Arm Track 2`; checked on the iOS simulator (dark, 1 track, closed/open); light mode, 8 tracks and Maestro not run
 
 - T22 — Transport & playhead polish — 2026-11-13 — Back to start stops playback; no stop squares (Play ↔ Pause,
   Record shows Pause while recording); playhead ends at the last lane; `stopPlaying(at?)` avoids a stale-status

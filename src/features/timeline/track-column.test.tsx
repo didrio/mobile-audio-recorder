@@ -23,7 +23,7 @@ function renderColumn(overrides: Partial<Parameters<typeof TrackColumn>[0]> = {}
         tracks={tracks}
         top={32}
         width={236}
-        armWidth={30}
+        armWidth={38}
         expanded
         lane={88}
         laneScroll={laneScroll}

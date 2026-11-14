@@ -476,7 +476,7 @@ export function Timeline({
                 backgroundColor: mixerOpen
                   ? theme.colors.surfacePressed
                   : theme.colors.surfaceMuted,
-                borderColor: theme.colors.border,
+                borderColor: theme.colors.textTertiary,
               },
               pressed && styles.pressed,
             ]}>
@@ -638,8 +638,8 @@ const styles = StyleSheet.create({
     left: 0,
     height: RULER_SIZE,
     justifyContent: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderRightWidth: StyleSheet.hairlineWidth,
+    // Enclosed like a button: a full border on all four sides.
+    borderWidth: 1,
   },
   // The icon stays centered over the arm buttons whether the mixer is open or not.
   cornerIcon: { width: CONTROLS_WIDTH, alignItems: 'center' },

@@ -233,9 +233,11 @@ const useStyles = makeStyles((t) => ({
     paddingVertical: t.spacing.xxs,
     paddingHorizontal: t.spacing.sm,
     borderRadius: t.radius.full,
+    borderWidth: 1,
+    borderColor: t.colors.textTertiary,
     backgroundColor: t.colors.trackHeader,
   },
-  nameArmed: { borderWidth: 1.5, borderColor: t.colors.primary },
+  nameArmed: { borderColor: t.colors.primary },
   armDot: { width: 8, height: 8, borderRadius: t.radius.full, backgroundColor: t.colors.primary },
   newTrack: {
     position: 'absolute',

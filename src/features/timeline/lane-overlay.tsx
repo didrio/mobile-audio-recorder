@@ -138,7 +138,8 @@ export function LaneOverlay({
           onPress={onAddTrack}
           style={({ pressed }) => [
             styles.newTrack,
-            { top: count * lane, height: footer },
+            // Starts one hairline early so its top border sits on the last lane's separator pixel.
+            { top: count * lane - StyleSheet.hairlineWidth, height: footer + StyleSheet.hairlineWidth },
             addTrackDisabled && styles.disabled,
             pressed && styles.pressed,
           ]}>
@@ -247,6 +248,8 @@ const useStyles = makeStyles((t) => ({
     alignItems: 'center',
     justifyContent: 'center',
     gap: t.spacing.xs,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: t.colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: t.colors.border,
     backgroundColor: t.colors.background,

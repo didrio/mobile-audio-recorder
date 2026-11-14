@@ -31,7 +31,12 @@ import { projectKeys } from '@/features/projects/queries';
 import { applyToProject, invertEdit, type Change, type Edit } from './edit-changes';
 import {
   addTrackEdit,
+  deleteClipEdit,
+  duplicateClipEdit,
+  placeClipEdit,
   recordTakeEdit,
+  splitClipEdit,
+  type ClipPlacement,
   moveTrackEdit,
   setTrackMutedEdit,
   setTrackSoloEdit,
@@ -235,6 +240,38 @@ export function moveTrack(trackId: string, toIndex: number): Promise<void> {
   const { project } = useEditorStore.getState();
   if (!project) return Promise.resolve();
   return executeEdit(moveTrackEdit(project, trackId, toIndex));
+}
+
+/**
+ * Moves and/or trims a clip as one undo step (made when the drag ends); it replaces what it lands on.
+ * Returns whether anything changed.
+ */
+export function placeClip(clipId: string, placement: ClipPlacement, label?: string): boolean {
+  const { project } = useEditorStore.getState();
+  const edit = project ? placeClipEdit(project, clipId, placement, label) : null;
+  void executeEdit(edit);
+  return edit != null;
+}
+
+/** Splits a clip at timeline position `at`. Returns the new (tail) clip's id, or `null`. */
+export function splitClip(clipId: string, at: number): string | null {
+  const { project } = useEditorStore.getState();
+  const result = project ? splitClipEdit(project, clipId, at) : null;
+  void executeEdit(result?.edit ?? null);
+  return result?.tailId ?? null;
+}
+
+/** Copies a clip to right after itself. Returns the copy's id, or `null`. */
+export function duplicateClip(clipId: string): string | null {
+  const { project } = useEditorStore.getState();
+  const result = project ? duplicateClipEdit(project, clipId) : null;
+  void executeEdit(result?.edit ?? null);
+  return result?.copyId ?? null;
+}
+
+export function deleteClip(clipId: string): Promise<void> {
+  const { project } = useEditorStore.getState();
+  return executeEdit(project ? deleteClipEdit(project, clipId) : null);
 }
 
 /** Arms `trackId` (disarming the previous one), or disarms everything with `null`. Saved, not undoable. */

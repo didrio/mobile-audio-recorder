@@ -148,9 +148,25 @@ export function recordTakeEdit(project: Project, input: RecordedTakeInput): Edit
   const start = Math.max(0, input.start);
   const duration = input.take.duration - offset;
 
+  const changes = clearRangeChanges(track.clips, start, start + duration);
+  const clipId = randomUUID();
+  changes.push({
+    table: 'clips',
+    id: clipId,
+    before: null,
+    after: { id: clipId, trackId: track.id, takeId: input.take.id, start, offset, duration },
+  });
+  return { label: 'Record', changes };
+}
+
+/**
+ * The changes that clear `from…to` on a track holding `clips`: overlapped clips are trimmed, split or
+ * deleted (`clip-overlap.ts`). Leave out the clip being placed.
+ */
+function clearRangeChanges(clips: Clip[], from: number, to: number): Change[] {
   const changes: Change[] = [];
-  for (const edit of clearRange(track.clips, start, start + duration)) {
-    const clip = track.clips.find((candidate) => candidate.id === edit.id);
+  for (const edit of clearRange(clips, from, to)) {
+    const clip = clips.find((candidate) => candidate.id === edit.id);
     if (!clip) continue;
     if (edit.kind === 'delete') {
       changes.push({ table: 'clips', id: clip.id, before: clip, after: null });
@@ -170,13 +186,134 @@ export function recordTakeEdit(project: Project, input: RecordedTakeInput): Edit
       );
     }
   }
+  return changes;
+}
 
-  const clipId = randomUUID();
-  changes.push({
-    table: 'clips',
-    id: clipId,
-    before: null,
-    after: { id: clipId, trackId: track.id, takeId: input.take.id, start, offset, duration },
-  });
-  return { label: 'Record', changes };
+/** Shortest clip a trim or split leaves (seconds). */
+export const MIN_CLIP_SECONDS = 0.05;
+
+/** A clip's place on the timeline: its track and its window onto its take. */
+export type ClipPlacement = Pick<Clip, 'trackId' | 'start' | 'offset' | 'duration'>;
+
+function findClip(project: Project, clipId: string): Clip | undefined {
+  for (const track of project.tracks) {
+    const clip = track.clips.find((candidate) => candidate.id === clipId);
+    if (clip) return clip;
+  }
+  return undefined;
+}
+
+/**
+ * Moves and/or trims a clip (a drag of the clip or of one of its handles): it gets `placement`, kept
+ * within its take (a head before the take's start is cut back to it, a tail ends by the take's end), at least `MIN_CLIP_SECONDS` long and not
+ * before 0:00. Whatever it lands on on its (new) track is replaced, as recording does. `null` for a
+ * missing clip or track, or when nothing changes.
+ */
+export function placeClipEdit(
+  project: Project,
+  clipId: string,
+  placement: ClipPlacement,
+  label = 'Move clip',
+): Edit | null {
+  const clip = findClip(project, clipId);
+  const track = project.tracks.find((candidate) => candidate.id === placement.trackId);
+  if (!clip || !track) return null;
+  const takeDuration = project.takes[clip.takeId]?.duration ?? Infinity;
+  // A head reaching before the take's start is cut back to it, keeping the audio where it was.
+  const before = Math.max(0, -placement.offset);
+  const offset = Math.min(placement.offset + before, Math.max(0, takeDuration - MIN_CLIP_SECONDS));
+  const duration = Math.min(
+    Math.max(MIN_CLIP_SECONDS, placement.duration - before),
+    takeDuration - offset,
+  );
+  const start = Math.max(0, placement.start + before);
+  const after: Clip = { ...clip, trackId: track.id, start, offset, duration };
+  if (
+    after.trackId === clip.trackId &&
+    after.start === clip.start &&
+    after.offset === clip.offset &&
+    after.duration === clip.duration
+  ) {
+    return null;
+  }
+  const others = track.clips.filter((candidate) => candidate.id !== clipId);
+  return {
+    label,
+    changes: [
+      ...clearRangeChanges(others, start, start + duration),
+      { table: 'clips', id: clipId, before: clip, after },
+    ],
+  };
+}
+
+/**
+ * Splits a clip at timeline position `at` into two clips on the same take: the original keeps the
+ * head, a new clip the tail. `null` unless both pieces would be at least `MIN_CLIP_SECONDS` long.
+ */
+export function splitClipEdit(
+  project: Project,
+  clipId: string,
+  at: number,
+): { edit: Edit; tailId: string } | null {
+  const clip = findClip(project, clipId);
+  if (!clip || !canSplitAt(clip, at)) return null;
+  const head = at - clip.start;
+  const tailId = randomUUID();
+  const tail: Clip = {
+    ...clip,
+    id: tailId,
+    start: at,
+    offset: clip.offset + head,
+    duration: clip.duration - head,
+  };
+  return {
+    tailId,
+    edit: {
+      label: 'Split clip',
+      changes: [
+        { table: 'clips', id: clipId, before: clip, after: { ...clip, duration: head } },
+        { table: 'clips', id: tailId, before: null, after: tail },
+      ],
+    },
+  };
+}
+
+/** Whether splitting `clip` at `at` leaves two pieces of at least `MIN_CLIP_SECONDS`. */
+export function canSplitAt(clip: Pick<Clip, 'start' | 'duration'>, at: number): boolean {
+  'worklet';
+  return at - clip.start >= MIN_CLIP_SECONDS && clip.start + clip.duration - at >= MIN_CLIP_SECONDS;
+}
+
+/** Copies a clip to right after itself on the same track (replacing what's there). */
+export function duplicateClipEdit(
+  project: Project,
+  clipId: string,
+): { edit: Edit; copyId: string } | null {
+  const clip = findClip(project, clipId);
+  const track = project.tracks.find((candidate) => candidate.id === clip?.trackId);
+  if (!clip || !track) return null;
+  const copyId = randomUUID();
+  const start = clip.start + clip.duration;
+  const copy: Clip = { ...clip, id: copyId, start };
+  const others = track.clips.filter((candidate) => candidate.id !== clipId);
+  return {
+    copyId,
+    edit: {
+      label: 'Duplicate clip',
+      changes: [
+        ...clearRangeChanges(others, start, start + clip.duration),
+        { table: 'clips', id: copyId, before: null, after: copy },
+      ],
+    },
+  };
+}
+
+/** Deletes a clip (its take stays until the idea is next opened without it in use). */
+export function deleteClipEdit(project: Project, clipId: string): Edit | null {
+  const clip = findClip(project, clipId);
+  if (!clip) return null;
+  return {
+    label: 'Delete clip',
+    changes: [{ table: 'clips', id: clipId, before: clip, after: null }],
+  };
 }

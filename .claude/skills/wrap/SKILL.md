@@ -1,6 +1,6 @@
 ---
 name: wrap
-description: End a work session — final quality pass, update TICKETS.md (outcomes, handoff notes, new or reordered tickets, next pick with recommended model/effort/plan mode), commit (push if a remote exists), backport generic improvements to the base template and sync them back, and print the steps for the next session. Only when the user types /wrap.
+description: End a work session — final quality pass, update TICKETS.md (outcomes, handoff notes, new or reordered tickets, next pick with recommended model/effort/plan mode), commit (push if a remote exists), publish a preview OTA update when the installed builds can take it, backport generic improvements to the base template and sync them back, and print the steps for the next session. Only when the user types /wrap.
 disable-model-invocation: true
 ---
 
@@ -57,7 +57,26 @@ Goal: the best ratio of quality to cost and time. Pick the **cheapest row that w
 - Commit on the current branch. If the branch has an upstream (`git rev-parse --abbrev-ref @{u}` succeeds), push.
   Otherwise skip pushing and say so in one line.
 
-## 4. Backport to the base
+## 4. Update the phones (preview OTA)
+
+The user tries each session's work on the preview build on their phone, so a wrap ends by sending it there as an
+over-the-air update whenever one can reach that build. The user approved this as a standing step for the
+**preview** channel: publish without asking again. Production updates (`update:production`, `deploy`) always ask.
+
+- Skip it (one line in the hand-off) when nothing the app runs changed this session: only docs, tickets, tests,
+  skills or scripts.
+- `node scripts/ota-check.mjs` compares this checkout's runtime fingerprint with the latest finished preview
+  build, per platform (read-only; run it after the commit). Don't turn it into an npm script: `package.json`
+  scripts are part of the fingerprint.
+  - **Exit 0** (every platform "OTA ok"): `npm run update:preview -- --message "<the commit's subject>"`.
+  - **Exit 1**: native inputs changed (a native package, `app.json` plugins/permissions/icons, `package.json`
+    scripts, the SDK), so builds with the old fingerprint ignore the update. Publish only to the platforms that
+    still say "OTA ok" (`npm run update:preview -- --platform ios --message "…"`), and tell the user the others
+    need `npm run build:preview` (it doesn't run in the wrap: builds take long and the first iOS one needs them).
+  - **Exit 2** (not linked, not logged in, no preview build yet): skip and say why.
+- The phone fetches the update on a cold start and runs it on the next one (Settings → Update shows its ID).
+
+## 5. Backport to the base
 
 Apps share history with the base template (`base` remote, see the `sync-base` skill). Improvements every future
 app needs go into the base, then come back through a sync, so both repos agree and later syncs stay clean.
@@ -82,7 +101,7 @@ app needs go into the base, then come back through a sync, so both repos agree a
    `sync-base` skill says (usually nothing: the content already matches), `npm run check`, `git commit --no-edit`,
    push if there's an upstream.
 
-## 5. Hand off
+## 6. Hand off
 
 End your reply with exactly this shape (fill in the values):
 
@@ -95,6 +114,7 @@ Next session:
 3. /start T6 — <title>
 ```
 
-Add one line for the base backport (`Base: <short hash> — <summary>`, or `Base: nothing to backport`), and at
+Add one line for the OTA (`OTA: preview <group id> — iOS, Android`, or why it was skipped or which platforms need
+a new build), one line for the base backport (`Base: <short hash> — <summary>`, or `Base: nothing to backport`), and at
 most two lines for anything the user must do before then (e.g. "install the new dev build: `npm run ios`",
 "decide X — it's in T6's open questions"). Then stop: the session is over.

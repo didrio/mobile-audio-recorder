@@ -11,7 +11,8 @@ import {
   type SkPaint,
   type SkPath,
 } from '@shopify/react-native-skia';
-import { useEffect, useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import {
   GestureDetector,
@@ -24,18 +25,33 @@ import {
   cancelAnimation,
   useAnimatedReaction,
   useDerivedValue,
+  useFrameCallback,
   useSharedValue,
   withDecay,
+  withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 
 import { Icon } from '@/components/ui';
+import { canSplitAt, MIN_CLIP_SECONDS, type ClipPlacement } from '@/features/project/edit-commands';
 import type { Project } from '@/features/projects/projects-repo';
 import { useTheme, type ThemeColors } from '@/theme';
 
+import { ClipActionBar } from './clip-action-bar';
+import {
+  DRAG_MOVE,
+  DRAG_NONE,
+  dragWindow,
+  grabPart,
+  itemAt,
+  rowAt,
+  snapDrag,
+  type DragPart,
+  type ItemWindow,
+} from './clip-edit-math';
 import { LaneOverlay } from './lane-overlay';
-import { laneSlotDuringDrag, laneTopDuringDrag } from './reorder-math';
+import { autoScrollSpeed, laneSlotDuringDrag, laneTopDuringDrag } from './reorder-math';
 import {
   clamp,
   clampScroll,
@@ -77,6 +93,27 @@ const PUNCH_NOTCH = 5;
 /** Offset and blur of the shadow under a lane being dragged (at full lift). */
 const LIFT_SHADOW_Y = 4;
 const LIFT_SHADOW_BLUR = 8;
+/** Touches this close to a selected clip's edge (points, either side) grab its trim handle. */
+const HANDLE_REACH = 18;
+/** The trim handles drawn inside a selected clip's edges. */
+const HANDLE_WIDTH = 4;
+const HANDLE_INSET = 4;
+const SELECTED_BORDER = 2;
+/** A dragged clip edge snaps to another clip's edge or the playhead within this many points. */
+const SNAP_POINTS = 10;
+/** A tap that moves further than this (points) is a drag, not a tap. */
+const TAP_SLOP = 10;
+/** Hold this long on a clip that isn't selected to pick it up. */
+const LONG_PRESS_MS = 250;
+/** The press highlight starts at this fraction, then fills over the hold. */
+const PRESS_START = 0.35;
+const PRESS_FADE_MS = 150;
+const LIFT_MS = 150;
+/** How much a picked-up clip grows. */
+const CLIP_LIFT_SCALE = 0.04;
+/** Dragging a clip this close to an edge of the view scrolls it (points, points per second). */
+const AUTO_SCROLL_EDGE = 40;
+const AUTO_SCROLL_SPEED = 600;
 /** Skia resolves fonts through the system font manager, which doesn't know RN's 'System' alias. */
 const FONT_FAMILY = Platform.select({ ios: 'Helvetica', default: 'sans-serif' });
 
@@ -95,14 +132,32 @@ export type LiveTake = {
 };
 
 type ClipShape = {
+  id: string;
   start: number;
+  offset: number;
   duration: number;
-  lane: number;
+  /** Length of the clip's take: how far a trim can reveal it. */
+  takeDuration: number;
+  /** Index of its track (lane). */
+  row: number;
   /** Muted, or another track is soloed: drawn faded. */
   silent: boolean;
   /** One path per detail level, in clip-local seconds × amplitude (-1…1); null while loading. */
   waveform: SkPath[] | null;
+  /** The same for the whole take (only for the selected clip, so a trim can reveal more of it). */
+  takeWaveform: SkPath[] | null;
   peaksPerSecond: number;
+};
+
+/** What the timeline can do to clips (`null` turns clip editing off, e.g. while recording). */
+export type ClipEditing = {
+  /** A drag of a clip or one of its handles ended there (one undo step). Returns whether it changed. */
+  onPlace: (clipId: string, placement: ClipPlacement, label: string) => boolean;
+  /** Split at timeline position `at`. */
+  onSplit: (clipId: string, at: number) => void;
+  /** Copy it to right after itself; returns the copy's id (it gets selected). */
+  onDuplicate: (clipId: string) => string | null;
+  onDelete: (clipId: string) => void;
 };
 
 /**
@@ -116,8 +171,15 @@ type ClipShape = {
  * only the time area right of the column, so expanding it narrows the time area. Names, "+ New Track" and the
  * "N more" chevrons are RN views over the lanes (`LaneOverlay`).
  *
- * Gestures: pan scrolls (with momentum, both axes), pinch zooms around the fingers, a tap anywhere
- * moves the playhead there, and dragging on the ruler scrubs the playhead (released: seek).
+ * Gestures: pan scrolls (with momentum, both axes), pinch zooms around the fingers, dragging on the
+ * ruler scrubs the playhead (released: seek). Clips (T5): a tap selects one (edge handles and the
+ * floating `ClipActionBar`), a tap anywhere else moves the playhead there and deselects. Dragging the
+ * selected clip moves it (in time and between tracks), dragging near its edges trims it; holding an
+ * unselected clip picks it up to move it in one go. Dragged edges snap to other clips' edges, 0:00 and
+ * the playhead, and the view scrolls when the finger nears an edge. The drop is one `onPlace` call
+ * (one undo step); until the saved project renders, the clip is drawn from the drag state, so it
+ * doesn't flicker back. The pan decides on touch-down what it does (scrub, move, trim or scroll); the
+ * long-press pan runs alongside it, and whichever takes the clip first owns it (`owner`).
  * Waveforms share one vertical scale per project (the loudest take fills its lane), so relative
  * loudness between takes stays true.
  */
@@ -129,6 +191,7 @@ export function Timeline({
   liveTake,
   armedTrackId,
   addTrackDisabled,
+  clipEditing,
   onSeek,
   onArm,
   onEditTrack,
@@ -150,6 +213,7 @@ export function Timeline({
   liveTake: LiveTake | null;
   armedTrackId: string | null;
   addTrackDisabled: boolean;
+  clipEditing: ClipEditing | null;
   onSeek: (time: number) => void;
   onArm: (trackId: string) => void;
   onEditTrack: (trackId: string) => void;
@@ -182,22 +246,39 @@ export function Timeline({
   const duration = project.duration;
   const isRecording = liveTake != null;
 
+  const editable = clipEditing != null && !isRecording;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const peaks = useTakePeaks(Object.values(project.takes).map((take) => take.path));
   const anySolo = project.tracks.some((track) => track.solo);
-  const clips: ClipShape[] = project.tracks.flatMap((track, lane) =>
+  const clips: ClipShape[] = project.tracks.flatMap((track, row) =>
     track.clips.map((clip) => {
       const take = project.takes[clip.takeId];
       const levels = take ? peaks[take.path] : undefined;
       return {
+        id: clip.id,
         start: clip.start,
+        offset: clip.offset,
         duration: clip.duration,
-        lane,
+        takeDuration: take?.duration ?? clip.offset + clip.duration,
+        row,
         silent: anySolo ? !track.solo : track.muted,
         waveform: levels ? waveformPaths(levels, clip.offset, clip.duration) : null,
+        takeWaveform:
+          levels && take && clip.id === selectedId ? waveformPaths(levels, 0, take.duration) : null,
         peaksPerSecond: levels?.[0] ? peaksPerSecond(levels[0]) : 0,
       };
     }),
   );
+  // The selection, if that clip still exists (undo can remove it) and clips can be edited now.
+  const selectedIndex = editable ? clips.findIndex((clip) => clip.id === selectedId) : -1;
+  const selected = clips[selectedIndex] ?? null;
+  const selectedClipId = selected?.id ?? null;
+  // The picture reads the selection from a shared value: a change of it redraws at once, while a
+  // change that only reaches the picture through its closure waited for the next animated frame.
+  const selection = useSharedValue<string | null>(null);
+  useEffect(() => {
+    selection.set(selectedClipId);
+  }, [selection, selectedClipId]);
   // Loudest sample over the project's takes (the coarsest level keeps every take's extremes).
   const projectPeak = Object.values(peaks).reduce(
     (loudest, levels) => Math.max(loudest, maxAmplitude(levels[levels.length - 1] ?? levels[0])),
@@ -208,6 +289,19 @@ export function Timeline({
   const liveLane = liveTake
     ? project.tracks.findIndex((track) => track.id === liveTake.trackId)
     : -1;
+  // Split needs the playhead inside the selected clip; follows the playhead without re-rendering per frame.
+  const [canSplit, setCanSplit] = useState(false);
+  const selectedStart = selected?.start ?? 0;
+  const selectedDuration = selected?.duration ?? 0;
+  const hasSelection = selected != null;
+  useAnimatedReaction(
+    () =>
+      hasSelection &&
+      canSplitAt({ start: selectedStart, duration: selectedDuration }, playhead.get()),
+    (now, before) => {
+      if (now !== before) scheduleOnRN(setCanSplit, now);
+    },
+  );
 
   const paints = makePaints(theme.colors);
   const font = matchFont({ fontFamily: FONT_FAMILY, fontSize: theme.typography.caption.fontSize });
@@ -295,11 +389,219 @@ export function Timeline({
     );
   };
 
+  // Clip drag state (UI thread). Which gesture holds a clip: 0 none, 1 the pan (dragging the selected
+  // clip or its handles), 2 the long-press pickup.
+  const owner = useSharedValue(0);
+  /** The finger has started moving the clip (auto-scroll runs). */
+  const dragging = useSharedValue(false);
+  /** The pan is scrolling the view (a long press can't pick a clip up any more). */
+  const panScrolling = useSharedValue(false);
+  /** The clip being dragged (also drawn from these until the dropped edit renders), or null. */
+  const dragId = useSharedValue<string | null>(null);
+  const dragIndex = useSharedValue(-1);
+  const dragPart = useSharedValue<number>(DRAG_NONE);
+  const dragWin = useSharedValue<ItemWindow>({ start: 0, offset: 0, duration: 0 });
+  const dragRow = useSharedValue(0);
+  /** Bumped by every drag, so clearing an old drop can't clear a newer drag. */
+  const dragSerial = useSharedValue(0);
+  /** Timeline time under the finger when the drag started, and the finger now. */
+  const grabTime = useSharedValue(0);
+  const fingerX = useSharedValue(0);
+  const fingerY = useSharedValue(0);
+  /** 0 → 1 while a moved clip is lifted (shadow, scale). */
+  const lift = useSharedValue(0);
+  /** Time a dragged edge snapped to (drawn as a guide), or -1. */
+  const snapTime = useSharedValue(-1);
+  /** The clip held before pickup (index), its id and how far along the hold is (0…1). */
+  const pickIndex = useSharedValue(-1);
+  const pressId = useSharedValue<string | null>(null);
+  const press = useSharedValue(0);
+  /** The drag whose drop is waiting for its saved edit to render. */
+  const awaitingSerial = useRef(-1);
+
+  const timeAt = (x: number) => {
+    'worklet';
+    return pointToTime(x - LEADING_SPACE, scroll.get(), zoom.get());
+  };
+
+  /** Index of the clip under a point, or -1. */
+  const clipAt = (x: number, y: number) => {
+    'worklet';
+    const contentY = y - RULER_SIZE + laneScroll.get();
+    if (contentY < 0 || contentY >= trackCount * lane) return -1;
+    return itemAt(clips, timeAt(x), Math.floor(contentY / lane));
+  };
+
+  const startDrag = (index: number, part: DragPart, x: number, y: number) => {
+    'worklet';
+    const clip = clips[index];
+    if (!clip) return;
+    dragSerial.set(dragSerial.get() + 1);
+    dragIndex.set(index);
+    dragId.set(clip.id);
+    dragPart.set(part);
+    dragWin.set({ start: clip.start, offset: clip.offset, duration: clip.duration });
+    dragRow.set(clip.row);
+    grabTime.set(timeAt(x));
+    fingerX.set(x);
+    fingerY.set(y);
+    snapTime.set(-1);
+  };
+
+  // The dragged clip's window and lane for where the finger (and the view) is now.
+  const updateDrag = () => {
+    'worklet';
+    const clip = clips[dragIndex.get()];
+    const z = zoom.get();
+    if (!clip || z <= 0) return;
+    const part = dragPart.get() as DragPart;
+    const origin = { start: clip.start, offset: clip.offset, duration: clip.duration };
+    const candidates = [0, playhead.get()];
+    for (const other of clips) {
+      if (other.id !== clip.id) candidates.push(other.start, other.start + other.duration);
+    }
+    const snapped = snapDrag(
+      part,
+      origin,
+      timeAt(fingerX.get()) - grabTime.get(),
+      candidates,
+      SNAP_POINTS / z,
+    );
+    const next = dragWindow(part, origin, snapped.delta, clip.takeDuration, MIN_CLIP_SECONDS);
+    // A limit (0:00, the take's bounds) can stop the edge short of the snap point: no guide then.
+    const snap = snapped.snapTime;
+    const landed =
+      snap >= 0 &&
+      (Math.abs(next.start - snap) < 1e-6 || Math.abs(next.start + next.duration - snap) < 1e-6);
+    dragWin.set(next);
+    snapTime.set(landed ? snap : -1);
+    if (part === DRAG_MOVE) {
+      dragRow.set(rowAt(fingerY.get() - RULER_SIZE, laneScroll.get(), lane, trackCount));
+    }
+  };
+
+  // Scrolls the view while a dragged clip is near an edge, so it can go anywhere.
+  const autoScroll = useFrameCallback((frame) => {
+    'worklet';
+    const z = zoom.get();
+    if (!dragging.get() || z <= 0) return;
+    const sx = autoScrollSpeed(fingerX.get(), viewWidth, AUTO_SCROLL_EDGE, AUTO_SCROLL_SPEED);
+    const sy =
+      dragPart.get() === DRAG_MOVE
+        ? autoScrollSpeed(
+            fingerY.get() - RULER_SIZE,
+            lanesViewport,
+            AUTO_SCROLL_EDGE,
+            AUTO_SCROLL_SPEED,
+          )
+        : 0;
+    if (sx === 0 && sy === 0) return;
+    const seconds = (frame.timeSincePreviousFrame ?? 16) / 1000;
+    const window = dragWin.get();
+    const extent = Math.max(duration, playhead.get(), window.start + window.duration);
+    scroll.set(clampScroll(scroll.get() + (sx * seconds) / z, timeWidth, z, extent));
+    laneScroll.set(clamp(laneScroll.get() + sy * seconds, 0, maxLaneScroll));
+    updateDrag();
+  }, false);
+
+  const clearDrag = () => {
+    dragId.set(null);
+    dragIndex.set(-1);
+  };
+  const startAutoScroll = () => autoScroll.setActive(true);
+  const stopAutoScroll = () => autoScroll.setActive(false);
+  const pickedUp = (clipId: string) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setSelectedId(clipId);
+    autoScroll.setActive(true);
+  };
+  const commitDrag = (serial: number, clipId: string, placement: ClipPlacement, label: string) => {
+    if (clipEditing?.onPlace(clipId, placement, label)) {
+      awaitingSerial.current = serial;
+    } else if (dragSerial.get() === serial) {
+      clearDrag();
+    }
+  };
+  // The drop rendered: draw the clip from the project again.
+  useEffect(() => {
+    const serial = awaitingSerial.current;
+    if (serial < 0) return;
+    awaitingSerial.current = -1;
+    if (dragSerial.get() === serial && owner.get() === 0) {
+      dragId.set(null);
+      dragIndex.set(-1);
+    }
+  }, [project, dragSerial, owner, dragId, dragIndex]);
+
+  const finishDrag = () => {
+    'worklet';
+    const clip = clips[dragIndex.get()];
+    const part = dragPart.get();
+    owner.set(0);
+    dragging.set(false);
+    snapTime.set(-1);
+    lift.set(withTiming(0, { duration: LIFT_MS }));
+    scheduleOnRN(stopAutoScroll);
+    const window = dragWin.get();
+    const row = dragRow.get();
+    const trackId = trackIds[row];
+    const unchanged =
+      clip != null &&
+      row === clip.row &&
+      window.start === clip.start &&
+      window.offset === clip.offset &&
+      window.duration === clip.duration;
+    if (!clip || trackId == null || unchanged) {
+      dragId.set(null);
+      dragIndex.set(-1);
+      return;
+    }
+    scheduleOnRN(
+      commitDrag,
+      dragSerial.get(),
+      clip.id,
+      { trackId, start: window.start, offset: window.offset, duration: window.duration },
+      part === DRAG_MOVE ? 'Move clip' : 'Trim clip',
+    );
+  };
+
+  // A snapped edge clicks, so snapping can be felt as well as seen.
+  const snapped = () => void Haptics.selectionAsync();
+  useAnimatedReaction(
+    () => snapTime.get(),
+    (now, before) => {
+      if (now >= 0 && before != null && now !== before) scheduleOnRN(snapped);
+    },
+  );
+
   const pan = usePanGesture({
     onBegin: (event) => {
       'worklet';
       cancelAnimation(scroll);
-      scrubbing.set(!isRecording && event.y <= RULER_SIZE + RULER_SLOP);
+      const onRuler = event.y <= RULER_SIZE + RULER_SLOP;
+      scrubbing.set(!isRecording && onRuler);
+      panScrolling.set(false);
+      // On the selected clip: this pan drags it (an edge trims, the body moves).
+      const clip = clips[selectedIndex];
+      if (onRuler || !clip || owner.get() !== 0) return;
+      const contentY = event.y - RULER_SIZE + laneScroll.get();
+      if (Math.floor(contentY / lane) !== clip.row) return;
+      const part = grabPart(clip, timeAt(event.x), HANDLE_REACH / zoom.get());
+      if (part === DRAG_NONE) return;
+      owner.set(1);
+      startDrag(selectedIndex, part, event.x, event.y);
+    },
+    onActivate: () => {
+      'worklet';
+      if (owner.get() === 1) {
+        dragging.set(true);
+        follow.set(false);
+        if (dragPart.get() === DRAG_MOVE) lift.set(withTiming(1, { duration: LIFT_MS }));
+        scheduleOnRN(startAutoScroll);
+      } else if (owner.get() === 0 && !scrubbing.get()) {
+        panScrolling.set(true);
+        press.set(0);
+      }
     },
     onUpdate: (event) => {
       'worklet';
@@ -308,6 +610,14 @@ export function Timeline({
         scrubTime.set(time);
         // Idle: the playhead (and clock) follow the finger. Playing: seek once, on release.
         if (!following) scheduleOnRN(onSeek, time);
+        return;
+      }
+      if (owner.get() !== 0) {
+        if (owner.get() === 1) {
+          fingerX.set(event.x);
+          fingerY.set(event.y);
+          updateDrag();
+        }
         return;
       }
       follow.set(false);
@@ -325,6 +635,7 @@ export function Timeline({
         if (time >= 0) scheduleOnRN(onSeek, time);
         return;
       }
+      if (owner.get() !== 0 || !panScrolling.get()) return;
       const currentZoom = zoom.get();
       const extent = Math.max(duration, playhead.get());
       scroll.set(
@@ -338,6 +649,51 @@ export function Timeline({
       'worklet';
       scrubbing.set(false);
       scrubTime.set(-1);
+      if (owner.get() === 1) finishDrag();
+    },
+  });
+
+  // Holding a clip that isn't selected picks it up: it lights up at once and fills in over the hold
+  // (as track reorder does), then lifts with a haptic and follows the finger.
+  const pickup = usePanGesture({
+    enabled: editable,
+    activateAfterLongPress: LONG_PRESS_MS,
+    onBegin: (event) => {
+      'worklet';
+      pickIndex.set(-1);
+      if (event.y <= RULER_SIZE + RULER_SLOP) return;
+      const index = clipAt(event.x, event.y);
+      const clip = clips[index];
+      if (!clip || clip.id === selectedClipId) return;
+      pickIndex.set(index);
+      pressId.set(clip.id);
+      press.set(PRESS_START);
+      press.set(withTiming(1, { duration: LONG_PRESS_MS }));
+    },
+    onActivate: (event) => {
+      'worklet';
+      const index = pickIndex.get();
+      const clip = clips[index];
+      if (!clip || owner.get() !== 0 || panScrolling.get()) return;
+      owner.set(2);
+      startDrag(index, DRAG_MOVE, event.x, event.y);
+      dragging.set(true);
+      follow.set(false);
+      press.set(withTiming(0, { duration: LIFT_MS }));
+      lift.set(withTiming(1, { duration: LIFT_MS }));
+      scheduleOnRN(pickedUp, clip.id);
+    },
+    onUpdate: (event) => {
+      'worklet';
+      if (owner.get() !== 2) return;
+      fingerX.set(event.x);
+      fingerY.set(event.y);
+      updateDrag();
+    },
+    onFinalize: () => {
+      'worklet';
+      press.set(withTiming(0, { duration: PRESS_FADE_MS }));
+      if (owner.get() === 2) finishDrag();
     },
   });
 
@@ -357,15 +713,24 @@ export function Timeline({
     },
   });
 
-  // A tap anywhere moves the playhead (T5 will make taps on clips select them instead).
+  // A tap on a clip selects it (never seeks); anywhere else moves the playhead and deselects.
   const tap = useTapGesture({
+    // Without a limit a quick swipe also counts as a tap (seeking or selecting where it started).
+    maxDistance: TAP_SLOP,
     onActivate: (event) => {
       'worklet';
+      press.set(withTiming(0, { duration: PRESS_FADE_MS }));
+      const clip = editable && event.y > RULER_SIZE ? clips[clipAt(event.x, event.y)] : undefined;
+      if (clip) {
+        scheduleOnRN(setSelectedId, clip.id);
+        return;
+      }
       scheduleOnRN(onSeek, seekable(event.x));
+      scheduleOnRN(setSelectedId, null);
     },
   });
 
-  const gesture = useSimultaneousGestures(pan, pinch, tap);
+  const gesture = useSimultaneousGestures(pan, pickup, pinch, tap);
 
   const picture = useDerivedValue(() =>
     createPicture((canvas) => {
@@ -377,8 +742,8 @@ export function Timeline({
       const position = scrubbed >= 0 ? scrubbed : playhead.get();
       const gain = waveformGain(Math.max(projectPeak, liveTake ? liveTake.peak.get() : 0));
       // A track being dragged: it follows the finger, the lanes it passes slide aside.
-      const dragId = drag.id.get();
-      const lifted = dragId == null ? -1 : trackIds.indexOf(dragId);
+      const liftedId = drag.id.get();
+      const lifted = liftedId == null ? -1 : trackIds.indexOf(liftedId);
       const dragTop = drag.top.get();
       const progress = drag.progress.get();
       const target = drag.target.get();
@@ -387,6 +752,13 @@ export function Timeline({
         laneSlotDuringDrag(index, lifted, target) % 2 === 1 ? paints.laneAlt : paints.lane;
       const laneTop = (index: number) =>
         RULER_SIZE + laneTopDuringDrag(index, lane, lifted, dragTop, progress) - ls;
+      const selectedNow = selection.get();
+      const dragged = dragId.get();
+      const draggedWindow = dragWin.get();
+      const draggedRow = dragRow.get();
+      const lifting = lift.get();
+      const pressAmount = press.get();
+      const pressed = pressAmount > 0 ? pressId.get() : null;
       const visibleStart = s - LEADING_SPACE / z;
       const visibleEnd = s + timeWidth / z;
       const toX = (time: number) => LEADING_SPACE + (time - s) * z;
@@ -399,35 +771,66 @@ export function Timeline({
         );
         canvas.drawLine(0, top + lane, viewWidth, top + lane, paints.separator);
       };
-      const drawClip = (clip: ClipShape) => {
-        const x0 = toX(clip.start);
-        const width = clip.duration * z;
+      // A clip showing `offset…offset + length` of its take from `start` on lane `row` (a drag can
+      // differ from the clip's saved window and lane).
+      const drawClip = (
+        clip: ClipShape,
+        start: number,
+        offset: number,
+        length: number,
+        row: number,
+      ) => {
+        const x0 = toX(start);
+        const width = length * z;
         if (x0 > viewWidth || x0 + width < 0) return;
-        const top = laneTop(clip.lane) + CLIP_INSET;
+        const top = laneTop(row) + CLIP_INSET;
         const height = lane - CLIP_INSET * 2;
         const rect = Skia.XYWHRect(x0, top, width, height);
         const rrect = Skia.RRectXY(rect, CLIP_RADIUS, CLIP_RADIUS);
+        const isSelected = clip.id === selectedNow;
         if (clip.silent) canvas.saveLayer(paints.silent);
-        canvas.drawRRect(rrect, paints.clip);
-        canvas.drawRRect(rrect, paints.clipBorder);
+        canvas.drawRRect(rrect, isSelected ? paints.clipSelected : paints.clip);
+        canvas.drawRRect(rrect, isSelected ? paints.selectedBorder : paints.clipBorder);
         canvas.drawLine(x0, top + height / 2, x0 + width, top + height / 2, paints.centerLine);
-        const path = clip.waveform
-          ? clip.waveform[waveformLevel(clip.peaksPerSecond, z, LEVEL_COUNT, LEVEL_FACTOR)]
+        // Trimmed past its saved window (while dragging a handle): draw from the whole take's path.
+        const whole =
+          clip.takeWaveform != null && (offset !== clip.offset || length !== clip.duration);
+        const paths = whole ? clip.takeWaveform : clip.waveform;
+        const path = paths
+          ? paths[waveformLevel(clip.peaksPerSecond, z, LEVEL_COUNT, LEVEL_FACTOR)]
           : undefined;
         if (path) {
           canvas.save();
           canvas.clipRect(rect, ClipOp.Intersect, true);
-          canvas.translate(x0, top + height / 2);
+          // x of the path's 0: the take's start, or the saved window's start.
+          canvas.translate(x0 - (offset - (whole ? 0 : clip.offset)) * z, top + height / 2);
           canvas.scale(z, (height / 2 - CLIP_INSET) * gain);
           canvas.drawPath(path, paints.waveform);
           canvas.restore();
         }
+        if (clip.id === pressed) {
+          paints.press.setAlphaf(0.3 * pressAmount);
+          canvas.drawRRect(rrect, paints.press);
+        }
+        if (isSelected) {
+          const handleTop = top + height * 0.3;
+          const handleHeight = height * 0.4;
+          for (const hx of [x0 + HANDLE_INSET, x0 + width - HANDLE_INSET - HANDLE_WIDTH]) {
+            const handle = Skia.XYWHRect(hx, handleTop, HANDLE_WIDTH, handleHeight);
+            canvas.drawRRect(
+              Skia.RRectXY(handle, HANDLE_WIDTH / 2, HANDLE_WIDTH / 2),
+              paints.handle,
+            );
+          }
+        }
         if (clip.silent) canvas.restore();
       };
+      const drawSaved = (clip: ClipShape) =>
+        drawClip(clip, clip.start, clip.offset, clip.duration, clip.row);
 
       // Lanes, then clips and their waveforms (the lifted lane comes last, on top).
       for (let index = 0; index < trackCount; index++) if (index !== lifted) drawLane(index);
-      for (const clip of clips) if (clip.lane !== lifted) drawClip(clip);
+      for (const clip of clips) if (clip.row !== lifted && clip.id !== dragged) drawSaved(clip);
 
       // The lifted lane: a bit larger, see-through, with a shadow under it.
       if (lifted >= 0) {
@@ -449,8 +852,35 @@ export function Timeline({
         canvas.saveLayer(paints.liftLayer);
         drawLane(lifted);
         canvas.drawLine(0, top, viewWidth, top, paints.separator);
-        for (const clip of clips) if (clip.lane === lifted) drawClip(clip);
+        for (const clip of clips) if (clip.row === lifted && clip.id !== dragged) drawSaved(clip);
         canvas.restore();
+        canvas.restore();
+      }
+
+      // The clip being dragged, on top of what it will replace (lifted while it's being moved).
+      const draggedClip = dragged == null ? undefined : clips.find((clip) => clip.id === dragged);
+      if (draggedClip) {
+        const x0 = toX(draggedWindow.start);
+        const width = draggedWindow.duration * z;
+        const top = laneTop(draggedRow) + CLIP_INSET;
+        const height = lane - CLIP_INSET * 2;
+        const scale = 1 + CLIP_LIFT_SCALE * lifting;
+        canvas.save();
+        canvas.translate(x0 + width / 2, top + height / 2);
+        canvas.scale(scale, scale);
+        canvas.translate(-(x0 + width / 2), -(top + height / 2));
+        if (lifting > 0) {
+          paints.liftShadow.setAlphaf(0.35 * lifting);
+          const shadow = Skia.XYWHRect(x0, top + LIFT_SHADOW_Y * lifting, width, height);
+          canvas.drawRRect(Skia.RRectXY(shadow, CLIP_RADIUS, CLIP_RADIUS), paints.liftShadow);
+        }
+        drawClip(
+          draggedClip,
+          draggedWindow.start,
+          draggedWindow.offset,
+          draggedWindow.duration,
+          draggedRow,
+        );
         canvas.restore();
       }
 
@@ -513,6 +943,13 @@ export function Timeline({
         notch.lineTo(px, RULER_SIZE);
         notch.close();
         canvas.drawPath(notch.detach(), paints.playheadHandle);
+      }
+
+      // Where a dragged clip edge snapped: a guide line down the lanes.
+      const snap = snapTime.get();
+      if (dragged != null && snap >= 0) {
+        const sx = toX(snap);
+        canvas.drawLine(sx, RULER_SIZE, sx, Math.max(RULER_SIZE, playheadEnd), paints.snapLine);
       }
 
       // Playhead, on top of everything, with a handle on the ruler to show it can be dragged.
@@ -622,6 +1059,22 @@ export function Timeline({
             onArm={onArm}
             onAddTrack={onAddTrack}
           />
+          {selected && clipEditing ? (
+            <View pointerEvents="box-none" style={[styles.actionBar, { left: columnWidth }]}>
+              <ClipActionBar
+                canSplit={canSplit}
+                onSplit={() => clipEditing.onSplit(selected.id, playhead.get())}
+                onDuplicate={() => {
+                  const copyId = clipEditing.onDuplicate(selected.id);
+                  if (copyId) setSelectedId(copyId);
+                }}
+                onDelete={() => {
+                  clipEditing.onDelete(selected.id);
+                  setSelectedId(null);
+                }}
+              />
+            </View>
+          ) : null}
         </>
       ) : null}
     </View>
@@ -702,6 +1155,12 @@ function makePaints(colors: ThemeColors) {
     laneLifted: fill(colors.laneLifted),
     separator: stroke(colors.border, StyleSheet.hairlineWidth),
     clip: fill(colors.clip),
+    clipSelected: fill(colors.clipSelected),
+    selectedBorder: stroke(colors.waveform, SELECTED_BORDER),
+    handle: fill(colors.waveform),
+    /** The fill over a clip being held before pickup (alpha set per frame). */
+    press: fill(colors.waveform),
+    snapLine: stroke(colors.snapLine, 1.5),
     clipBorder: (() => {
       const paint = stroke(colors.waveform, 1);
       paint.setAlphaf(0.45);
@@ -742,6 +1201,8 @@ function makePaints(colors: ThemeColors) {
 const styles = StyleSheet.create({
   root: { flex: 1, overflow: 'hidden' },
   timeArea: { position: 'absolute', top: 0, bottom: 0, right: 0 },
+  // The clip action bar floats over the bottom of the lanes, centered in the time area.
+  actionBar: { position: 'absolute', right: 0, bottom: 12, alignItems: 'center' },
   corner: {
     position: 'absolute',
     top: 0,

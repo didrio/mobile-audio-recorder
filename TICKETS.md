@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T5 — Clip editing · Opus · high effort · plan mode on
+**Next:** T10 — Ideas library basics · Sonnet · medium effort · plan mode off
 
 ## In progress
 
@@ -50,34 +50,6 @@ releases, native dependency changes). See the `wrap` skill.
   record the same audio onto each track). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
-
-### T5 — Clip editing
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Move, trim, split, duplicate and delete clips on the timeline, all undoable.
-- **Done when:**
-  - [ ] The agreed interaction model (top of Up next): tapping a clip selects it, with edge handles and an action
-        bar (Split, Duplicate, Delete, Options…; Options… stays hidden until T16). Dragging a selected clip
-        moves it in time and between tracks. Handles trim (`offset`/`duration`, never the file), and can
-        extend back out to the take's bounds. Long-pressing an unselected clip picks it up. Tapping a clip
-        never seeks.
-  - [ ] Split at the playhead creates two clips on the same take. Duplicate places the copy right after the
-        original on the same track. Delete.
-  - [ ] Snap to other clip edges and the playhead (grid snapping comes with T9).
-  - [ ] Dropping a clip onto others replaces what's under it, as recording does (`clearRange`); undo restores
-        the trimmed clips.
-  - [ ] Every edit is an editor-store command (one undo step per gesture).
-  - [ ] Unit tests for the pure edit operations (move/trim/split math).
-- **Context:** Gestures in `timeline.tsx` (pan = scroll, pan starting on the ruler = drag the playhead, pinch
-  = zoom, tap = seek). A tap needs hit-testing: clip → select, empty lane space → seek. Waveform paths are
-  cached per clip window (`waveform-path.ts`), so a trim just asks for a new window. Selection and handles are
-  drawn in the per-frame picture, driven by shared values. Moving a clip between tracks only changes its
-  `trackId`. Edits: builders in `edit-commands.ts` (see `recordTakeEdit` for `clearRange` → changes) and
-  `executeEdit`; history and write-through come for free. T18 reuses this selection and drag code for section
-  labels, so keep it generic (an item with start/duration on a row). Long-press pickup: reuse the track reorder
-  pattern (`track-column.tsx`: pan with `activateAfterLongPress`, an immediate press highlight that fills over
-  the hold, medium haptic + lift on activate; lift look and order-safe drag state in `use-reorder-style.ts`).
 
 ### T10 — Ideas library basics
 
@@ -147,7 +119,7 @@ releases, native dependency changes). See the `wrap` skill.
 
 ### T9 — Idea settings, tempo & grid
 
-- **Status:** ready (snapping needs T5)
+- **Status:** ready
 - **Session:** Sonnet · high effort · plan mode off
 - **Goal:** Each idea has a settings sheet with its name, tempo and time signature, and an optional bar/beat
   grid on the timeline.
@@ -158,7 +130,8 @@ releases, native dependency changes). See the `wrap` skill.
   - [ ] Migration: `projects.bpm` (default 120), `beats_per_bar` (4), `beat_unit` (4), `grid` (off). Setting
         a tempo turns the grid on.
   - [ ] Grid on: bar and beat lines in the lanes (beat lines fade out when zoomed far out), bar numbers on the
-        ruler instead of mm:ss, snap to grid while editing clips (extends T5's snapping). The clock in the
+        ruler instead of mm:ss, snap to grid while editing clips (extends T5's snapping: add grid lines to the
+        `candidates` in `updateDrag` in `timeline.tsx`, or snap to the grid first in `snapDrag`). The clock in the
         status strip stays in time.
   - [ ] Settings changes are editor-store commands (undoable).
   - [ ] Pre-roll length (from T25): with the grid on, Settings offers 1 or 2 bars (default 1 bar) instead of
@@ -214,7 +187,7 @@ releases, native dependency changes). See the `wrap` skill.
 
 ### T18 — Section labels
 
-- **Status:** ready (after T5 and T9)
+- **Status:** ready (after T9)
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Mark the song's structure (Intro, Verse, Chorus…) on a colored rail above the ruler, and jump to
   sections with a tap.
@@ -234,12 +207,17 @@ releases, native dependency changes). See the `wrap` skill.
         stored in `sections.notes`, with a small icon on the section when one is set. Complements T24's idea
         notes.
   - [ ] Palette colors are tokens in `src/theme/tokens.ts` (light and dark), readable label text on each.
-- **Context:** Reuse T5's selection and drag code. Draw the rail in the same per-frame Skia picture as the
-  ruler.
+- **Context:** Reuse T5's selection and drag code: the math in `clip-edit-math.ts` is generic (items with
+  start/duration on a row; `grabPart`, `dragWindow`, `snapDrag`), the gestures in `timeline.tsx` (one pan that
+  decides on touch-down, a long-press pan beside it, `owner` says who holds the item; the drop draws from the
+  drag state until the saved edit renders). Sections have no source window: give `dragWindow` offset 0 and an
+  unbounded source, and stop them at their neighbors. Selection must be a shared value read by the picture
+  (`selection`): values that only reach the picture through its closure redraw a frame or more late. Draw the
+  rail in the same per-frame Skia picture as the ruler.
 
 ### T16 — Clip options
 
-- **Status:** ready (after T5)
+- **Status:** ready
 - **Session:** Sonnet · medium effort · plan mode off
 - **Goal:** Per-clip adjustments from the clip action bar's "Options…".
 - **Done when:**
@@ -248,7 +226,8 @@ releases, native dependency changes). See the `wrap` skill.
   - [ ] Migration: `clips.gain` (1), `fade_in` (0), `fade_out` (0). The engine applies gain and fades with
         gain ramps, plus a few-millisecond automatic declick fade on every clip edge.
   - [ ] Waveform drawing reflects clip gain. Changes are undoable (editor store).
-- **Context:** Clips play through one `GainNode` per track (`play()` in `audio-engine.ts`), so clip gain and
+- **Context:** Add "Options…" to `clip-action-bar.tsx` (and an `onOptions` to `ClipEditing` in `timeline.tsx`,
+  wired in `project-screen.tsx`). Clips play through one `GainNode` per track (`play()` in `audio-engine.ts`), so clip gain and
   fades need a per-clip `GainNode` between the source and its track gain (add `gain`/fades to `PlayableClip`).
 
 ### T19 — Folders & favorites
@@ -356,6 +335,9 @@ skill). Fix or ticket what fails, then delete the line.
   cleanly (no click) at the punch. Record during playback: the armed track plays until the punch with no gap.
   Off by more than a few ms → `fileStartPosition` / `choosePunch` in `take-alignment.ts`, `cutTrackAt` in
   `audio-engine.ts`.
+- Clip editing (T5): drag a clip near the left/right and top/bottom edges (the view auto-scrolls; never tried),
+  long-press pickup feel (250 ms) and the snap haptic; move/trim/split while playing restarts playback from
+  where it is without a long gap or a click.
 - Mixer: drag a volume while playing (smooth, no clicks), mute/solo during playback and during an overdub
   (backing changes, the take doesn't).
 - Reorder: grip lights up at once, haptic after the hold, other lanes glide, auto-scroll near the edges with
@@ -409,7 +391,8 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - Overdub polish: show the live take at its compensated position while recording (it jumps by the latency
   on Stop).
 - Maestro: `tapOn` by `accessibilityLabel` doesn't focus a `TextInput` on iOS (tap by point instead).
-- T30 — Possible swipe-seeks bug (unverified): in one Maestro run on the iOS simulator, a second lane swipe
+- T30 — Possible swipe-seeks bug: very likely fixed in T5 (the timeline tap had no `maxDistance`, so a
+  quick swipe also counted as a tap at its start; now `TAP_SLOP`). Original note: in one Maestro run on the iOS simulator, a second lane swipe
   started right after the first (maybe during momentum) moved the playhead to its touch-down point (0:17.5)
   instead of only scrolling. Might be how Maestro swipes; check by hand on a device first. If real, tap-to-seek
   in `timeline.tsx` must not fire on a drag or on a touch that only stops momentum (`cancelAnimation(scroll)`
@@ -422,6 +405,10 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T5 — Clip editing — 2026-11-14 — tap selects (handles + Split/Duplicate/Delete bar), drag moves across tracks
+  and trims (back out to the take), long-press picks up, snaps to clip edges/playhead/0:00, drops replace what's
+  under them, one undo step each; edits while playing restart playback; tap no longer fires on swipes (T30);
+  `/wrap` now publishes a preview OTA (`scripts/ota-check.mjs`)
 - T25 — Pre-roll (punch in at the playhead) — 2026-11-13 — pre-roll toggle per idea (migration v3), 1/2/4 s
   length in Settings, run-up plays every track and cuts the armed one at the punch (`cutTrackAt`), dashed punch
   marker, stop in the run-up saves nothing, Record while playing punches in on the fly; clap test is in Device

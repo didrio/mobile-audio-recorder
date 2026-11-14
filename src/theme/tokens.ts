@@ -42,6 +42,10 @@ export const lightColors = {
   /** Timeline: clip (region) fill and its waveform. */
   clip: '#DCE7FB',
   waveform: '#2F5FBF',
+  /** Timeline: a selected clip's fill (its outline and handles use `waveform`). */
+  clipSelected: '#BFD3F8',
+  /** Timeline: the guide line where a dragged clip edge snaps. */
+  snapLine: '#E08A00',
   /** Timeline: track header chip floating over the lane (slightly translucent). */
   trackHeader: '#F2F2F7EB',
   /** Track mixer: active Mute (M) and Solo (S) buttons, and their text. */
@@ -73,6 +77,8 @@ export const darkColors: ThemeColors = {
   laneLifted: '#2C2C2E',
   clip: '#1C2940',
   waveform: '#82A9F2',
+  clipSelected: '#2A4470',
+  snapLine: '#FFB340',
   trackHeader: '#1C1C1EEB',
   mute: '#4A8DFF',
   onMute: '#FFFFFF',

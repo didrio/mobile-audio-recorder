@@ -1,7 +1,14 @@
+import type { Project } from '@/features/projects/projects-repo';
+
 import { applyToProject, invertEdit } from './edit-changes';
 import {
   addTrackEdit,
+  deleteClipEdit,
   deleteTrackEdit,
+  duplicateClipEdit,
+  MIN_CLIP_SECONDS,
+  placeClipEdit,
+  splitClipEdit,
   moveTrackEdit,
   recordTakeEdit,
   renameTrackEdit,
@@ -161,5 +168,152 @@ describe('recordTakeEdit', () => {
 
   it('does nothing for a track that is gone', () => {
     expect(recordTakeEdit(project, { trackId: 'x', take, start: 0 })).toBeNull();
+  });
+});
+
+describe('clip edits', () => {
+  // Take 'take1' is 20 s long. Track a: c1 at 0…10 (take 0…10), c3 at 12…16 (take 12…16).
+  const take = {
+    id: 'take1',
+    projectId: 'p1',
+    path: 'takes/take1.m4a',
+    duration: 20,
+    sampleRate: 48000,
+    channels: 1,
+    createdAt: 0,
+  };
+  const c3 = { ...testClip('c3', 'a', 12, 4), offset: 12 };
+  const clips: Project = {
+    ...testProject([
+      testTrack('a', 0, [testClip('c1', 'a', 0, 10), c3]),
+      testTrack('b', 1, [testClip('c2', 'b', 2, 3)]),
+    ]),
+    takes: { take1: take },
+  };
+  const undoClips = (edit: { changes: Parameters<typeof applyToProject>[1]; label: string }) =>
+    applyToProject(applyToProject(clips, edit.changes), invertEdit(edit).changes);
+  const clipsOf = (p: typeof clips, trackId: string) =>
+    p.tracks
+      .find((track) => track.id === trackId)!
+      .clips.map(({ id, start, offset, duration }) => ({
+        id,
+        start,
+        offset,
+        duration,
+      }));
+
+  describe('placeClipEdit', () => {
+    it('moves a clip in time, and undo puts it back', () => {
+      const edit = placeClipEdit(clips, 'c2', { trackId: 'b', start: 6, offset: 0, duration: 3 })!;
+
+      expect(clipsOf(applyToProject(clips, edit.changes), 'b')).toEqual([
+        { id: 'c2', start: 6, offset: 0, duration: 3 },
+      ]);
+      expect(undoClips(edit)).toEqual(clips);
+    });
+
+    it('moves a clip to another track, replacing what it lands on; undo restores both', () => {
+      // c2 (3 s) dropped at 8 s on track a: covers c1's tail (8…10), c3 is untouched (starts at 12).
+      const edit = placeClipEdit(clips, 'c2', { trackId: 'a', start: 8, offset: 0, duration: 3 })!;
+      const after = applyToProject(clips, edit.changes);
+
+      expect(clipsOf(after, 'a')).toEqual([
+        { id: 'c1', start: 0, offset: 0, duration: 8 },
+        { id: 'c2', start: 8, offset: 0, duration: 3 },
+        { id: 'c3', start: 12, offset: 12, duration: 4 },
+      ]);
+      expect(clipsOf(after, 'b')).toEqual([]);
+      expect(undoClips(edit)).toEqual(clips);
+    });
+
+    it('splits a clip it lands in the middle of', () => {
+      const edit = placeClipEdit(clips, 'c2', { trackId: 'a', start: 4, offset: 0, duration: 3 })!;
+      const pieces = clipsOf(applyToProject(clips, edit.changes), 'a');
+
+      expect(pieces[0]).toEqual({ id: 'c1', start: 0, offset: 0, duration: 4 });
+      expect(pieces[1]).toEqual({ id: 'c2', start: 4, offset: 0, duration: 3 });
+      expect(pieces[2]).toMatchObject({ start: 7, offset: 7, duration: 3 });
+      expect(undoClips(edit)).toEqual(clips);
+    });
+
+    it('trims within the take: never before its start or past its end', () => {
+      const head = placeClipEdit(
+        clips,
+        'c3',
+        // The head dragged 14 s left: 2 s further back than the take goes.
+        { trackId: 'a', start: -2, offset: -2, duration: 18 },
+        'Trim clip',
+      )!;
+      // It stops at the take's start, with the audio where it was (take time 0 is at 0:00 here).
+      expect(head.label).toBe('Trim clip');
+      expect(head.changes.at(-1)?.after).toMatchObject({ start: 0, offset: 0, duration: 16 });
+
+      const tail = placeClipEdit(clips, 'c3', {
+        trackId: 'a',
+        start: 12,
+        offset: 12,
+        duration: 30,
+      })!;
+      expect(tail.changes.at(-1)?.after).toMatchObject({ offset: 12, duration: 8 });
+    });
+
+    it('keeps at least the minimum length and never starts before 0:00', () => {
+      const edit = placeClipEdit(clips, 'c2', { trackId: 'b', start: -1, offset: 0, duration: 0 })!;
+
+      expect(edit.changes.at(-1)?.after).toMatchObject({ start: 0, duration: MIN_CLIP_SECONDS });
+    });
+
+    it('does nothing when nothing changes or the clip or track is missing', () => {
+      expect(
+        placeClipEdit(clips, 'c2', { trackId: 'b', start: 2, offset: 0, duration: 3 }),
+      ).toBeNull();
+      expect(
+        placeClipEdit(clips, 'nope', { trackId: 'b', start: 2, offset: 0, duration: 3 }),
+      ).toBeNull();
+      expect(
+        placeClipEdit(clips, 'c2', { trackId: 'nope', start: 2, offset: 0, duration: 3 }),
+      ).toBeNull();
+    });
+  });
+
+  describe('splitClipEdit', () => {
+    it('splits into two clips on the same take, and undo joins them again', () => {
+      const { edit, tailId } = splitClipEdit(clips, 'c3', 13)!;
+
+      expect(clipsOf(applyToProject(clips, edit.changes), 'a').slice(1)).toEqual([
+        { id: 'c3', start: 12, offset: 12, duration: 1 },
+        { id: tailId, start: 13, offset: 13, duration: 3 },
+      ]);
+      expect(undoClips(edit)).toEqual(clips);
+    });
+
+    it('does nothing at (or too close to) the clip edges or outside it', () => {
+      expect(splitClipEdit(clips, 'c3', 12)).toBeNull();
+      expect(splitClipEdit(clips, 'c3', 16 - MIN_CLIP_SECONDS / 2)).toBeNull();
+      expect(splitClipEdit(clips, 'c3', 20)).toBeNull();
+    });
+  });
+
+  describe('duplicateClipEdit', () => {
+    it('places a copy right after the original, replacing what is there', () => {
+      // c1 copy at 10…20 covers c3 (12…16) entirely.
+      const { edit, copyId } = duplicateClipEdit(clips, 'c1')!;
+
+      expect(clipsOf(applyToProject(clips, edit.changes), 'a')).toEqual([
+        { id: 'c1', start: 0, offset: 0, duration: 10 },
+        { id: copyId, start: 10, offset: 0, duration: 10 },
+      ]);
+      expect(undoClips(edit)).toEqual(clips);
+    });
+  });
+
+  describe('deleteClipEdit', () => {
+    it('deletes a clip, and undo restores it', () => {
+      const edit = deleteClipEdit(clips, 'c2')!;
+
+      expect(clipsOf(applyToProject(clips, edit.changes), 'b')).toEqual([]);
+      expect(undoClips(edit)).toEqual(clips);
+      expect(deleteClipEdit(clips, 'nope')).toBeNull();
+    });
   });
 });

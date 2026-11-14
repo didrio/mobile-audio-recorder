@@ -26,29 +26,31 @@ cloud builds, store submission and OTA updates.
 6. **Follow the structure and conventions below**; don't introduce a parallel pattern (another styling library,
    state manager, folder scheme) without the user asking. `docs/decisions.md` explains the choices.
 7. **Ask before outward-facing actions**: store submissions, production OTA updates, `eas` commands that publish,
-   anything that costs money or is visible to users.
+   anything that costs money or is visible to users. One standing exception: `/wrap` publishes a **preview** OTA
+   update when it can reach the installed preview builds (see the `wrap` skill).
 8. When a feature needs a native module that **isn't in Expo Go**, tell the user it requires a development build
    (and how to get one) before writing the code.
 
 ## Commands
 
-| Task                                      | Command                                                                                                                 |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| All checks (run before finishing)         | `npm run check`                                                                                                         |
-| Typecheck / lint / autofix / format       | `npm run typecheck` · `npm run lint` · `npm run lint:fix` · `npm run format`                                            |
-| Unit tests                                | `npm test` · `npm test -- src/features/home` · `npm run test:watch`                                                     |
-| What can this machine run?                | `npm run doctor`                                                                                                        |
-| Run on iOS Simulator / Android emulator   | `npm run ios` · `npm run android` (dev build, starts bundler)                                                           |
-| Run on a USB device                       | `npm run ios:device` · `npm run android:device`                                                                         |
-| Bundler only (dev build installed)        | `npm start`                                                                                                             |
-| Run in Expo Go (no native toolchain)      | `npm run start:go` (`-- --tunnel` if the phone is on another network)                                                   |
-| Screenshot the running simulator/emulator | `npm run screenshot` → prints a PNG path; open it to look                                                               |
-| E2E (Maestro)                             | `npm run e2e` (bundler must be running for dev builds)                                                                  |
-| Regenerate native projects                | `npm run native:clean` (after native config/dependency changes)                                                         |
-| Inspect resolved app config               | `npx expo config --type public` (prefix `APP_VARIANT=…` to switch)                                                      |
-| Expo dependency health                    | `npm run doctor:expo` · fix versions: `npx expo install --fix`                                                          |
-| Cloud builds / release / OTA              | `npm run build:dev` · `build:dev:sim` · `build:preview` · `release` · `update:preview` · `update:production` · `deploy` |
-| Pull improvements from the base template  | `npm run sync-base -- --dry-run` · `npm run sync-base` (merges `base/main`, doesn't commit; see `sync-base` skill)      |
+| Task                                          | Command                                                                                                                 |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| All checks (run before finishing)             | `npm run check`                                                                                                         |
+| Typecheck / lint / autofix / format           | `npm run typecheck` · `npm run lint` · `npm run lint:fix` · `npm run format`                                            |
+| Unit tests                                    | `npm test` · `npm test -- src/features/home` · `npm run test:watch`                                                     |
+| What can this machine run?                    | `npm run doctor`                                                                                                        |
+| Run on iOS Simulator / Android emulator       | `npm run ios` · `npm run android` (dev build, starts bundler)                                                           |
+| Run on a USB device                           | `npm run ios:device` · `npm run android:device`                                                                         |
+| Bundler only (dev build installed)            | `npm start`                                                                                                             |
+| Run in Expo Go (no native toolchain)          | `npm run start:go` (`-- --tunnel` if the phone is on another network)                                                   |
+| Screenshot the running simulator/emulator     | `npm run screenshot` → prints a PNG path; open it to look                                                               |
+| E2E (Maestro)                                 | `npm run e2e` (bundler must be running for dev builds)                                                                  |
+| Regenerate native projects                    | `npm run native:clean` (after native config/dependency changes)                                                         |
+| Inspect resolved app config                   | `npx expo config --type public` (prefix `APP_VARIANT=…` to switch)                                                      |
+| Expo dependency health                        | `npm run doctor:expo` · fix versions: `npx expo install --fix`                                                          |
+| Cloud builds / release / OTA                  | `npm run build:dev` · `build:dev:sim` · `build:preview` · `release` · `update:preview` · `update:production` · `deploy` |
+| Can an OTA update reach the installed builds? | `node scripts/ota-check.mjs` (preview) · `node scripts/ota-check.mjs production` (read-only)                            |
+| Pull improvements from the base template      | `npm run sync-base -- --dry-run` · `npm run sync-base` (merges `base/main`, doesn't commit; see `sync-base` skill)      |
 
 Skills with step-by-step playbooks live in `.claude/skills/` (plain Markdown — any agent can read them):
 `start`, `wrap`, `ticket` (the session workflow below), `new-app`, `add-feature`, `add-native-capability`,
@@ -102,7 +104,7 @@ src/
   theme/                  Tokens (colors, spacing, radius, typography), useTheme, makeStyles
 assets/                   App icon (assets/app.icon = iOS 26 Icon Composer), Android adaptive icon, splash
 .maestro/                 E2E flows (YAML) + subflows/
-scripts/                  doctor, setup-mac.sh, screenshot, e2e, new-app, create-app, sync-base (Node, no deps);
+scripts/                  doctor, setup-mac.sh, screenshot, e2e, ota-check, new-app, create-app, sync-base (Node, no deps);
                           lib/ (identity, devices), templates/TICKETS.md (fresh backlog for new apps)
 .eas/workflows/           EAS Workflows: dev builds, preview builds, production deploy
 .github/workflows/ci.yml  CI: npm run check + bundle both platforms
@@ -176,7 +178,10 @@ TICKETS.md                Ordered, living backlog; one ticket per session (/star
 - **Base updates**: apps share the base's git history (`base` remote) and pull its improvements with
   `npm run sync-base`. Generic fixes (tooling, skills, design-system bugs) belong in the base first; app-specific
   edits to base-owned files (`.claude/`, `scripts/`, `docs/`, configs) will need re-applying at merge time.
-- **OTA updates** only reach builds with the same runtime fingerprint. Native changes ⇒ new store build.
+- **OTA updates** only reach builds with the same runtime fingerprint. Native changes ⇒ new build. The
+  fingerprint also covers `package.json` **scripts**: adding or changing an npm script needs a new build too
+  (so helper scripts are run with `node scripts/…`). `node scripts/ota-check.mjs` says whether an update reaches
+  the latest builds.
 - **Expo Go** supports only the latest SDK and only its bundled native modules. `expo-dev-client` is installed,
   so `npm start` targets dev builds; use `npm run start:go` for Expo Go.
 - **Typed routes**: `npm run typecheck` regenerates the route types (`.expo/types`) before running `tsc`, so new

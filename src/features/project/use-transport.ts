@@ -309,11 +309,11 @@ export function useTransport(project: Project | null | undefined) {
     setStatus('idle');
   };
 
-  const playFrom = async (requested: number) => {
-    if (!project) return;
+  const playFrom = async (requested: number, source: Project | null | undefined = project) => {
+    if (!source) return;
     setError(null);
-    const from = requested < project.duration ? requested : 0;
-    const clips = playableClips(project);
+    const from = requested < source.duration ? requested : 0;
+    const clips = playableClips(source);
     try {
       moveTo(from);
       setStatus('playing');
@@ -344,6 +344,17 @@ export function useTransport(project: Project | null | undefined) {
     stopPlayback();
     moveTo(stoppedAt);
     setStatus('idle');
+  };
+
+  /**
+   * Clips were edited while playing (moved, trimmed, split…): continue from where playback is, with
+   * the edited clips. Volume, mute and solo don't need this (the mixer effect applies them live).
+   */
+  const replay = () => {
+    if (status !== 'playing') return;
+    const at = playbackPosition() ?? playhead.get();
+    stopPlayback();
+    void playFrom(at, useEditorStore.getState().project);
   };
 
   /** Move the playhead; while playing, playback continues from there. Ignored while recording. */
@@ -381,6 +392,7 @@ export function useTransport(project: Project | null | undefined) {
     stopPlaying,
     seek,
     toStart,
+    replay,
   };
 }
 

@@ -8,15 +8,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, Text, type IconName } from '@/components/ui';
 import { setTrackGain } from '@/features/audio/audio-engine';
 import { formatTimecode } from '@/features/audio/format-time';
-import { Timeline } from '@/features/timeline/timeline';
+import { Timeline, type ClipEditing } from '@/features/timeline/timeline';
 import { makeStyles, useTheme } from '@/theme';
 
 import { AndroidIdeaMenu } from './android-idea-menu';
 import {
   addTrack,
+  deleteClip,
+  duplicateClip,
   moveTrack,
+  placeClip,
   redo,
   selectArmedTrack,
+  splitClip,
   selectCanRedo,
   selectCanUndo,
   setTrackVolume,
@@ -193,6 +197,27 @@ export function ProjectScreen() {
     />
   );
 
+  // Clip edits from the timeline (each one undo step); playback picks them up at once.
+  const clipEditing: ClipEditing = {
+    onPlace: (clipId, placement, label) => {
+      const placed = placeClip(clipId, placement, label);
+      if (placed) transport.replay();
+      return placed;
+    },
+    onSplit: (clipId, at) => {
+      if (splitClip(clipId, at)) transport.replay();
+    },
+    onDuplicate: (clipId) => {
+      const copyId = duplicateClip(clipId);
+      if (copyId) transport.replay();
+      return copyId;
+    },
+    onDelete: (clipId) => {
+      void deleteClip(clipId);
+      transport.replay();
+    },
+  };
+
   const error = transport.error ?? saveError;
   const errorText = error ? (
     <Text color="danger" align="center" variant="footnote">
@@ -215,6 +240,7 @@ export function ProjectScreen() {
       liveTake={transport.liveTake}
       armedTrackId={armedTrack?.id ?? null}
       addTrackDisabled={addTrackDisabled}
+      clipEditing={isRecording || isBusy ? null : clipEditing}
       onSeek={transport.seek}
       onArm={(trackId) => void toggleArm(trackId)}
       onEditTrack={editTrack}

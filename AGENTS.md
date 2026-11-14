@@ -103,6 +103,9 @@ src/
   lib/                    Infrastructure: api-client, query-client, storage, env, app-info
   theme/                  Tokens (colors, spacing, radius, typography), useTheme, makeStyles
 assets/                   App icon (assets/app.icon = iOS 26 Icon Composer), Android adaptive icon, splash
+                          (+ images/variants/: labelled DEV / PREVIEW icons, picked in app.config.ts)
+modules/                  Local Expo modules (native code). echo-canceller: Speaker mode's C core + Swift wrapper
+                          (iOS only for now); desktop test: node modules/echo-canceller/cpp/tests/run.mjs
 .maestro/                 E2E flows (YAML) + subflows/
 scripts/                  doctor, setup-mac.sh, screenshot, e2e, ota-check, new-app, create-app, sync-base (Node, no deps);
                           lib/ (identity, devices), templates/TICKETS.md (fresh backlog for new apps)
@@ -184,6 +187,11 @@ TICKETS.md                Ordered, living backlog; one ticket per session (/star
   the latest builds.
 - **Expo Go** supports only the latest SDK and only its bundled native modules. `expo-dev-client` is installed,
   so `npm start` targets dev builds; use `npm run start:go` for Expo Go.
+- **Local native builds from a script or agent shell**: CocoaPods needs a UTF-8 locale (`pod install` fails
+  with "Unicode Normalization not appropriate for ASCII-8BIT" otherwise): `export LANG=en_US.UTF-8
+LC_ALL=en_US.UTF-8`. When the bundler is already running, add `--no-bundler` (`npm run ios -- --no-bundler`),
+  or Expo asks about the port interactively and a background run hangs. Pick a device by UDID:
+  `npm run ios:device -- <udid> --no-bundler` (`xcrun devicectl list devices`).
 - **Typed routes**: `npm run typecheck` regenerates the route types (`.expo/types`) before running `tsc`, so new
   routes are known without the dev server. Plain `npx tsc` can see stale routes.
 - Installed-but-unused capabilities ready to use: `@expo/ui` (SwiftUI / Jetpack Compose components),

@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, Switch, View } from 'react-native';
 
 import {
   Icon,
@@ -16,7 +16,8 @@ import {
 import { recordingsSizeBytes } from '@/features/audio/take-files';
 import { formatBytes } from '@/features/projects/ideas-list';
 import { appInfo, runtimeLabels } from '@/lib/app-info';
-import { makeStyles } from '@/theme';
+import { isEchoCancellerAvailable } from '@/lib/echo-canceller';
+import { makeStyles, useTheme } from '@/theme';
 
 import { useAppearanceStore, type AppearancePreference } from './appearance-store';
 import {
@@ -26,6 +27,7 @@ import {
   PRE_ROLL_BARS_OPTIONS,
   PRE_ROLL_SECONDS_OPTIONS,
   useRecordingSettingsStore,
+  type CleanupStrength,
   type PreRollBars,
   type PreRollSeconds,
 } from './recording-settings-store';
@@ -41,6 +43,11 @@ const preRollOptions = PRE_ROLL_SECONDS_OPTIONS.map((seconds) => ({
   label: `${seconds} s`,
 }));
 
+const cleanupOptions = [
+  { value: 'light', label: 'Light' },
+  { value: 'strong', label: 'Strong' },
+] as const satisfies readonly { value: CleanupStrength; label: string }[];
+
 const preRollBarOptions = PRE_ROLL_BARS_OPTIONS.map((bars) => ({
   value: String(bars),
   label: bars === 1 ? '1 bar' : `${bars} bars`,
@@ -52,6 +59,11 @@ export function SettingsScreen() {
   const setPreference = useAppearanceStore((state) => state.setPreference);
   const latencyOffsetMs = useRecordingSettingsStore((state) => state.latencyOffsetMs);
   const setLatencyOffsetMs = useRecordingSettingsStore((state) => state.setLatencyOffsetMs);
+  const speakerMode = useRecordingSettingsStore((state) => state.speakerMode);
+  const setSpeakerMode = useRecordingSettingsStore((state) => state.setSpeakerMode);
+  const cleanupStrength = useRecordingSettingsStore((state) => state.cleanupStrength);
+  const setCleanupStrength = useRecordingSettingsStore((state) => state.setCleanupStrength);
+  const theme = useTheme();
   const preRollSeconds = useRecordingSettingsStore((state) => state.preRollSeconds);
   const setPreRollSeconds = useRecordingSettingsStore((state) => state.setPreRollSeconds);
   const preRollBars = useRecordingSettingsStore((state) => state.preRollBars);
@@ -87,32 +99,44 @@ export function SettingsScreen() {
       <ListSection
         title="Recording"
         footer="Lines up takes recorded over other tracks, on top of the latency your device reports. If new takes sound late, increase it; early, decrease it.">
-        <ListRow
+        <LatencyRow
           title="Latency offset"
-          accessory={
-            <View style={styles.stepper}>
-              <StepButton
-                label="Decrease latency offset"
-                icon={{ ios: 'minus', android: 'remove' }}
-                disabled={latencyOffsetMs <= LATENCY_OFFSET_MIN_MS}
-                onPress={() => setLatencyOffsetMs(latencyOffsetMs - LATENCY_OFFSET_STEP_MS)}
-              />
-              <Text
-                color="textSecondary"
-                style={styles.stepperValue}
-                accessibilityLabel={`Latency offset ${latencyOffsetMs} milliseconds`}>
-                {`${latencyOffsetMs} ms`}
-              </Text>
-              <StepButton
-                label="Increase latency offset"
-                icon={{ ios: 'plus', android: 'add' }}
-                disabled={latencyOffsetMs >= LATENCY_OFFSET_MAX_MS}
-                onPress={() => setLatencyOffsetMs(latencyOffsetMs + LATENCY_OFFSET_STEP_MS)}
-              />
-            </View>
-          }
+          name="Latency offset"
+          value={latencyOffsetMs}
+          onChange={setLatencyOffsetMs}
         />
       </ListSection>
+
+      {isEchoCancellerAvailable ? (
+        <ListSection
+          title="Speaker mode"
+          footer="Record without headphones: after you stop, the song and the click that came from the speaker are removed from the new take. The original recording is kept. Headphones still give the cleanest takes.">
+          <ListRow
+            title="Speaker mode (experimental)"
+            accessory={
+              <Switch
+                accessibilityLabel="Speaker mode"
+                value={speakerMode}
+                onValueChange={setSpeakerMode}
+                trackColor={{ true: theme.colors.primary }}
+              />
+            }
+          />
+          {speakerMode ? (
+            <View style={styles.segmentRow}>
+              <Text variant="footnote" color="textSecondary">
+                Cleanup
+              </Text>
+              <SegmentedControl
+                accessibilityLabel="Cleanup strength"
+                options={cleanupOptions}
+                value={cleanupStrength}
+                onChange={setCleanupStrength}
+              />
+            </View>
+          ) : null}
+        </ListSection>
+      ) : null}
 
       <ListSection
         title="Pre-roll"
@@ -173,6 +197,49 @@ export function SettingsScreen() {
         ) : null}
       </ListSection>
     </Screen>
+  );
+}
+
+/** A latency offset with − and + buttons, in `LATENCY_OFFSET_STEP_MS` steps. */
+function LatencyRow({
+  title,
+  name,
+  value,
+  onChange,
+}: {
+  title: string;
+  /** Spoken name, e.g. "Latency offset" ("Decrease latency offset", "Latency offset 20 milliseconds"). */
+  name: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const styles = useStyles();
+  return (
+    <ListRow
+      title={title}
+      accessory={
+        <View style={styles.stepper}>
+          <StepButton
+            label={`Decrease ${name.toLowerCase()}`}
+            icon={{ ios: 'minus', android: 'remove' }}
+            disabled={value <= LATENCY_OFFSET_MIN_MS}
+            onPress={() => onChange(value - LATENCY_OFFSET_STEP_MS)}
+          />
+          <Text
+            color="textSecondary"
+            style={styles.stepperValue}
+            accessibilityLabel={`${name} ${value} milliseconds`}>
+            {`${value} ms`}
+          </Text>
+          <StepButton
+            label={`Increase ${name.toLowerCase()}`}
+            icon={{ ios: 'plus', android: 'add' }}
+            disabled={value >= LATENCY_OFFSET_MAX_MS}
+            onPress={() => onChange(value + LATENCY_OFFSET_STEP_MS)}
+          />
+        </View>
+      }
+    />
   );
 }
 

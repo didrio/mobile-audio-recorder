@@ -1,0 +1,6 @@
+{
+  "name": "echo-canceller",
+  "version": "1.0.0",
+  "description": "Removes the known backing (other tracks, metronome) from takes recorded from the speaker.",
+  "private": true
+}

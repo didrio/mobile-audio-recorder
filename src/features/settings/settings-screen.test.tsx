@@ -29,7 +29,13 @@ describe('SettingsScreen', () => {
 
   beforeEach(() => {
     useAppearanceStore.setState({ preference: 'system' });
-    useRecordingSettingsStore.setState({ latencyOffsetMs: 0, preRollSeconds: 2, preRollBars: 1 });
+    useRecordingSettingsStore.setState({
+      latencyOffsetMs: 0,
+      preRollSeconds: 2,
+      preRollBars: 1,
+      speakerMode: false,
+      cleanupStrength: 'light',
+    });
   });
 
   it('shows the current appearance preference', async () => {
@@ -70,6 +76,17 @@ describe('SettingsScreen', () => {
 
     expect(screen.getByRole('button', { name: 'Decrease latency offset' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Increase latency offset' })).toBeEnabled();
+  });
+
+  it('turns speaker mode on and offers the cleanup strength', async () => {
+    await render(<SettingsScreen />);
+
+    expect(screen.getByRole('switch', { name: 'Speaker mode' })).not.toBeChecked();
+    expect(screen.queryByLabelText('Cleanup strength')).toBeNull();
+    await fireEvent(screen.getByRole('switch', { name: 'Speaker mode' }), 'valueChange', true);
+
+    expect(storage.getString('settings.recording')).toContain('"speakerMode":true');
+    expect(screen.getByLabelText('Cleanup strength')).toBeOnTheScreen();
   });
 
   it('changes and persists the pre-roll length (2 s by default)', async () => {

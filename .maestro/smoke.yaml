@@ -11,12 +11,18 @@ name: Smoke
 - takeScreenshot: ideas
 
 - tapOn: 'Settings'
-- assertVisible: 'Version'
 - tapOn: 'Dark'
+# The app info is at the bottom of Settings, below the fold.
+- scrollUntilVisible:
+    element: 'Version'
+    direction: DOWN
 - assertVisible: 'Variant'
 - takeScreenshot: settings-dark
 
 # Leave the app as we found it.
+- scrollUntilVisible:
+    element: 'System'
+    direction: UP
 - tapOn: 'System'
 
 # Quick capture: record a short idea, stop, and land on its timeline.

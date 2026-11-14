@@ -2,6 +2,12 @@
 
 Oldest finished tickets, moved out of `TICKETS.md` to keep it lean. Newest first.
 
+- Reorder stripes (no ticket) — 2026-11-13 — during a track drag, lanes and column cells take the stripe of
+  the slot they're heading to (`laneSlotDuringDrag`, `drag.target`), so rows keep alternating; fresh preview
+  builds of 11db62a + this fix as a preview OTA
+- Transport check (no ticket) — 2026-11-13 — Back to start keeps playing and always reveals 0:00
+  (`revealPlayhead`), recording clock shows the timeline position; kept Stop → take start; record-while-playing
+  added to T25
 - T29 — Record button: stop, not pause — 2026-11-13 — stop square while recording, larger record glyph nudged up 1 pt (stop glyph checked mid-recording on iOS)
 - T23 — Reorder tracks — 2026-11-13 — long-press a grip to lift and drag a track, other lanes glide aside,
   edge auto-scroll, one undo step (`moveTrackEdit`), screen-reader Move up / Move down

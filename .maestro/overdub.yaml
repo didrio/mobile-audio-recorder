@@ -28,6 +28,12 @@ name: Overdub
 - extendedWaitUntil:
     visible: 'Arm Track 2'
     timeout: 5000
+# Record is disabled until the arm has gone through; tapping it earlier does nothing.
+- extendedWaitUntil:
+    visible:
+      text: 'Record'
+      enabled: true
+    timeout: 5000
 - tapOn: 'Record'
 - extendedWaitUntil:
     visible: 'Stop recording'

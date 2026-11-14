@@ -31,7 +31,31 @@ jest.mock('expo-haptics', () => ({
 }));
 
 // The audio engine's native module: the library ships its own Jest mock.
-jest.mock('react-native-audio-api', () => require('react-native-audio-api/mock'));
+// The Speaker mode native module (iOS dev/preview builds): available, and cleaning succeeds.
+jest.mock('@/lib/echo-canceller', () => ({
+  isEchoCancellerAvailable: true,
+  cleanTake: jest.fn(() =>
+    Promise.resolve({ delayMs: 12, delayConfidence: 40, reductionDb: 28, seconds: 3.5 }),
+  ),
+}));
+
+// The library's mock lacks the device queries; no headphones unless a test says otherwise.
+jest.mock('react-native-audio-api', () => {
+  const audioMock = jest.requireActual('react-native-audio-api/mock');
+  Object.assign(audioMock.AudioManager, {
+    getDevicesInfo: jest.fn(() =>
+      Promise.resolve({
+        availableInputs: [],
+        availableOutputs: [],
+        currentInputs: [],
+        currentOutputs: [],
+      }),
+    ),
+    setSystemOptions: jest.fn(),
+    setAudioSessionActivity: jest.fn(() => Promise.resolve()),
+  });
+  return audioMock;
+});
 
 // expo-crypto's native UUID generator isn't available in Jest; produce unique, valid-looking IDs.
 jest.mock('expo-crypto', () => {

@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T31 — Grid visibility & snap; pre-roll button in the transport · Sonnet · high effort · plan mode off
+**Next:** T33 — Visual metronome · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -21,6 +21,9 @@ Project data, Drawing) and the header comments of `src/lib/db.ts` and `src/featu
 Testing cadence while iterating: unit tests + `npm run check` + simulator screenshots per ticket, then the user
 tries it; Maestro, the Android emulator and the two-platform export only at milestones (preview builds,
 releases, native dependency changes). See the `wrap` skill.
+**Android paused (since 2026-11-14, until the user says otherwise):** the user can't test on Android for now.
+Keep the code cross-platform, but publish preview OTA updates for iOS only (`--platform ios`), make no
+Android builds, and leave Android checks in the tickets / Device checks for later.
 
 **Editor design agreed with the user, used by the editor tickets:**
 
@@ -50,6 +53,56 @@ releases, native dependency changes). See the `wrap` skill.
   record the same audio onto each track). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
+
+### T33 — Visual metronome
+
+- **Status:** ready
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Keep time without the click coming out of the speaker: a metronome you watch, in sync with the
+  timeline, readable from a phone lying ~1.5 m (5 ft) away on a desk. With T20's keyboard it makes
+  recording without headphones work without any sound to cancel (T21 still cleans the backing tracks).
+- **Done when:**
+  - [ ] A beat display under the status strip while the metronome is on: one large block per beat of the bar
+        (spanning the screen width, grouped for 6/8 and 12/8), the current beat lit and numbered, the
+        downbeat in a distinct color (green-ish token, light and dark), with a short bright flash on each
+        beat so it reads in peripheral vision. Sized for distance, but the timeline stays mostly in view
+        (decide the height with screenshots; maybe it replaces the strip's empty space while recording).
+  - [ ] Driven on the UI thread from the playhead (which already includes output latency), so it lines up
+        with what's heard and with the grid; no per-beat React renders. It counts in during the pre-roll
+        run-up (before 0:00 too).
+  - [ ] Metronome output choice: Sound / Visual / Both (per idea, next to the metronome toggle or in Idea
+        settings; decide). In Speaker mode, suggest Visual while recording.
+  - [ ] Unit tests for the beat/accent math (reuse `clicksBetween` / `clickAccent` in `metronome.ts`).
+- **Context:** Asked for by the user on 2026-11-14 after T21's first iPhone test: the backing tracks cancel
+  decently, the click still bleeds through. Their ideas: a green dot on the downbeat and white dots for the
+  other beats, or 1·2·3·4 highlighting in turn. Playhead and anchor: `use-transport.ts` (`playhead`,
+  `toUiClock`); the strip is in `project-screen.tsx`. Mind the "Two clocks" gotcha in `AGENTS.md`.
+
+### T34 — Silent recording (playback drops out at the punch)
+
+- **Status:** ready (best after T33)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Record without headphones and without any bleed: everything plays as usual (tracks and the
+  click) up to the punch, then all audio fades out just before it and the take is recorded in silence,
+  with the visual metronome (T33) keeping time. Nothing from the speaker reaches the take, so nothing needs
+  cleaning (T21's Speaker mode stays an optional extra).
+- **Done when:**
+  - [ ] A setting in Settings → Recording (decoupled from the visual metronome and Speaker mode), e.g.
+        "Silent while recording": playback mutes during the take. Off by default.
+  - [ ] With pre-roll: the run-up plays everything, including the click (the count-in), and the whole output
+        fades out a little _before_ the punch (start around 100 ms before with a ~30 ms fade, tune by ear) so
+        the speaker's sound and the room's tail are gone when the take begins. Sample-accurate on the context
+        clock, like `cutTrackAt` (a fade on the master gain, which also covers the clicks).
+  - [ ] Record while playing (punch in on the fly): the same, from the chosen punch point (or at once, when
+        that's sooner than the fade needs).
+  - [ ] Decide with the user: Record with pre-roll off and the setting on (silent from the first moment,
+        or a short automatic lead-in?). The visual metronome keeps going in silence either way.
+  - [ ] Playback after Stop sounds as usual. Unit tests for the fade timing (`take-alignment.ts`-style math).
+- **Context:** Proposed by the user on 2026-11-14 after T21's second iPhone test: echo cancellation got
+  better but not clean enough, while muting at the punch removes the problem. Punch and cut: `cutTrackAt`
+  and `choosePunch` in `audio-engine.ts` / `take-alignment.ts`, run-up and record-while-playing in
+  `use-transport.ts`. Clips are placed at the punch already (`placeTake` skips the run-up), so the fade only
+  has to finish before it, allowing for output + input latency.
 
 ### T31 — Grid visibility & snap; pre-roll button in the transport
 
@@ -237,33 +290,6 @@ releases, native dependency changes). See the `wrap` skill.
   `AudioRecorder.consumeLastRecordingResult()` recovers a recording the system stopped. iOS has no recording
   notification from the library (Live Activity idea is in Backlog).
 
-### T21 — Speaker mode (echo cancellation)
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Overdub without headphones: while recording, cancel the app's own output (backing tracks,
-  metronome, keyboard) from the mic, so the user hears the song from the speaker and the new take stays
-  clean enough for a sketch.
-- **Done when:**
-  - [ ] Spike first, on real phones: record singing and an acoustic guitar over a backing track from the
-        speaker, with and without echo cancellation. Note how much bleed is left, and whether sustained notes,
-        quiet passages or dynamics get eaten. Write the findings in this ticket and decide with the user if
-        it's worth shipping.
-  - [ ] "Speaker mode" toggle in Settings → Recording, off by default. When recording starts with no headphones
-        connected and the mode is off, offer it once (dismissable).
-  - [ ] On: the recorder uses `iosVoiceProcessing: true` (iOS) and `androidInputPreset: 'voiceCommunication'`
-        (Android). Headphones connected → raw mic as today.
-  - [ ] Latency compensation stays right in both modes: voice processing adds its own delay, so measure it
-        and keep a separate latency offset per mode (Settings → Recording).
-  - [ ] Playback volume while recording in speaker mode is checked (iOS voice processing can duck other
-        output); the mode is turned off again after recording so normal playback sounds as before.
-- **Context:** Both options are in `AudioRecorderOptions` of `react-native-audio-api`
-  (`lib/typescript/module/types.d.ts`); no native code needed. Expectations to set with the user: the
-  platforms' echo cancellation is tuned for speech calls. It works well for humming or singing a melody, but
-  it can thin out music (noise suppression, auto gain, mono), and some bleed remains. So this is a
-  convenience for quick sketches; headphones stay best for keeper takes. Recording start and latency code:
-  `use-transport.ts`, `take-alignment.ts`, `recording-settings-store.ts`.
-
 ### T11 — Identity & store prep
 
 - **Status:** ready
@@ -276,6 +302,21 @@ releases, native dependency changes). See the `wrap` skill.
         splash image and colors — artwork from the user, not invented.
   - [ ] Store listing text and screenshots plan (`docs/new-app-checklist.md`).
 - **Context:** All of these are still the base template's placeholders.
+
+### T32 — Speaker mode on Android
+
+- **Status:** blocked (Android paused, see the top of this file)
+- **Session:** Sonnet · medium effort · plan mode off
+- **Goal:** The echo canceller from T21 on Android.
+- **Done when:**
+  - [ ] `modules/echo-canceller` gets an Android side: CMake builds `cpp/echo_cancel.c` (no other native
+        deps; `dr_wav.h` is header-only), a JNI function, and a Kotlin `EchoCancellerModule` with the same
+        `cleanTake` as the Swift one; `expo-module.config.json` lists `android`.
+  - [ ] Settings shows the Speaker mode switch on Android (it hides itself when the module is missing).
+  - [ ] Tested on the Android phone with the T21 checklist.
+- **Context:** The Swift wrapper (`modules/echo-canceller/ios/EchoCancellerModule.swift`) is the model;
+  everything platform-independent is in C already. `@/lib/echo-canceller` loads the module with
+  `requireOptionalNativeModule`.
 
 ## Device checks
 
@@ -323,6 +364,11 @@ skill). Fix or ticket what fails, then delete the line.
   groups) sound distinct; pre-roll with the metronome on counts in whole bars, also from 0:00 (clicks before
   0:00); clicks keep going past the last clip while recording, and on an empty idea; toggling it and moving the
   volume slider while playing apply at once without stutter. Clicks at very low volume / loudness vs. takes.
+- Speaker mode (T21, iPhone dev build): clap test of a cleaned take (does it still line up?), cleaning time
+  on a 2–3 minute take, Light vs Strong on guitar; recording with headphones connected keeps the take
+  untouched (no "Cleaning up take…").
+- App icons: the DEV icon on the iPhone home screen (installed 2026-11-14); the PREVIEW icon after the next
+  preview build (`npm run build:preview`, iOS only while Android is paused).
 - Android: the old "Idea 1" clip drew without a waveform on the emulator (missing take file or peaks?).
 
 ## Backlog
@@ -384,6 +430,13 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T21 — Speaker mode (echo cancellation) — 2026-11-14 — after Stop, the backing that played is removed from
+  takes recorded without headphones (local module `modules/echo-canceller`: C core with a fixed
+  speaker → room → mic model incl. distortion, delay search, measured click suppression; Swift wrapper, iOS
+  only, T32 for Android); raw take kept as `.raw.wav`; Settings → Speaker mode (experimental, off by
+  default) with Light/Strong. iOS voice processing and SpeexDSP were tried and rejected (details in
+  `docs/decisions.md`). Two iPhone tests: tracks cancel decently, clicks better but audible → T33 + T34.
+  Also: DEV/PREVIEW labelled app icons (`app.config.ts`), e2e flows fixed (Settings scroll, wait for Record)
 - T17 — Metronome & count-in — 2026-11-14 — clicks synthesized in code (`metronome.ts`, accented downbeat, 6/8
   and 12/8 groups) scheduled on the context clock with playback and recording (lookahead scheduler in the
   engine, also before 0:00 so pre-roll is the count-in, whole bars with the metronome on); strip toggle (saved,
@@ -402,10 +455,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   length in Settings, run-up plays every track and cuts the armed one at the punch (`cutTrackAt`), dashed punch
   marker, stop in the run-up saves nothing, Record while playing punches in on the fly; clap test is in Device
   checks
-
-- Reorder stripes (no ticket) — 2026-11-13 — during a track drag, lanes and column cells take the stripe of
-  the slot they're heading to (`laneSlotDuringDrag`, `drag.target`), so rows keep alternating; fresh preview
-  builds of 11db62a + this fix as a preview OTA
-- Transport check (no ticket) — 2026-11-13 — Back to start keeps playing and always reveals 0:00
-  (`revealPlayhead`), recording clock shows the timeline position; kept Stop → take start; record-while-playing
-  added to T25

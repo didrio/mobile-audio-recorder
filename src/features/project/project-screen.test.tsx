@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, userEvent } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
+import { AudioManager } from 'react-native-audio-api';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import {
@@ -12,8 +13,10 @@ import {
   setMetronome,
   setTrackGain,
   startRecording,
+  type FinishedRecording,
 } from '@/features/audio/audio-engine';
-import { discardRecordedFile } from '@/features/audio/take-files';
+import { discardRecordedFile, storeRecordedTake } from '@/features/audio/take-files';
+import type { Meter } from '@/features/audio/tempo';
 import {
   deleteUnusedTakes,
   getProject,
@@ -24,6 +27,7 @@ import {
   type Project,
 } from '@/features/projects/projects-repo';
 import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
+import { cleanTake } from '@/lib/echo-canceller';
 
 import { ProjectScreen } from './project-screen';
 
@@ -190,6 +194,9 @@ jest.mock('@/features/audio/take-files', () => ({
     (_path: string, projectId: string, takeId: string) =>
       `projects/${projectId}/takes/${takeId}.wav`,
   ),
+  cacheFilePath: (name: string) => `/cache/${name}`,
+  plainPath: (path: string) => path,
+  takeFilePath: (path: string) => `/documents/${path}`,
 }));
 
 jest.mock('@/features/projects/projects-repo', () => ({
@@ -275,13 +282,21 @@ function renderScreen() {
   return render(<ProjectScreen />, { wrapper: AppProviders });
 }
 
+const METER: Meter = { bpm: 120, beatsPerBar: 4, beatUnit: 4 };
+
 describe('ProjectScreen', () => {
   beforeEach(() => {
     jest.mocked(getProject).mockResolvedValue(project);
     jest.mocked(saveChanges).mockResolvedValue();
     jest.mocked(deleteUnusedTakes).mockResolvedValue([]);
     jest.mocked(playbackPosition).mockReturnValue(0);
-    useRecordingSettingsStore.setState({ latencyOffsetMs: 0, preRollSeconds: 2, preRollBars: 1 });
+    useRecordingSettingsStore.setState({
+      latencyOffsetMs: 0,
+      preRollSeconds: 2,
+      preRollBars: 1,
+      speakerMode: false,
+      cleanupStrength: 'light',
+    });
     mockPush.mockClear();
   });
 
@@ -302,7 +317,12 @@ describe('ProjectScreen', () => {
     inputLatency: 0.03,
   };
   // `startedAtMs` in the future keeps the clock at `from` (still in the run-up).
-  function mockRecording({ from = 5, duration = 3.5, startedAtMs = 0 } = {}) {
+  function mockRecording({
+    from = 5,
+    duration = 3.5,
+    startedAtMs = 0,
+    backing = null as FinishedRecording['backing'],
+  } = {}) {
     jest.mocked(ensureRecordPermission).mockResolvedValue(true);
     jest.mocked(startRecording).mockResolvedValue({
       anchor: { from, startedAtMs },
@@ -314,6 +334,7 @@ describe('ProjectScreen', () => {
           sampleRate: 48000,
           channels: 1,
           alignment,
+          backing,
         }),
       ),
     });
@@ -378,6 +399,84 @@ describe('ProjectScreen', () => {
     );
     // Back to where recording started.
     expect(screen.getByText('0:05.0')).toBeOnTheScreen();
+  });
+
+  it('in speaker mode, removes what the speaker played from the take and keeps the raw recording', async () => {
+    useRecordingSettingsStore.setState({ speakerMode: true });
+    jest.mocked(getProject).mockResolvedValue(twoTracks);
+    mockRecording({
+      backing: {
+        from: 5,
+        clips: [
+          {
+            takePath: 'projects/p1/takes/t1.wav',
+            trackId: 'track1',
+            start: 0,
+            offset: 0,
+            duration: 10,
+            gain: 0.8,
+          },
+        ],
+        cuts: [],
+        metronome: null,
+      },
+    });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Arm Track 2' }));
+    await user.press(screen.getByRole('button', { name: 'Seek to 0:05' }));
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+    await user.press(await screen.findByRole('button', { name: 'Stop recording' }));
+    await screen.findByRole('button', { name: 'Record' });
+
+    // The file starts at 5.05 on the timeline (latencies, no manual offset): the backing clip, heard
+    // from 5, begins 0.05 s before the file and counts until the 3.5 s file ends.
+    expect(cleanTake).toHaveBeenCalledWith({
+      micPath: '/cache/take.wav',
+      outputPath: expect.stringMatching(/^\/cache\/.+-clean\.wav$/),
+      strong: false,
+      plan: {
+        clips: [
+          {
+            path: '/documents/projects/p1/takes/t1.wav',
+            gain: 0.8,
+            fileStart: expect.closeTo(-0.05),
+            offset: 5,
+            duration: expect.closeTo(3.55),
+          },
+        ],
+        clicks: [],
+        waves: [],
+      },
+    });
+    const [cleanedPath, , , rawPath] = jest.mocked(storeRecordedTake).mock.calls[0] ?? [];
+    expect(cleanedPath).toMatch(/-clean\.wav$/);
+    expect(rawPath).toBe('/cache/take.wav');
+  });
+
+  it('in speaker mode with headphones connected, keeps the take as recorded', async () => {
+    useRecordingSettingsStore.setState({ speakerMode: true });
+    jest.mocked(AudioManager.getDevicesInfo).mockResolvedValueOnce({
+      availableInputs: [],
+      availableOutputs: [],
+      currentInputs: [],
+      currentOutputs: [{ id: 'h', name: 'Headphones', category: 'Headphones' }],
+    });
+    jest.mocked(getProject).mockResolvedValue(twoTracks);
+    mockRecording({
+      backing: { from: 5, clips: [], cuts: [], metronome: { meter: METER, volume: 1 } },
+    });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Arm Track 2' }));
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+    await user.press(await screen.findByRole('button', { name: 'Stop recording' }));
+    await screen.findByRole('button', { name: 'Record' });
+
+    expect(cleanTake).not.toHaveBeenCalled();
+    expect(storeRecordedTake).toHaveBeenCalledWith('/cache/take.wav', 'p1', expect.any(String));
   });
 
   it('toggles pre-roll and saves it with the idea', async () => {

@@ -38,6 +38,7 @@ import {
 import { IDEA_MENU_ITEMS, type IdeaMenuItemId } from './idea-menu-items';
 import { hasSolo, trackOutputGain } from './mixer';
 import { useInputMeter } from './use-input-meter';
+import { useSpeakerMode } from './use-speaker-mode';
 import { useTransport } from './use-transport';
 
 /**
@@ -68,7 +69,8 @@ export function ProjectScreen() {
   const metronome = useEditorStore((state) => state.metronome);
   const canUndo = useEditorStore(selectCanUndo);
   const canRedo = useEditorStore(selectCanRedo);
-  const transport = useTransport(project);
+  const speakerMode = useSpeakerMode();
+  const transport = useTransport(project, speakerMode);
   const tracks = project?.tracks ?? [];
 
   const isRecording = transport.status === 'recording';
@@ -237,7 +239,11 @@ export function ProjectScreen() {
   };
 
   const error = transport.error ?? saveError;
-  const errorText = error ? (
+  const errorText = transport.isCleaning ? (
+    <Text color="textSecondary" align="center" variant="footnote">
+      Cleaning up take…
+    </Text>
+  ) : error ? (
     <Text color="danger" align="center" variant="footnote">
       {error}
     </Text>

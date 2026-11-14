@@ -28,6 +28,9 @@
  *   Clicks skip the track gains (mute, solo and volume never touch them).
  *   Recording keeps its playback running until Stop (`endless`), so the click doesn't stop after the
  *   last clip, and with the metronome on there is a playback even when no clip is audible.
+ * - Speaker mode (T21): `stop()` also says what the backing played (`BackingPlayed`: the clips at
+ *   their track gains, where a track was cut, the metronome), so the take can be cleaned of it
+ *   afterwards (`echo-reference.ts`, `@/lib/echo-canceller`).
  * - Playhead: `playbackAnchor()` gives the moment (on the `performance.now()` clock, shared by the
  *   JS and UI threads) when timeline position `from` is heard, so the UI can animate the playhead
  *   per frame without calling into the engine.
@@ -71,6 +74,20 @@ export type RecordedTake = {
 export type FinishedRecording = RecordedTake & {
   /** Measured start against the backing playback; `null` when nothing was playing. */
   alignment: TakeAlignment | null;
+  /** What the backing played while recording; `null` when nothing was playing. */
+  backing: BackingPlayed | null;
+};
+
+/** What a playback sent to the speaker, for removing it from a take recorded over it. */
+export type BackingPlayed = {
+  /** Timeline position the playback started from (nothing before it was heard). */
+  from: number;
+  /** The clips it scheduled, each with its track's gain when the playback started. */
+  clips: (PlayableClip & { gain: number })[];
+  /** Tracks silenced from a timeline position on (`cutTrackAt`, the punch). */
+  cuts: { trackId: string; position: number }[];
+  /** The metronome when the recording stopped (`null`: off). */
+  metronome: MetronomeConfig | null;
 };
 
 export type ActiveRecording = {
@@ -136,8 +153,10 @@ let playback: {
   output: GainNode;
   /** One gain per track that has audible clips. */
   tracks: Map<string, GainNode>;
-  /** Tracks silenced by `cutTrackAt`: gain changes no longer reach them. */
-  cutTracks: Set<string>;
+  /** Tracks silenced by `cutTrackAt` (and from where): gain changes no longer reach them. */
+  cutTracks: Map<string, number>;
+  /** What was scheduled, with the gains used (`BackingPlayed`). */
+  played: (PlayableClip & { gain: number })[];
   /** Ends the playback after the last clip; `undefined` for an endless (recording) playback. */
   endTimer: ReturnType<typeof setTimeout> | undefined;
   clicks: ClickScheduler;
@@ -340,6 +359,14 @@ export async function startRecording(options: {
       clearInterval(measureTimer);
       measure();
       settleStarted(alignment());
+      const backing: BackingPlayed | null = playback
+        ? {
+            from: playback.from,
+            clips: playback.played,
+            cuts: [...playback.cutTracks].map(([trackId, position]) => ({ trackId, position })),
+            metronome,
+          }
+        : null;
       stopPlayback();
       const result = await activeRecorder.stop();
       activeRecorder.clearOnAudioReady();
@@ -352,6 +379,7 @@ export async function startRecording(options: {
         sampleRate: RECORDING_PRESET.sampleRate,
         channels: RECORDING_CHANNELS,
         alignment: alignment(),
+        backing,
       };
     },
   };
@@ -450,7 +478,8 @@ export async function play(
     sources,
     output: master,
     tracks,
-    cutTracks: new Set(),
+    cutTracks: new Map(),
+    played: audible.map((clip) => ({ ...clip, gain: trackGains.get(clip.trackId) ?? 1 })),
     endTimer: options.endless
       ? undefined
       : setTimeout(
@@ -571,7 +600,7 @@ function endPlayback(current: NonNullable<typeof playback>) {
  */
 export function cutTrackAt(trackId: string, position: number) {
   if (!playback || !context) return;
-  playback.cutTracks.add(trackId);
+  playback.cutTracks.set(trackId, position);
   const node = playback.tracks.get(trackId);
   if (!node) return; // Nothing of this track is playing.
   const now = context.currentTime;

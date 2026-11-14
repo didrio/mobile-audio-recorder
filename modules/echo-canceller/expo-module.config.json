@@ -1,0 +1,7 @@
+{
+  "platforms": ["apple"],
+  "apple": {
+    "modules": ["EchoCancellerModule"],
+    "podspecPath": "EchoCanceller.podspec"
+  }
+}

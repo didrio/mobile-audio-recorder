@@ -15,10 +15,12 @@ import {
   startRecording,
   stopPlayback,
   type ActiveRecording,
+  type FinishedRecording,
   type PlaybackAnchor,
   type PlayableClip,
   type RecordingPlayback,
 } from '@/features/audio/audio-engine';
+import { echoPlan } from '@/features/audio/echo-reference';
 import {
   choosePunch,
   displayPosition,
@@ -26,12 +28,19 @@ import {
   placeTake,
   runUpStart,
 } from '@/features/audio/take-alignment';
-import { discardRecordedFile, storeRecordedTake } from '@/features/audio/take-files';
+import {
+  cacheFilePath,
+  discardRecordedFile,
+  plainPath,
+  storeRecordedTake,
+  takeFilePath,
+} from '@/features/audio/take-files';
 import { preRollLength } from '@/features/audio/tempo';
 import type { Project } from '@/features/projects/projects-repo';
 import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
 import { prefetchTakePeaks } from '@/features/timeline/use-take-peaks';
 import { createLivePeaks, LIVE_PEAKS_PER_SECOND } from '@/features/timeline/waveform-peaks';
+import { cleanTake } from '@/lib/echo-canceller';
 
 import { recordTake, useEditorStore } from './editor-store';
 import { hasSolo, trackOutputGain } from './mixer';
@@ -77,12 +86,15 @@ const PUNCH_LEAD_SECONDS = 0.03;
  *   playhead waits), the recorder starts with it, and at the punch point the armed track is cut and
  *   the take begins. Record while playing does the same with the playback already running, punching
  *   in as soon as the recorder has audio. Stop before the punch point saves nothing.
+ * - Speaker mode (T21): with `speakerMode` (no headphones), Stop removes what the speaker played from
+ *   the new take (`echo-reference.ts`, `@/lib/echo-canceller`) before saving it; the raw recording is
+ *   kept next to it.
  * - Metronome (T17): the engine clicks along with playback and recording while the idea's toggle is
  *   on, following its tempo, meter and metronome volume live. The pre-roll's run-up clicks too, so
  *   it is the count-in; with the metronome on it is always whole bars, so the punch lands on a beat
  *   as counted.
  */
-export function useTransport(project: Project | null | undefined) {
+export function useTransport(project: Project | null | undefined, speakerMode = false) {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<TransportStatus>('idle');
   const [position, setPosition] = useState(0);
@@ -90,6 +102,8 @@ export function useTransport(project: Project | null | undefined) {
   /** Recording, but still in the run-up before the punch point (judged before clamping at 0:00). */
   const [preRolling, setPreRolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** After Stop in Speaker mode: removing the backing from the new take. */
+  const [cleaning, setCleaning] = useState(false);
   const [liveTake, setLiveTake] = useState<{
     start: number;
     peaksStart: number;
@@ -112,6 +126,8 @@ export function useTransport(project: Project | null | undefined) {
     floor: number;
     /** Where the take starts on screen and the playhead returns to after Stop. */
     punch: number;
+    /** Speaker mode applied when Record was pressed: remove the backing after Stop. */
+    clean: boolean;
   } | null>(null);
 
   const isRecording = status === 'recording';
@@ -195,7 +211,10 @@ export function useTransport(project: Project | null | undefined) {
       discardRecordedFile(recorded.path);
       return;
     }
-    const path = storeRecordedTake(recorded.path, active.projectId, active.takeId);
+    const cleaned = active.clean ? await cleanRecording(active, recorded) : null;
+    const path = cleaned
+      ? storeRecordedTake(cleaned, active.projectId, active.takeId, recorded.path)
+      : storeRecordedTake(recorded.path, active.projectId, active.takeId);
     await recordTake({
       projectId: active.projectId,
       trackId: active.trackId,
@@ -211,6 +230,43 @@ export function useTransport(project: Project | null | undefined) {
     });
     // Waveform for the new take; failures surface later as a clip without a waveform.
     void prefetchTakePeaks(queryClient, path).catch(() => {});
+  };
+
+  /**
+   * Speaker mode: a copy of the take with what the speaker played removed, or `null` (nothing played,
+   * or cleaning failed: the take is kept as recorded, with a note).
+   */
+  const cleanRecording = async (
+    active: NonNullable<typeof recordingRef.current>,
+    recorded: FinishedRecording,
+  ): Promise<string | null> => {
+    if (!recorded.backing) return null;
+    const plan = echoPlan({
+      backing: recorded.backing,
+      // Where the speaker's sound lands in the file: without the manual offset (see echo-reference).
+      fileStart: fileStartPosition(active.playbackFrom, recorded.alignment, 0),
+      fileDuration: recorded.duration,
+      sampleRate: recorded.sampleRate,
+      takeFile: takeFilePath,
+    });
+    if (!plan) return null;
+    const outputPath = cacheFilePath(`${active.takeId}-clean.wav`);
+    setCleaning(true);
+    try {
+      await cleanTake({
+        micPath: plainPath(recorded.path),
+        outputPath,
+        plan,
+        strong: useRecordingSettingsStore.getState().cleanupStrength === 'strong',
+      });
+      return outputPath;
+    } catch (cause) {
+      discardRecordedFile(outputPath);
+      setError(`Couldn't remove the backing from the take (${messageOf(cause, 'unknown error')}).`);
+      return null;
+    } finally {
+      setCleaning(false);
+    }
   };
 
   // Leaving the screen stops playback, and stops + saves a recording in progress.
@@ -303,6 +359,7 @@ export function useTransport(project: Project | null | undefined) {
         playbackFrom,
         floor: punchIn ? punch : 0,
         punch,
+        clean: speakerMode,
       };
       if (!onTheFly) {
         playhead.set(displayPosition(playbackFrom));
@@ -404,6 +461,8 @@ export function useTransport(project: Project | null | undefined) {
   return {
     status,
     position,
+    /** After Stop in Speaker mode, while the backing is removed from the new take. */
+    isCleaning: cleaning,
     /** While recording: the take hasn't started yet (the run-up before the punch point). */
     isPreRolling: isRecording && preRolling,
     level,

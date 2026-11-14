@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T29 — Record button: stop, not pause · Sonnet · low effort · plan mode off (then T25)
+**Next:** T25 — Pre-roll (punch in at the playhead) · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -50,19 +50,6 @@ releases, native dependency changes). See the `wrap` skill.
   record the same audio onto each track). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
-
-### T29 — Record button: stop, not pause
-
-- **Status:** ready
-- **Session:** Sonnet · low effort · plan mode off
-- **Goal:** While recording, the Record button shows a stop square instead of a pause glyph. It stops recording
-  and the playhead returns to the punch point, so a "pause" look invites tapping Record again to resume, which
-  records over the take just made.
-- **Done when:**
-  - [ ] While recording: SF `stop.fill`, Material `stop` (was `pause.fill` / `pause`). Label stays "Stop
-        recording". Play keeps Play ↔ Pause.
-  - [ ] Unit tests still pass; checked on the iOS simulator while recording.
-- **Context:** `recordButton` in `src/features/project/project-screen.tsx`.
 
 ### T25 — Pre-roll (punch in at the playhead)
 
@@ -447,6 +434,7 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T29 — Record button: stop, not pause — 2026-11-13 — stop square while recording, larger record glyph nudged up 1 pt (stop glyph not yet checked mid-recording)
 - T23 — Reorder tracks — 2026-11-13 — long-press a grip to lift and drag a track, other lanes glide aside,
   edge auto-scroll, one undo step (`moveTrackEdit`), screen-reader Move up / Move down
 - T15 — Arming & input meter — 2026-11-13 — tapping a name pill toggles arming, saved per idea (migration v2),

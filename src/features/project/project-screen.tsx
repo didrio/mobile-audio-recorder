@@ -156,7 +156,7 @@ export function ProjectScreen() {
       label={isRecording ? 'Stop recording' : 'Record'}
       icon={
         isRecording
-          ? { ios: 'pause.fill', android: 'pause' }
+          ? { ios: 'stop.fill', android: 'stop' }
           : { ios: 'record.circle', android: 'radio_button_checked' }
       }
       size={SIDE_BUTTON_SIZE}
@@ -354,7 +354,8 @@ function TransportButton({
       ]}>
       <Icon
         name={icon}
-        size={Math.round(size * 0.42)}
+        size={Math.round(size * (kind === 'record' ? 0.55 : 0.42))}
+        style={kind === 'record' ? styles.recordIcon : undefined}
         color={kind === 'record' ? 'onPrimary' : kind === 'play' ? 'background' : 'text'}
       />
     </Pressable>
@@ -407,6 +408,8 @@ const useStyles = makeStyles((t) => ({
   headerButtons: { flexDirection: 'row', alignItems: 'center' },
   headerButton: { padding: t.spacing.sm, borderRadius: t.radius.full },
   recordButton: { backgroundColor: t.colors.primary },
+  // SF Symbols sit about a pixel low in their box; nudge up so the glyph looks centered.
+  recordIcon: { marginTop: -1 },
   playButton: { backgroundColor: t.colors.text },
   secondaryButton: { backgroundColor: t.colors.surfacePressed },
   disabled: { opacity: 0.4 },

@@ -80,6 +80,26 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   `use-transport.ts`. Clips are placed at the punch already (`placeTake` skips the run-up), so the fade only
   has to finish before it, allowing for output + input latency.
 
+### T35 — Live waveform drawn to the right of the take during a pre-roll recording
+
+- **Status:** ready
+- **Session:** Sonnet · medium effort · plan mode off
+- **Goal:** While recording with pre-roll, the waveform draws inside the red recording clip, in step with the
+  playhead. Today it draws to the right of the clip, past the playhead, and only lands in the right place when
+  you press Stop. Recording itself is fine; this is only the live drawing.
+- **Done when:**
+  - [ ] The live waveform starts at the punch and ends at the playhead: with pre-roll, without it, and when
+        recording while playing.
+  - [ ] A unit test for the x math (pull it into a pure helper if needed) + a screenshot while recording with
+        pre-roll.
+- **Context:** Reported by the user on 2026-11-14. Likely cause: peak `i` in `drawLivePeaks` (`timeline.tsx`
+  ~line 1189) covers `peaksStart + i / perSecond`, and `peaksStart` is where the take file begins, which with
+  pre-roll is the run-up start, before the punch (`use-transport.ts` ~lines 356–383). But each bar is placed
+  at `originX + (peak / perSecond) * zoom` with `originX = toX(liveTake.start)`, the punch (call ~line 955), so
+  the whole waveform is shifted right by the run-up length. Fix: place bars at
+  `toX(peaksStart + peak / perSecond)` (or pass `originX = toX(peaksStart)`), so only the part after the punch
+  shows. Without pre-roll `peaksStart === start`, which is why that case looks right.
+
 ### T31 — Grid visibility & snap; pre-roll button in the transport
 
 - **Status:** ready
@@ -101,6 +121,15 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   - [ ] Snap off: clip drags/trims don't snap to grid lines (other clips' edges: decide, probably still snap),
         and the lane grid lines are drawn dotted/fainter (Ableton-style). Snap on: solid lines as today.
   - [ ] Duplicate copies `snap`. Unit tests (snap off passes `gridStep` 0) + screenshots of both line styles.
+  - [ ] **Sticky playhead:** with Snap on, dragging the playhead on the ruler (and tapping to seek) pulls it to
+        the nearest grid line within a small distance, like a DAW's magnetic snap: the same `SNAP_POINTS`
+        (~10 pt) threshold as clips, in points so it doesn't depend on zoom. Outside that distance it moves
+        freely between lines. A light haptic on snapping, like clip drags. Snap off or grid hidden: no pull.
+        The point: put the playhead exactly on a beat before recording.
+  - [ ] **Easier-to-see beat lines:** the lines between the bar lines (the beats in 4/4) are too faint today
+        (hairline at `GRID_BEAT_ALPHA` 0.22, vs. bar lines 1 pt at 0.5). Make them clearly visible but still
+        lighter than the bar lines, so bars and beats stay easy to tell apart. Screenshots in light and dark
+        mode. Snap off still uses the dotted/fainter style above.
 - **Context:** Discussed with the user at the end of T17: the app is a sketchpad, not a DAW, so the grid is
   off for quick capture but on for deliberately created ideas; a second strip button for show/hide was
   rejected because the strip is filling up (metronome T17, notes T24, keyboard T20) — show/hide stays in Idea
@@ -109,7 +138,10 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   `snapDrag` ~line 476; grid paths ~line 777, Skia paints) and `grid-math.ts` / `clip-edit-math.ts`. Strip
   and transport layout: `project-screen.tsx` (`StripToggle`, `TransportButton`, `styles.buttons`). Pre-roll
   wiring stays as is (`togglePreRoll`); with the metronome or grid on the run-up is whole bars
-  (`use-transport.ts`).
+  (`use-transport.ts`). Sticky playhead and beat-line visibility were added by the user on 2026-11-14: the
+  ruler scrub sets `scrubTime` / calls `onSeek` in `timeline.tsx` (~lines 618 and 659) and doesn't snap yet;
+  reuse `nearestGridLine(time, gridSnapStep(meter, zoom), SNAP_POINTS / z)` from `grid-math.ts`. Grid paints:
+  `gridBar` / `gridGroup` / `gridBeat` in the paints block (~line 1277).
 
 ### T26 — Loop region
 

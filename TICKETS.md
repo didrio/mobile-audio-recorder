@@ -33,9 +33,10 @@ dependency changes). See the `wrap` skill.
   the playhead to its start.
 - **Layout** (built in T14, column reworked in T28): fixed 88 pt lanes. A narrow pinned column on the left
   holds one grab handle per track (long-press to reorder, T23); the sliders button in the corner above it
-  expands it into a mixer (arm · Mute · Solo · horizontal volume), pushing the timeline right. Arm buttons
-  appear only in the mixer; the armed track shows as a red outline and dot on its name label. Mute/solo also show as M/S badges on the floating track names, and silent
-  tracks' clips are drawn faded. Tapping a track name opens its sheet (Rename, Delete; no Duplicate). The
+  expands it into a mixer (info · Mute · Solo · horizontal volume), pushing the timeline right. There are no
+  arm buttons: tapping a track's floating name pill arms it (red outline and dot on the pill), and the mixer's
+  info button opens the track's sheet (Rename, Delete; no Duplicate). Mute/solo also show as M/S badges on
+  the pills, and silent tracks' clips are drawn faded. The
   section-label rail sits above the ruler. Thin status strip (time · metronome toggle · meter). Compact
   transport. "+ New Track" is a row after the last lane, not a header button.
 - **Header of an idea**: Undo · Redo · "⋯" (Idea settings, Duplicate, Delete, Favorite). The menu exists since
@@ -93,7 +94,7 @@ dependency changes). See the `wrap` skill.
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Arming works like a DAW: toggle it, and the meter shows the live mic input while a track is armed.
 - **Done when:**
-  - [ ] Tapping the arm button toggles it: tapping the armed track unarms it (the user asked for this again on
+  - [ ] Tapping a track's name pill toggles arming: tapping the armed track unarms it (the user asked for this again on
         2026-11-13). Arming a track disarms the previous one (one armed track at a time). Nothing armed → Record
         is grayed out.
   - [ ] The armed track is saved per idea (`projects.armed_track_id`, nullable, in the next migration of
@@ -105,8 +106,8 @@ dependency changes). See the `wrap` skill.
   - [ ] Checked on a real iPhone: the orange mic indicator only shows while armed. Check Bluetooth headphones
         too: many drop to low-quality "call" audio while the mic is open. If that's bad, note it and ticket a
         fallback (e.g. meter only while recording when Bluetooth output is active).
-- **Context:** The arm buttons are in the mixer rows since T28 (`src/features/timeline/track-column.tsx`, shown
-  only with the mixer open); the armed track is marked on its name label (`lane-overlay.tsx`). The armed track lives in the editor store since T13 (`armedTrackId`, `armTrack`,
+- **Context:** Arming is the track's name pill since T28 (`lane-overlay.tsx`: tap = `onArm`, label `Arm <name>`,
+  selected when armed; red outline and dot); the mixer's info button opens the track sheet. The armed track lives in the editor store since T13 (`armedTrackId`, `armTrack`,
   `selectArmedTrack` with its fall back to the first track, in `src/features/project/editor-store.ts`); persist it
   there (write on `armTrack`, read in `openIdea`). Arming isn't an undo step. Today the meter is fed by
   `setLevel(peakLevel(samples))` in `use-transport.ts` only while recording. First check in
@@ -122,7 +123,7 @@ dependency changes). See the `wrap` skill.
   the collapsed column, T28), drag it, let go.
 - **Done when:**
   - [ ] Long-pressing a track's grab handle (mixer closed) picks the track up. With the mixer open there's no
-        handle (the arm button sits there), so reordering needs the mixer closed. A haptic plays, and the cell and its lane lift slightly
+        handle (the info button sits there), so reordering needs the mixer closed. A haptic plays, and the cell and its lane lift slightly
         (scale about 1.03, shadow, a bit of transparency). This is the standard "lift and drag" pattern; a wiggle
         means edit mode on iOS, so we don't use one. The track follows the finger vertically, the other tracks
         slide aside with animation, and releasing drops it. There's no cancel button.
@@ -540,7 +541,7 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
-- T28 — Track column v2 — 2026-11-13 — collapsed column 44→30 pt, one faint grip glyph per track (no gesture; T23 builds on it), arm button only in the open mixer, armed track = red outline + dot on its name pill (label "<name> settings, armed"), mixer toggle hit area 44 pt; `overdub.yaml` waits on the armed label; checked on the iOS simulator (dark, 1 track, closed/open); light mode, 8 tracks and Maestro not run
+- T28 — Track column v2 — 2026-11-13 — collapsed column 44→30 pt, one faint grip glyph per track (no gesture; T23 builds on it), armed track = red outline + dot on its name pill; same day, per the user: tapping the pill arms (label `Arm <name>`), the mixer's arm button became an info button that opens the track sheet, pills 4 pt further from the lane edges, 0:00 flush with the column (`LEADING_SPACE` 0); `overdub.yaml` waits on `Arm Track 2`; checked on the iOS simulator (dark, 1 track, closed/open); light mode, 8 tracks and Maestro not run
 
 - T22 — Transport & playhead polish — 2026-11-13 — Back to start stops playback; no stop squares (Play ↔ Pause,
   Record shows Pause while recording); playhead ends at the last lane; `stopPlaying(at?)` avoids a stale-status

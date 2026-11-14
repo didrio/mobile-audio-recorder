@@ -17,7 +17,7 @@ function renderOverlay(overrides: Partial<Parameters<typeof LaneOverlay>[0]> = {
       scroll = next;
     },
   } as never;
-  const props = { onEdit: jest.fn(), onAddTrack: jest.fn() };
+  const props = { onArm: jest.fn(), onAddTrack: jest.fn() };
   const view = render(
     <LaneOverlay
       tracks={tracks}
@@ -30,7 +30,7 @@ function renderOverlay(overrides: Partial<Parameters<typeof LaneOverlay>[0]> = {
       laneScroll={laneScroll}
       draft={null}
       armedTrackId="t0"
-      editDisabled={false}
+      armDisabled={false}
       addTrackDisabled={false}
       {...props}
       {...overrides}
@@ -40,23 +40,23 @@ function renderOverlay(overrides: Partial<Parameters<typeof LaneOverlay>[0]> = {
 }
 
 describe('LaneOverlay', () => {
-  it('opens a track from its name, and shows mute and a moving volume', async () => {
-    const { view, onEdit } = renderOverlay({ draft: { trackId: 't0', gain: 0.5 } });
+  it('arms a track from its name, and shows mute and a moving volume', async () => {
+    const { view, onArm } = renderOverlay({ draft: { trackId: 't0', gain: 0.5 } });
     await view;
     const user = userEvent.setup();
 
     expect(screen.getByText('−6.0 dB')).toBeOnTheScreen();
     expect(screen.getByLabelText('muted')).toBeOnTheScreen();
-    await user.press(screen.getByRole('button', { name: 'Track 2 settings' }));
+    await user.press(screen.getByRole('button', { name: 'Arm Track 2' }));
 
-    expect(onEdit).toHaveBeenCalledWith('t1');
+    expect(onArm).toHaveBeenCalledWith('t1');
   });
 
-  it('says which track is armed in its name button', async () => {
+  it('marks the armed track on its name button', async () => {
     await renderOverlay().view;
 
-    expect(screen.getByRole('button', { name: 'Track 1 settings, armed' })).toBeOnTheScreen();
-    expect(screen.getByRole('button', { name: 'Track 2 settings' })).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Arm Track 1' })).toBeSelected();
+    expect(screen.getByRole('button', { name: 'Arm Track 2' })).not.toBeSelected();
   });
 
   it('adds a track from the row after the last lane', async () => {
@@ -81,9 +81,9 @@ describe('LaneOverlay', () => {
   });
 
   it('locks tracks while recording', async () => {
-    await renderOverlay({ editDisabled: true, addTrackDisabled: true }).view;
+    await renderOverlay({ armDisabled: true, addTrackDisabled: true }).view;
 
-    expect(screen.getByRole('button', { name: 'Track 1 settings, armed' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Arm Track 1' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'New track' })).toBeDisabled();
   });
 });

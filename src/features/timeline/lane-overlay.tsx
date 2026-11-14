@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
@@ -17,10 +18,12 @@ import { hiddenLanes, laneScrollMax, pageScroll } from './timeline-math';
 import type { FaderDraft } from './track-column';
 
 const PAGE_SCROLL_MS = 250;
+/** Extra space above and left of a name pill, on top of the lane inset. */
+const PILL_MARGIN = 4;
 
 /**
  * RN views over the lanes, moved with their vertical scroll: each track's name floating at the
- * top-left of its lane (opens the track's settings; shows the dB while its volume moves, and M / S
+ * top-left of its lane (tap to arm the track for recording; shows the dB while its volume moves, and M / S
  * badges when it's muted or soloed, so that shows with the mixer closed), the
  * "+ New Track" row after the last lane, and "N more" chevrons at the top / bottom edge when lanes
  * are scrolled out of view (tap: one page).
@@ -36,9 +39,9 @@ export function LaneOverlay({
   laneScroll,
   draft,
   armedTrackId,
-  editDisabled,
+  armDisabled,
   addTrackDisabled,
-  onEdit,
+  onArm,
   onAddTrack,
 }: {
   tracks: Pick<Track, 'id' | 'name' | 'muted' | 'solo'>[];
@@ -57,10 +60,10 @@ export function LaneOverlay({
   draft: FaderDraft | null;
   /** The track Record records onto: its name gets a red outline and dot. */
   armedTrackId: string | null;
-  /** While recording: tracks can't be edited. */
-  editDisabled: boolean;
+  /** While recording: arming can't change. */
+  armDisabled: boolean;
   addTrackDisabled: boolean;
-  onEdit: (trackId: string) => void;
+  onArm: (trackId: string) => void;
   onAddTrack: () => void;
 }) {
   const styles = useStyles();
@@ -95,14 +98,21 @@ export function LaneOverlay({
             <Pressable
               key={track.id}
               accessibilityRole="button"
-              accessibilityLabel={`${track.name} settings${armed ? ', armed' : ''}`}
-              accessibilityState={{ disabled: editDisabled }}
-              disabled={editDisabled}
+              accessibilityLabel={`Arm ${track.name}`}
+              accessibilityState={{ selected: armed, disabled: armDisabled }}
+              disabled={armDisabled}
               hitSlop={6}
-              onPress={() => onEdit(track.id)}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                onArm(track.id);
+              }}
               style={({ pressed }) => [
                 styles.name,
-                { top: index * lane + inset, left: left + inset, maxWidth: lane * 3 },
+                {
+                  top: index * lane + inset + PILL_MARGIN,
+                  left: left + inset + PILL_MARGIN,
+                  maxWidth: lane * 3,
+                },
                 armed && styles.nameArmed,
                 pressed && styles.pressed,
               ]}>

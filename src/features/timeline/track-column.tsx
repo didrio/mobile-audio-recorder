@@ -8,7 +8,7 @@ import { makeStyles } from '@/theme';
 
 import { VolumeSlider } from './volume-slider';
 
-const ARM_SIZE = 24;
+const INFO_SIZE = 30;
 const TOGGLE_SIZE = 30;
 
 /** A volume slider being dragged: its live gain, shown before it's saved. */
@@ -17,8 +17,8 @@ export type FaderDraft = { trackId: string; gain: number };
 /**
  * The pinned track-controls column left of the lanes, one cell per lane. Collapsed, each cell is just a
  * track's grab handle (a faint grip glyph; T23 adds the long-press reorder). Expanded (the mixer) each
- * cell is the arm button (the armed track is the one Record records onto), Mute, Solo and a volume
- * slider. It follows the lanes' vertical scroll (`laneScroll`) but never scrolls with time.
+ * cell is an info button (opens the track's sheet: rename, delete), Mute, Solo and a volume slider.
+ * Arming happens on the track's name pill over the lanes. It follows the lanes' vertical scroll (`laneScroll`) but never scrolls with time.
  */
 export function TrackColumn({
   tracks,
@@ -28,11 +28,10 @@ export function TrackColumn({
   expanded,
   lane,
   laneScroll,
-  armedTrackId,
-  armDisabled,
+  editDisabled,
   anySolo,
   draft,
-  onArm,
+  onEdit,
   onToggleMute,
   onToggleSolo,
   onVolumeDrag,
@@ -42,19 +41,19 @@ export function TrackColumn({
   /** Where the lanes start (below the ruler). */
   top: number;
   width: number;
-  /** Width of the collapsed column: the grab handle, and the arm button's area in the mixer. */
+  /** Width of the collapsed column: the grab handle, and the info button's area in the mixer. */
   armWidth: number;
   /** Show the mixer controls. */
   expanded: boolean;
   lane: number;
   laneScroll: SharedValue<number>;
-  armedTrackId: string | null;
-  /** While recording: arming can't change. */
-  armDisabled: boolean;
+  /** While recording: tracks can't be edited. */
+  editDisabled: boolean;
   /** Some track is soloed, so tracks that aren't are silent. */
   anySolo: boolean;
   draft: FaderDraft | null;
-  onArm: (trackId: string) => void;
+  /** Open the track's sheet. */
+  onEdit: (trackId: string) => void;
   onToggleMute: (trackId: string) => void;
   onToggleSolo: (trackId: string) => void;
   onVolumeDrag: (trackId: string, gain: number) => void;
@@ -67,12 +66,16 @@ export function TrackColumn({
     <View style={[styles.viewport, { top, width }]}>
       <Animated.View style={scrolled}>
         {tracks.map((track, index) => {
-          const armed = track.id === armedTrackId;
           const silent = anySolo ? !track.solo : track.muted;
           return (
             <View
               key={track.id}
-              style={[styles.cell, { height: lane }, index % 2 === 1 && styles.cellAlt]}>
+              style={[
+                styles.cell,
+                { height: lane },
+                index % 2 === 1 && styles.cellAlt,
+                expanded && styles.cellMixer,
+              ]}>
               {expanded ? null : (
                 <View style={[styles.armArea, { width: armWidth }]}>
                   <Icon
@@ -88,16 +91,21 @@ export function TrackColumn({
                   <View style={[styles.armArea, { width: armWidth }]}>
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`Arm ${track.name}`}
-                      accessibilityState={{ selected: armed, disabled: armDisabled }}
-                      disabled={armDisabled}
+                      accessibilityLabel={`${track.name} settings`}
+                      accessibilityState={{ disabled: editDisabled }}
+                      disabled={editDisabled}
                       hitSlop={8}
-                      onPress={() => {
-                        void Haptics.selectionAsync();
-                        onArm(track.id);
-                      }}
-                      style={[styles.arm, armed && styles.armed, armDisabled && styles.disabled]}>
-                      {armed ? <View style={styles.armDot} /> : null}
+                      onPress={() => onEdit(track.id)}
+                      style={({ pressed }) => [
+                        styles.info,
+                        editDisabled && styles.disabled,
+                        pressed && styles.pressed,
+                      ]}>
+                      <Icon
+                        name={{ ios: 'info.circle', android: 'info' }}
+                        size={22}
+                        color="textSecondary"
+                      />
                     </Pressable>
                   </View>
                   <MixerToggle
@@ -189,30 +197,15 @@ const useStyles = makeStyles((t) => ({
     backgroundColor: t.colors.background,
   },
   cellAlt: { backgroundColor: t.colors.laneAlt },
+  cellMixer: { paddingHorizontal: t.spacing.sm },
   armArea: { alignItems: 'center', justifyContent: 'center' },
-  arm: {
-    width: ARM_SIZE,
-    height: ARM_SIZE,
-    borderRadius: t.radius.full,
-    borderWidth: 2,
-    borderColor: t.colors.textTertiary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  armed: { borderColor: t.colors.primary },
+  info: { width: INFO_SIZE, height: INFO_SIZE, alignItems: 'center', justifyContent: 'center' },
   grip: { opacity: 0.6 },
-  armDot: {
-    width: ARM_SIZE / 2,
-    height: ARM_SIZE / 2,
-    borderRadius: t.radius.full,
-    backgroundColor: t.colors.primary,
-  },
   mixer: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: t.spacing.sm,
-    paddingRight: t.spacing.md,
   },
   toggle: {
     width: TOGGLE_SIZE,

@@ -11,7 +11,7 @@ const laneScroll = { get: () => 0, set: () => {}, value: 0 } as never;
 
 function renderColumn(overrides: Partial<Parameters<typeof TrackColumn>[0]> = {}) {
   const props = {
-    onArm: jest.fn(),
+    onEdit: jest.fn(),
     onToggleMute: jest.fn(),
     onToggleSolo: jest.fn(),
     onVolumeDrag: jest.fn(),
@@ -27,8 +27,7 @@ function renderColumn(overrides: Partial<Parameters<typeof TrackColumn>[0]> = {}
         expanded
         lane={88}
         laneScroll={laneScroll}
-        armedTrackId="b"
-        armDisabled={false}
+        editDisabled={false}
         anySolo={false}
         draft={null}
         {...props}
@@ -48,17 +47,17 @@ describe('TrackColumn', () => {
     expect(screen.queryByRole('adjustable', { name: 'Vocals volume' })).not.toBeOnTheScreen();
   });
 
-  it('arms, mutes and solos tracks', async () => {
-    const { view, onArm, onToggleMute, onToggleSolo } = renderColumn();
+  it('opens a track, mutes and solos it', async () => {
+    const { view, onEdit, onToggleMute, onToggleSolo } = renderColumn();
     await view;
     const user = userEvent.setup();
 
     expect(screen.getByRole('button', { name: 'Mute Vocals' })).toBeSelected();
-    await user.press(screen.getByRole('button', { name: 'Arm Track 1' }));
+    await user.press(screen.getByRole('button', { name: 'Track 1 settings' }));
     await user.press(screen.getByRole('button', { name: 'Mute Track 1' }));
     await user.press(screen.getByRole('button', { name: 'Solo Vocals' }));
 
-    expect(onArm).toHaveBeenCalledWith('a');
+    expect(onEdit).toHaveBeenCalledWith('a');
     expect(onToggleMute).toHaveBeenCalledWith('a');
     expect(onToggleSolo).toHaveBeenCalledWith('b');
   });
@@ -82,16 +81,9 @@ describe('TrackColumn', () => {
     });
   });
 
-  it('marks the armed track in the mixer', async () => {
-    await renderColumn().view;
+  it('locks the track sheet while recording', async () => {
+    await renderColumn({ editDisabled: true }).view;
 
-    expect(screen.getByRole('button', { name: 'Arm Vocals' })).toBeSelected();
-    expect(screen.getByRole('button', { name: 'Arm Track 1' })).not.toBeSelected();
-  });
-
-  it('locks arming while recording', async () => {
-    await renderColumn({ armDisabled: true }).view;
-
-    expect(screen.getByRole('button', { name: 'Arm Track 1' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Track 1 settings' })).toBeDisabled();
   });
 });

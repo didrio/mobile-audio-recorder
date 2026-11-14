@@ -24,9 +24,9 @@ name: Overdub
     timeout: 15000
 
 - tapOn: 'New track'
-# Arm buttons live in the mixer; the armed track shows on its name label.
+# The new track is armed: tapping a track's name pill arms it.
 - extendedWaitUntil:
-    visible: 'Track 2 settings, armed'
+    visible: 'Arm Track 2'
     timeout: 5000
 - tapOn: 'Record'
 - extendedWaitUntil:

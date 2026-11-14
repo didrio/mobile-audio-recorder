@@ -499,10 +499,9 @@ export function Timeline({
             onToggleSolo={onToggleSolo}
             lane={lane}
             laneScroll={laneScroll}
-            armedTrackId={armedTrackId}
-            armDisabled={isRecording}
+            editDisabled={isRecording}
             draft={draft}
-            onArm={onArm}
+            onEdit={onEditTrack}
             onVolumeDrag={(trackId, gain) => {
               setDraft({ trackId, gain });
               onVolumeLive(trackId, gain);
@@ -523,9 +522,9 @@ export function Timeline({
             laneScroll={laneScroll}
             draft={draft}
             armedTrackId={armedTrackId}
-            editDisabled={isRecording}
+            armDisabled={isRecording}
             addTrackDisabled={addTrackDisabled}
-            onEdit={onEditTrack}
+            onArm={onArm}
             onAddTrack={onAddTrack}
           />
         </>

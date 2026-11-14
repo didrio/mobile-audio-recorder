@@ -61,6 +61,7 @@ const project = (tracks: Project['tracks']): Project => ({
   metronomeOutput: 'both',
   loopOn: false,
   loopRegion: null,
+  sections: [],
   takes: {},
   tracks,
 });

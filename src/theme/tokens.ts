@@ -58,6 +58,16 @@ export const lightColors = {
   /** Visual metronome: the lit downbeat (other beats light in `text`), and its number. */
   downbeat: '#1FA34A',
   onDownbeat: '#FFFFFF',
+  /** Section labels (T18): the rail's palette, with `onSection` text readable on each. */
+  sectionRed: '#F4A29B',
+  sectionOrange: '#F6B675',
+  sectionYellow: '#EFD36A',
+  sectionGreen: '#9AD3A4',
+  sectionTeal: '#86D0D6',
+  sectionBlue: '#A9C2F4',
+  sectionPurple: '#C9B1F0',
+  sectionPink: '#F0AED2',
+  onSection: '#1C1C1E',
   /** Dimmed backdrop behind dialogs. */
   scrim: '#00000066',
 } as const;
@@ -94,6 +104,15 @@ export const darkColors: ThemeColors = {
   onSolo: '#000000',
   downbeat: '#30D158',
   onDownbeat: '#000000',
+  sectionRed: '#A8322A',
+  sectionOrange: '#9A5410',
+  sectionYellow: '#7C6510',
+  sectionGreen: '#2F7340',
+  sectionTeal: '#1D6E74',
+  sectionBlue: '#3A5DA8',
+  sectionPurple: '#6845A8',
+  sectionPink: '#9A3A70',
+  onSection: '#FFFFFF',
   /** Dimmed backdrop behind dialogs. */
   scrim: '#00000066',
 };

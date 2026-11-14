@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
 
 import { AndroidHeaderMenu, type HeaderMenuItem } from '@/components/android-header-menu';
+import { RenameDialog } from '@/components/rename-dialog';
 import { Icon, ListSection, Screen, Text } from '@/components/ui';
 import { makeStyles } from '@/theme';
 
@@ -18,7 +19,6 @@ import {
   useProjects,
   useRenameProject,
 } from './queries';
-import { RenameIdeaDialog } from './rename-idea-dialog';
 
 /**
  * The Ideas tab: one big button to capture a new idea, the "+" menu (New Idea without recording), sort
@@ -158,8 +158,10 @@ export function ProjectsScreen() {
         </ListSection>
       ) : null}
 
-      <RenameIdeaDialog
-        idea={renaming}
+      <RenameDialog
+        item={renaming}
+        title="Rename idea"
+        inputLabel="Idea name"
         onCancel={() => setRenaming(null)}
         onSubmit={(id, name) => {
           setRenaming(null);

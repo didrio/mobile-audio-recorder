@@ -5,36 +5,40 @@ import { Button, Text } from '@/components/ui';
 import { makeStyles, useTheme } from '@/theme';
 
 type Props = {
-  /** The idea being renamed; `null` hides the dialog. */
-  idea: { id: string; name: string } | null;
+  /** What is being renamed; `null` hides the dialog. */
+  item: { id: string; name: string } | null;
+  /** E.g. "Rename idea". */
+  title: string;
+  /** Accessibility label of the name field, e.g. "Idea name". */
+  inputLabel: string;
+  maxLength?: number;
   onSubmit: (id: string, name: string) => void;
   onCancel: () => void;
 };
 
 /** A small cross-platform "Rename" prompt (`Alert.prompt` exists only on iOS). */
-export function RenameIdeaDialog({ idea, onSubmit, onCancel }: Props) {
+export function RenameDialog({ item, ...props }: Props) {
   return (
-    <Modal visible={!!idea} transparent animationType="fade" onRequestClose={onCancel}>
-      {idea ? <Body key={idea.id} idea={idea} onSubmit={onSubmit} onCancel={onCancel} /> : null}
+    <Modal visible={!!item} transparent animationType="fade" onRequestClose={props.onCancel}>
+      {item ? <Body key={item.id} item={item} {...props} /> : null}
     </Modal>
   );
 }
 
 function Body({
-  idea,
+  item,
+  title,
+  inputLabel,
+  maxLength,
   onSubmit,
   onCancel,
-}: {
-  idea: { id: string; name: string };
-  onSubmit: Props['onSubmit'];
-  onCancel: () => void;
-}) {
+}: Omit<Props, 'item'> & { item: { id: string; name: string } }) {
   const styles = useStyles();
   const theme = useTheme();
-  const [name, setName] = useState(idea.name);
+  const [name, setName] = useState(item.name);
   const canSave = name.trim().length > 0;
   const save = () => {
-    if (canSave) onSubmit(idea.id, name.trim());
+    if (canSave) onSubmit(item.id, name.trim());
   };
 
   return (
@@ -43,9 +47,10 @@ function Body({
       style={styles.backdrop}>
       <Pressable accessibilityLabel="Cancel" style={styles.scrim} onPress={onCancel} />
       <View style={styles.card}>
-        <Text variant="headline">Rename idea</Text>
+        <Text variant="headline">{title}</Text>
         <TextInput
-          accessibilityLabel="Idea name"
+          accessibilityLabel={inputLabel}
+          maxLength={maxLength}
           autoFocus
           selectTextOnFocus
           value={name}

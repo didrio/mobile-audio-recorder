@@ -1,5 +1,5 @@
 /**
- * The app's SQLite database (projects, tracks, takes, clips).
+ * The app's SQLite database (projects, tracks, takes, clips, sections).
  *
  * One shared connection, opened lazily and migrated before first use. It's a plain promise rather than
  * `SQLiteProvider` because the audio flow writes to it outside React.
@@ -9,8 +9,10 @@
  *   absolute container path changes between installs/updates on iOS.
  * - `clips` are windows onto a take placed on a track: `start` (timeline position), `offset` (where in
  *   the take playback begins) and `duration`, all in seconds. Trim/move/split only change these numbers.
+ * - `sections` (T18) label spans of the timeline (Intro, Verse…): `start`/`duration` in seconds, a palette
+ *   `color` key (`@/features/project/sections`) and a free-text `notes`. They never overlap.
  * - The open idea is edited through the editor store (`@/features/project/editor-store`): edits are
- *   snapshots of the track/clip rows they touch, applied in memory and written with `saveChanges`
+ *   snapshots of the track/clip/section rows they touch, applied in memory and written with `saveChanges`
  *   (`projects-repo.ts`). Undo history lives only while the idea is open, so takes no clip uses are
  *   deleted (rows + files) the next time it opens.
  *
@@ -19,7 +21,7 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 
 const DATABASE_NAME = 'audio-recorder.db';
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 let database: Promise<SQLiteDatabase> | null = null;
 
@@ -133,6 +135,21 @@ async function migrate(db: SQLiteDatabase) {
         ALTER TABLE projects ADD COLUMN loop_on INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE projects ADD COLUMN loop_start REAL;
         ALTER TABLE projects ADD COLUMN loop_end REAL;
+      `);
+    }
+    if (version < 9) {
+      // Section labels per idea (T18).
+      await tx.execAsync(`
+        CREATE TABLE sections (
+          id TEXT PRIMARY KEY NOT NULL,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          color TEXT NOT NULL,
+          start REAL NOT NULL,
+          duration REAL NOT NULL,
+          notes TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX sections_project ON sections(project_id, start);
       `);
     }
     await tx.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);

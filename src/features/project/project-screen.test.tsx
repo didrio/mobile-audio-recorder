@@ -244,6 +244,7 @@ const project: Project = {
   metronomeOutput: 'both',
   loopOn: false,
   loopRegion: null,
+  sections: [],
   takes: {
     t1: {
       id: 't1',

@@ -6,10 +6,19 @@ import { randomUUID } from 'expo-crypto';
 
 import { clampBpm } from '@/features/audio/tempo';
 import { clearRange } from '@/features/projects/clip-overlap';
-import type { Clip, IdeaSettings, Project, Take, Track } from '@/features/projects/projects-repo';
+import type {
+  Clip,
+  IdeaSettings,
+  Project,
+  Section,
+  Take,
+  Track,
+} from '@/features/projects/projects-repo';
 import { moveIndex } from '@/features/timeline/reorder-math';
+import { clampSection, neighborBounds, type SectionWindow } from '@/features/timeline/section-math';
 
 import { ideaSettings, trackRow, type Change, type Edit } from './edit-changes';
+import { MIN_SECTION_SECONDS, SECTION_NAME_MAX, type SectionColor } from './sections';
 
 /** Adds an empty track after the last one, named "Track N". */
 export function addTrackEdit(project: Project): { edit: Edit; trackId: string } {
@@ -354,5 +363,130 @@ export function setIdeaSettingsEdit(project: Project, patch: Partial<IdeaSetting
   return {
     label: 'Idea settings',
     changes: [{ table: 'projects', id: project.id, before, after }],
+  };
+}
+
+// Sections (T18)
+
+export type NewSection = SectionWindow & { name: string; color: SectionColor };
+
+/**
+ * Adds a section, cut short where the next one starts (it never overlaps another; a start inside a
+ * section moves to that section's end). `null` for a blank name or when less than `MIN_SECTION_SECONDS` fits.
+ */
+export function addSectionEdit(
+  project: Project,
+  input: NewSection,
+): { edit: Edit; sectionId: string } | null {
+  const name = input.name.trim().slice(0, SECTION_NAME_MAX);
+  if (!name) return null;
+  let min = 0;
+  let max = Infinity;
+  const start = Math.max(0, input.start);
+  for (const other of project.sections) {
+    if (other.start <= start) min = Math.max(min, other.start + other.duration);
+    else max = Math.min(max, other.start);
+  }
+  const from = Math.max(start, min);
+  const window = { start: from, duration: Math.min(input.duration, max - from) };
+  if (!(window.duration >= MIN_SECTION_SECONDS)) return null;
+  const sectionId = randomUUID();
+  const section: Section = {
+    id: sectionId,
+    projectId: project.id,
+    name,
+    color: input.color,
+    start: window.start,
+    duration: window.duration,
+    notes: '',
+  };
+  return {
+    sectionId,
+    edit: {
+      label: 'Add section',
+      changes: [{ table: 'sections', id: sectionId, before: null, after: section }],
+    },
+  };
+}
+
+/**
+ * Moves and/or resizes a section (a drag ending): at least `MIN_SECTION_SECONDS` long where there's
+ * room, not before 0:00, and kept between its neighbors. `null` for a missing section or no change.
+ */
+export function placeSectionEdit(
+  project: Project,
+  sectionId: string,
+  window: SectionWindow,
+  label = 'Move section',
+): Edit | null {
+  const index = project.sections.findIndex((candidate) => candidate.id === sectionId);
+  const section = project.sections[index];
+  if (!section) return null;
+  const bounds = neighborBounds(project.sections, index);
+  const room = bounds.max - bounds.min;
+  const placed = clampSection(
+    {
+      start: window.start,
+      duration: Math.max(window.duration, Math.min(MIN_SECTION_SECONDS, room)),
+    },
+    bounds,
+  );
+  if (placed.start === section.start && placed.duration === section.duration) return null;
+  return {
+    label,
+    changes: [
+      { table: 'sections', id: sectionId, before: section, after: { ...section, ...placed } },
+    ],
+  };
+}
+
+/** Renames a section; a blank or unchanged name does nothing. */
+export function renameSectionEdit(project: Project, sectionId: string, name: string): Edit | null {
+  const trimmed = name.trim().slice(0, SECTION_NAME_MAX);
+  return trimmed ? sectionFieldEdit(project, sectionId, { name: trimmed }, 'Rename section') : null;
+}
+
+export function setSectionColorEdit(
+  project: Project,
+  sectionId: string,
+  color: SectionColor,
+): Edit | null {
+  return sectionFieldEdit(project, sectionId, { color }, 'Section color');
+}
+
+/** Sets a section's note ('' clears it; trailing whitespace is dropped). */
+export function setSectionNotesEdit(
+  project: Project,
+  sectionId: string,
+  notes: string,
+): Edit | null {
+  return sectionFieldEdit(project, sectionId, { notes: notes.trimEnd() }, 'Section notes');
+}
+
+function sectionFieldEdit(
+  project: Project,
+  sectionId: string,
+  fields: Partial<Pick<Section, 'name' | 'color' | 'notes'>>,
+  label: string,
+): Edit | null {
+  const section = project.sections.find((candidate) => candidate.id === sectionId);
+  if (!section) return null;
+  const after = { ...section, ...fields };
+  if (
+    after.name === section.name &&
+    after.color === section.color &&
+    after.notes === section.notes
+  ) {
+    return null;
+  }
+  return { label, changes: [{ table: 'sections', id: sectionId, before: section, after }] };
+}
+
+export function deleteSectionEdit(project: Project, sectionId: string): Edit | null {
+  const section = project.sections.find((candidate) => candidate.id === sectionId);
+  if (!section) return null;
+  return {
+    label: 'Delete section',
+    changes: [{ table: 'sections', id: sectionId, before: section, after: null }],
   };
 }

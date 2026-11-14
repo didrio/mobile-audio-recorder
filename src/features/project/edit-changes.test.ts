@@ -1,5 +1,5 @@
 import { applyToProject, ideaSettings, invertEdit, trackRow, type Edit } from './edit-changes';
-import { testClip, testProject, testTrack } from './edit-test-data';
+import { testClip, testProject, testSection, testTrack } from './edit-test-data';
 
 const project = testProject([
   testTrack('a', 0, [testClip('c1', 'a', 0, 4), testClip('c2', 'a', 6, 2)]),
@@ -13,6 +13,30 @@ function roundTrip(edit: Edit) {
 }
 
 describe('applyToProject', () => {
+  it('inserts, changes and deletes sections, keeping them by start; undo restores them', () => {
+    const withSections = testProject([testTrack('a', 0)], [testSection('s1', 'Verse', 4, 4)]);
+    const edit: Edit = {
+      label: 'test',
+      changes: [
+        { table: 'sections', id: 's0', before: null, after: testSection('s0', 'Intro', 0, 4) },
+        {
+          table: 'sections',
+          id: 's1',
+          before: testSection('s1', 'Verse', 4, 4),
+          after: testSection('s1', 'Verse 1', 4, 8),
+        },
+      ],
+    };
+    const after = applyToProject(withSections, edit.changes);
+    expect(after.sections.map((s) => [s.name, s.start, s.duration])).toEqual([
+      ['Intro', 0, 4],
+      ['Verse 1', 4, 8],
+    ]);
+    // Sections don't count towards the idea's (playback) duration.
+    expect(after.duration).toBe(0);
+    expect(applyToProject(after, invertEdit(edit).changes)).toEqual(withSections);
+  });
+
   it('inserts a track and a clip, keeping tracks by position and clips by start', () => {
     const edit: Edit = {
       label: 'test',

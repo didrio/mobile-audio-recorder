@@ -96,37 +96,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   Product rule: no software instruments. This stays a pitch reference, so don't grow it into a recordable
   instrument. A mic tuner is the natural companion (Backlog).
 
-### T18 — Section labels
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Mark the song's structure (Intro, Verse, Chorus…) on a colored rail above the ruler, and jump to
-  sections with a tap.
-- **Done when:**
-  - [ ] `sections` table (migration): id, project_id, name, color, start, duration.
-  - [ ] Rail above the ruler, about the ruler's height. It starts after the controls column, scrolls and zooms
-        with time, and doesn't scroll vertically with the tracks.
-  - [ ] Tapping an empty spot on the rail opens a picker: presets with fixed colors (Intro, Verse, Pre-chorus,
-        Chorus, Bridge, Outro) and Custom… (name + a color from a palette). A new section starts at the tapped
-        spot and runs to the next section, or 8 bars (grid on) / 15 s (grid off).
-  - [ ] Agreed interaction model: tapping a section jumps the playhead to its start and selects it (action bar:
-        Rename, Color, Delete). Drag a selected section to move it, drag its handles to resize it,
-        long-press to pick one up. Sections never overlap (they stop at their neighbors) and snap to bars when
-        the grid is on.
-  - [ ] Undoable (editor store). Names truncate when the section is narrow.
-  - [ ] The section action bar also gets **Notes**: an optional free-text note per section (chords, lyric cue),
-        stored in `sections.notes`, with a small icon on the section when one is set. Complements T24's idea
-        notes.
-  - [ ] Palette colors are tokens in `src/theme/tokens.ts` (light and dark), readable label text on each.
-- **Context:** Reuse T5's selection and drag code: the math in `clip-edit-math.ts` is generic (items with
-  start/duration on a row; `grabPart`, `dragWindow`, `snapDrag`), the gestures in `timeline.tsx` (one pan that
-  decides on touch-down, a long-press pan beside it, `owner` says who holds the item; the drop draws from the
-  drag state until the saved edit renders). Sections have no source window: give `dragWindow` offset 0 and an
-  unbounded source, and stop them at their neighbors. `snapDrag` already takes a `gridStep` (T9: `gridSnapStep(meter, zoom)` in
-  `grid-math.ts`, 0 = grid off), so sections snap to bars by passing a bar-length step. Selection must be a shared value read by the picture
-  (`selection`): values that only reach the picture through its closure redraw a frame or more late. Draw the
-  rail in the same per-frame Skia picture as the ruler.
-
 ### T16 — Clip options
 
 - **Status:** ready
@@ -284,6 +253,11 @@ skill). Fix or ticket what fails, then delete the line.
   Handles: drag both ends with the grid + Snap on (whole bars, haptic per bar) and off; the start handle vs.
   the playhead handle when they overlap. Toggle Loop and drag a handle while playing (short restart, no
   stutter). Record while looping: the loop stops and recording starts from there, backing straight through.
+- Sections (T18, iPhone): tap empty rail (picker), tap a section (playhead jumps, also while playing), drag
+  the body and both handles with the grid + Snap on (bar haptic) and off (snap guide + haptic to clip edges and
+  the playhead), long-press pickup of an unselected section, a section stopping at its neighbor; the note glyph
+  and right handle on a section whose end is on screen; the 4-button bar fits; light mode label contrast.
+  Hit-test feel → `HANDLE_REACH`, `RAIL_TAP_REACH`, `RAIL_SIZE` in `timeline.tsx`.
 - App icons: the DEV icon on the iPhone home screen (installed 2026-11-14); the PREVIEW icon after the next
   preview build (`npm run build:preview`, iOS only while Android is paused).
 - Android: the old "Idea 1" clip drew without a waveform on the emulator (missing take file or peaks?).
@@ -351,6 +325,13 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T18 — Section labels — 2026-11-14 — colored rail above the ruler (`section-rail.ts`, `section-math.ts`);
+  tap empty rail → picker (`new-section.tsx` sheet: 6 presets numbered when repeated, Custom name + palette),
+  8 bars / 15 s cut at the next section; tap a section → playhead to its start + action bar (Rename via the
+  shared `RenameDialog`, inline Color swatches, Notes sheet `section-notes/[id]`, Delete); move / resize /
+  long-press reuse the clip drag state (`dragKind`), stop at neighbors, whole bars with grid + Snap; all undoable
+  (`sections` table, migration v9, `Change` variant), copied by Duplicate; palette tokens with a contrast test.
+  Simulator light + dark; device check pending
 - T26 — Loop region — 2026-11-14 — Loop toggle left of the transport (saved per idea with its region,
   migration v8, not undoable, copied by Duplicate; first turn-on makes 8 s / 2 bars at the playhead); ruler
   band + handle tabs (faint with Loop off), handles hit-tested before scrub, snap to bars with the grid;
@@ -373,8 +354,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   on-the-fly punches come ~0.1 s later so the fade fits); pre-roll off = backing runs muted from the start;
   beat display shows while recording silently even for Sound-only metronomes; Speaker mode skips cleaning
   silent takes. Simulator + unit tests only; device check pending
-- T33 — Visual metronome — 2026-11-14 — beat display under the strip while the metronome is on (one block per
-  beat, 6/8 and 12/8 grouped, current beat lit with a flash, green downbeat token), driven on the UI thread by
-  the transport's unclamped `beatClock` (counts in before 0:00) with `beatAt` in `metronome.ts`; per-idea
-  output Sound / Visual / Both in Idea settings (undoable, migration v6; Visual = engine click at volume 0, so
-  timing and alignment are unchanged); "Use Visual" hint in Speaker mode. Simulator only; device check pending

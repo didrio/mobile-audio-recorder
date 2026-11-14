@@ -1,10 +1,14 @@
 /** Small projects for the editor's unit tests. */
-import type { Clip, Project } from '@/features/projects/projects-repo';
+import type { Clip, Project, Section } from '@/features/projects/projects-repo';
 
 import type { ProjectTrack } from './edit-changes';
 
 export function testClip(id: string, trackId: string, start: number, duration: number): Clip {
   return { id, trackId, takeId: 'take1', start, offset: 0, duration };
+}
+
+export function testSection(id: string, name: string, start: number, duration: number): Section {
+  return { id, projectId: 'p1', name, color: 'blue', start, duration, notes: '' };
 }
 
 export function testTrack(id: string, position: number, clips: Clip[] = []): ProjectTrack {
@@ -20,7 +24,7 @@ export function testTrack(id: string, position: number, clips: Clip[] = []): Pro
   };
 }
 
-export function testProject(tracks: ProjectTrack[]): Project {
+export function testProject(tracks: ProjectTrack[], sections: Section[] = []): Project {
   const duration = Math.max(0, ...tracks.flatMap((t) => t.clips.map((c) => c.start + c.duration)));
   return {
     id: 'p1',
@@ -40,6 +44,7 @@ export function testProject(tracks: ProjectTrack[]): Project {
     metronomeOutput: 'both',
     loopOn: false,
     loopRegion: null,
+    sections,
     takes: {},
     tracks,
   };

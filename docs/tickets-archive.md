@@ -2,6 +2,11 @@
 
 Oldest finished tickets, moved out of `TICKETS.md` to keep it lean. Newest first.
 
+- T33 — Visual metronome — 2026-11-14 — beat display under the strip while the metronome is on (one block per
+  beat, 6/8 and 12/8 grouped, current beat lit with a flash, green downbeat token), driven on the UI thread by
+  the transport's unclamped `beatClock` (counts in before 0:00) with `beatAt` in `metronome.ts`; per-idea
+  output Sound / Visual / Both in Idea settings (undoable, migration v6; Visual = engine click at volume 0, so
+  timing and alignment are unchanged); "Use Visual" hint in Speaker mode. Simulator only; device check pending
 - T21 — Speaker mode (echo cancellation) — 2026-11-14 — after Stop, the backing that played is removed from
   takes recorded without headphones (local module `modules/echo-canceller`: C core with a fixed
   speaker → room → mic model incl. distortion, delay search, measured click suppression; Swift wrapper, iOS

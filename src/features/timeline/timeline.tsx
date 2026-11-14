@@ -42,6 +42,14 @@ import {
 } from '@/features/audio/loop-math';
 import { barSeconds, beatSeconds, isCompound } from '@/features/audio/tempo';
 import { canSplitAt, MIN_CLIP_SECONDS, type ClipPlacement } from '@/features/project/edit-commands';
+import {
+  DEFAULT_SECTION_BARS,
+  DEFAULT_SECTION_SECONDS,
+  MIN_SECTION_SECONDS,
+  SECTION_COLORS,
+  sectionColorToken,
+  type SectionColor,
+} from '@/features/project/sections';
 import type { Project } from '@/features/projects/projects-repo';
 import { useTheme, type ThemeColors } from '@/theme';
 
@@ -60,6 +68,15 @@ import {
 import { activeSnapStep, gridSteps, LINE_BAR, LINE_GROUP, lineKind, stickyTime } from './grid-math';
 import { LaneOverlay } from './lane-overlay';
 import { autoScrollSpeed, laneSlotDuringDrag, laneTopDuringDrag } from './reorder-math';
+import { SectionActionBar } from './section-action-bar';
+import {
+  dragSection,
+  neighborBounds,
+  newSectionWindow,
+  sectionAt,
+  type SectionWindow,
+} from './section-math';
+import { drawSectionRail, type RailPaints, type RailSection } from './section-rail';
 import {
   clamp,
   clampScroll,
@@ -90,6 +107,10 @@ import { LEVEL_COUNT, LEVEL_FACTOR, maxAmplitude, peaksPerSecond } from './wavef
 
 /** Height of the ruler strip: tall enough to grab with a finger and drag the playhead. */
 const RULER_SIZE = 32;
+/** Height of the section rail above the ruler (T18). */
+const RAIL_SIZE = 30;
+/** Rail + ruler: where the lanes start. */
+const HEADER_SIZE = RAIL_SIZE + RULER_SIZE;
 /** Touches this far below the ruler still scrub (it's a thin target). */
 const RULER_SLOP = 12;
 /** Space before 0:00: none, 0:00 sits at the track column edge (the playhead there is half hidden by it, which shows it is at the start). */
@@ -134,6 +155,12 @@ const LOOP_TAB_WIDTH = 6;
 const LOOP_TAB_INSET = 4;
 const LOOP_REACH_OUT = 8;
 const LOOP_REACH_IN = 22;
+/** What a drag holds: a clip or a section. */
+const KIND_CLIP = 0;
+const KIND_SECTION = 1;
+const RAIL_HINT = 'Tap here to add a section';
+/** A new section starts at the previous one's end (or 0:00) when the tap is this close to it (points). */
+const RAIL_TAP_REACH = 24;
 /** Skia resolves fonts through the system font manager, which doesn't know RN's 'System' alias. */
 const FONT_FAMILY = Platform.select({ ios: 'Helvetica', default: 'sans-serif' });
 
@@ -180,6 +207,18 @@ export type ClipEditing = {
   onDelete: (clipId: string) => void;
 };
 
+/** What the timeline can do to sections (`null` turns section editing off, e.g. while recording). */
+export type SectionEditing = {
+  /** An empty spot on the rail was tapped: add a section there (asks for its name). */
+  onAdd: (window: SectionWindow) => void;
+  /** A drag of a section or one of its handles ended there (one undo step). Returns whether it changed. */
+  onPlace: (sectionId: string, window: SectionWindow, label: string) => boolean;
+  onRename: (sectionId: string) => void;
+  onColor: (sectionId: string, color: SectionColor) => void;
+  onNotes: (sectionId: string) => void;
+  onDelete: (sectionId: string) => void;
+};
+
 /**
  * The project timeline, drawn with Skia on the UI thread: time runs left to right, tracks are
  * rows. Ruler on top, lanes with clips and waveforms, the playhead on top.
@@ -204,6 +243,10 @@ export type ClipEditing = {
  * tab inside each end; the lanes inside it are tinted while Loop is on. The handles are hit-tested
  * before the ruler's scrub: dragging one resizes the region (whole bars while the grid snaps), and
  * the drop is one `onLoopRegionChange` call (not an undo step).
+ * Sections (T18): a rail above the ruler with the song's sections. A tap on one jumps the playhead to
+ * its start and selects it (`SectionActionBar`); a tap on an empty spot asks for a new one there. A
+ * selected section is moved and resized like a clip (same drag state, `dragKind`), a long press picks an
+ * unselected one up; sections stop at their neighbors and snap to bars while the grid snaps.
  * Waveforms share one vertical scale per project (the loudest take fills its lane), so relative
  * loudness between takes stays true.
  */
@@ -219,6 +262,7 @@ export function Timeline({
   armedTrackId,
   addTrackDisabled,
   clipEditing,
+  sectionEditing,
   onSeek,
   onLoopRegionChange,
   onArm,
@@ -247,6 +291,7 @@ export function Timeline({
   armedTrackId: string | null;
   addTrackDisabled: boolean;
   clipEditing: ClipEditing | null;
+  sectionEditing: SectionEditing | null;
   onSeek: (time: number) => void;
   /** A loop handle was dragged (called once, on release). */
   onLoopRegionChange: (region: LoopRegion) => void;
@@ -276,7 +321,7 @@ export function Timeline({
   const viewHeight = size.height;
   const trackCount = project.tracks.length;
   const lane = LANE_HEIGHT;
-  const lanesViewport = Math.max(0, viewHeight - RULER_SIZE);
+  const lanesViewport = Math.max(0, viewHeight - HEADER_SIZE);
   const maxLaneScroll = laneScrollMax(lanesViewport, trackCount, lane, NEW_TRACK_ROW_HEIGHT);
   const duration = project.duration;
   const isRecording = liveTake != null;
@@ -287,7 +332,38 @@ export function Timeline({
   const meter = { bpm: project.bpm, beatsPerBar: project.beatsPerBar, beatUnit: project.beatUnit };
 
   const editable = clipEditing != null && !isRecording;
+  const sectionEditable = sectionEditing != null && !isRecording;
+  // At most one thing is selected: a clip or a section.
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
+  const selectClip = (clipId: string | null) => {
+    setSelectedId(clipId);
+    setSelectedSectionId(null);
+  };
+  const selectSection = (sectionId: string | null) => {
+    setSelectedSectionId(sectionId);
+    setSelectedId(null);
+  };
+  const sections: RailSection[] = project.sections.map((section) => ({
+    id: section.id,
+    name: section.name,
+    color: section.color,
+    start: section.start,
+    duration: section.duration,
+    hasNotes: section.notes.length > 0,
+  }));
+  const sectionsEnd = sections.reduce((end, s) => Math.max(end, s.start + s.duration), 0);
+  /** How far the timeline's content reaches: the last clip or section. */
+  const contentEnd = Math.max(duration, sectionsEnd);
+  const selectedSectionIndex = sectionEditable
+    ? sections.findIndex((section) => section.id === selectedSectionId)
+    : -1;
+  const selectedSection = sections[selectedSectionIndex] ?? null;
+  const selectedSectionKey = selectedSection?.id ?? null;
+  const sectionSelection = useSharedValue<string | null>(null);
+  useEffect(() => {
+    sectionSelection.set(selectedSectionKey);
+  }, [sectionSelection, selectedSectionKey]);
   const peaks = useTakePeaks(Object.values(project.takes).map((take) => take.path));
   const anySolo = project.tracks.some((track) => track.solo);
   const clips: ClipShape[] = project.tracks.flatMap((track, row) =>
@@ -345,6 +421,11 @@ export function Timeline({
 
   const paints = makePaints(theme.colors);
   const font = matchFont({ fontFamily: FONT_FAMILY, fontSize: theme.typography.caption.fontSize });
+  const sectionFont = matchFont({
+    fontFamily: FONT_FAMILY,
+    fontSize: theme.typography.caption.fontSize,
+    fontWeight: '600',
+  });
 
   const zoom = useSharedValue(0);
   const scroll = useSharedValue(0);
@@ -382,14 +463,14 @@ export function Timeline({
     if (timeWidth <= 0) return;
     scheduleOnUI(() => {
       'worklet';
-      const extent = Math.max(duration, playhead.get(), loopEnd.get());
+      const extent = Math.max(contentEnd, playhead.get(), loopEnd.get());
       const nextZoom =
         zoom.get() > 0 ? clampZoom(zoom.get(), timeWidth, extent) : defaultZoom(timeWidth, extent);
       zoom.set(nextZoom);
       scroll.set(clampScroll(scroll.get(), timeWidth, nextZoom, extent));
       laneScroll.set(clamp(laneScroll.get(), 0, maxLaneScroll));
     });
-  }, [timeWidth, duration, maxLaneScroll, zoom, scroll, laneScroll, playhead, loopEnd]);
+  }, [timeWidth, contentEnd, maxLaneScroll, zoom, scroll, laneScroll, playhead, loopEnd]);
 
   useEffect(() => {
     if (following) follow.set(true);
@@ -414,7 +495,7 @@ export function Timeline({
           followScroll(start, position, viewSeconds),
           timeWidth,
           currentZoom,
-          Math.max(duration, position),
+          Math.max(contentEnd, position),
         ),
       );
     },
@@ -433,7 +514,7 @@ export function Timeline({
           followScroll(scroll.get(), position, timeWidth / currentZoom),
           timeWidth,
           currentZoom,
-          Math.max(duration, position),
+          Math.max(contentEnd, position),
         ),
       );
     },
@@ -444,7 +525,7 @@ export function Timeline({
     return clamp(
       pointToTime(x - LEADING_SPACE, scroll.get(), zoom.get()),
       0,
-      contentDuration(duration),
+      contentDuration(contentEnd),
     );
   };
 
@@ -458,13 +539,19 @@ export function Timeline({
     return clamp(
       stickyTime(time, activeSnapStep(grid, snap, meter, z), SNAP_POINTS / z),
       0,
-      contentDuration(duration),
+      contentDuration(contentEnd),
     );
   };
 
   // Clip drag state (UI thread). Which gesture holds a clip: 0 none, 1 the pan (dragging the selected
   // clip or its handles), 2 the long-press pickup.
   const owner = useSharedValue(0);
+  /** What is dragged (`KIND_CLIP` / `KIND_SECTION`), and a dragged section's room between its neighbors. */
+  const dragKind = useSharedValue(KIND_CLIP);
+  const dragMin = useSharedValue(0);
+  const dragMax = useSharedValue(0);
+  /** Bumped each time a section dragged along bars moves to another one (for the haptic). */
+  const barTick = useSharedValue(0);
   /** The finger has started moving the clip (auto-scroll runs). */
   const dragging = useSharedValue(false);
   /** The pan is scrolling the view (a long press can't pick a clip up any more). */
@@ -485,8 +572,9 @@ export function Timeline({
   const lift = useSharedValue(0);
   /** Time a dragged edge snapped to (drawn as a guide), or -1. */
   const snapTime = useSharedValue(-1);
-  /** The clip held before pickup (index), its id and how far along the hold is (0…1). */
+  /** The clip or section held before pickup (index, kind), its id and how far along the hold is (0…1). */
   const pickIndex = useSharedValue(-1);
+  const pickKind = useSharedValue(KIND_CLIP);
   const pressId = useSharedValue<string | null>(null);
   const press = useSharedValue(0);
   /** The drag whose drop is waiting for its saved edit to render. */
@@ -502,7 +590,15 @@ export function Timeline({
     'worklet';
     const start = loopStart.get();
     const end = loopEnd.get();
-    if (isRecording || y > RULER_SIZE + RULER_SLOP || start < 0 || !(end > start)) return 0;
+    if (
+      isRecording ||
+      y < RAIL_SIZE ||
+      y > HEADER_SIZE + RULER_SLOP ||
+      start < 0 ||
+      !(end > start)
+    ) {
+      return 0;
+    }
     const z = zoom.get();
     // Positive inside the region.
     const intoStart = (timeAt(x) - start) * z;
@@ -516,7 +612,7 @@ export function Timeline({
   /** Index of the clip under a point, or -1. */
   const clipAt = (x: number, y: number) => {
     'worklet';
-    const contentY = y - RULER_SIZE + laneScroll.get();
+    const contentY = y - HEADER_SIZE + laneScroll.get();
     if (contentY < 0 || contentY >= trackCount * lane) return -1;
     return itemAt(clips, timeAt(x), Math.floor(contentY / lane));
   };
@@ -525,6 +621,7 @@ export function Timeline({
     'worklet';
     const clip = clips[index];
     if (!clip) return;
+    dragKind.set(KIND_CLIP);
     dragSerial.set(dragSerial.get() + 1);
     dragIndex.set(index);
     dragId.set(clip.id);
@@ -537,9 +634,71 @@ export function Timeline({
     snapTime.set(-1);
   };
 
+  const startSectionDrag = (index: number, part: DragPart, x: number) => {
+    'worklet';
+    const section = sections[index];
+    if (!section) return;
+    const bounds = neighborBounds(sections, index);
+    dragKind.set(KIND_SECTION);
+    dragMin.set(bounds.min);
+    dragMax.set(bounds.max);
+    dragSerial.set(dragSerial.get() + 1);
+    dragIndex.set(index);
+    dragId.set(section.id);
+    dragPart.set(part);
+    dragWin.set({ start: section.start, offset: 0, duration: section.duration });
+    grabTime.set(timeAt(x));
+    fingerX.set(x);
+    snapTime.set(-1);
+  };
+
+  // The dragged section's window for where the finger is now: whole bars while the grid snaps, else
+  // pulled onto 0:00, the playhead and other sections' and clips' edges; always between its neighbors.
+  const updateSectionDrag = () => {
+    'worklet';
+    const section = sections[dragIndex.get()];
+    const z = zoom.get();
+    if (!section || z <= 0) return;
+    const part = dragPart.get() as DragPart;
+    const origin = { start: section.start, duration: section.duration };
+    const step = snapToGrid ? barSeconds(meter) : 0;
+    let delta = timeAt(fingerX.get()) - grabTime.get();
+    let guide = -1;
+    if (step === 0) {
+      const candidates = [0, playhead.get()];
+      for (const other of sections) {
+        if (other.id !== section.id) candidates.push(other.start, other.start + other.duration);
+      }
+      for (const clip of clips) candidates.push(clip.start, clip.start + clip.duration);
+      const snapped = snapDrag(part, origin, delta, candidates, SNAP_POINTS / z);
+      delta = snapped.delta;
+      guide = snapped.snapTime;
+    }
+    const next = dragSection(
+      part,
+      origin,
+      delta,
+      { min: dragMin.get(), max: dragMax.get() },
+      { step, minDuration: step > 0 ? step : MIN_SECTION_SECONDS },
+    );
+    const landed =
+      guide >= 0 &&
+      (Math.abs(next.start - guide) < 1e-6 || Math.abs(next.start + next.duration - guide) < 1e-6);
+    const before = dragWin.get();
+    if (step > 0 && (before.start !== next.start || before.duration !== next.duration)) {
+      barTick.set(barTick.get() + 1);
+    }
+    dragWin.set({ start: next.start, offset: 0, duration: next.duration });
+    snapTime.set(landed ? guide : -1);
+  };
+
   // The dragged clip's window and lane for where the finger (and the view) is now.
   const updateDrag = () => {
     'worklet';
+    if (dragKind.get() === KIND_SECTION) {
+      updateSectionDrag();
+      return;
+    }
     const clip = clips[dragIndex.get()];
     const z = zoom.get();
     if (!clip || z <= 0) return;
@@ -566,7 +725,7 @@ export function Timeline({
     dragWin.set(next);
     snapTime.set(landed ? guide : -1);
     if (part === DRAG_MOVE) {
-      dragRow.set(rowAt(fingerY.get() - RULER_SIZE, laneScroll.get(), lane, trackCount));
+      dragRow.set(rowAt(fingerY.get() - HEADER_SIZE, laneScroll.get(), lane, trackCount));
     }
   };
 
@@ -577,9 +736,9 @@ export function Timeline({
     if (!dragging.get() || z <= 0) return;
     const sx = autoScrollSpeed(fingerX.get(), viewWidth, AUTO_SCROLL_EDGE, AUTO_SCROLL_SPEED);
     const sy =
-      dragPart.get() === DRAG_MOVE
+      dragPart.get() === DRAG_MOVE && dragKind.get() === KIND_CLIP
         ? autoScrollSpeed(
-            fingerY.get() - RULER_SIZE,
+            fingerY.get() - HEADER_SIZE,
             lanesViewport,
             AUTO_SCROLL_EDGE,
             AUTO_SCROLL_SPEED,
@@ -588,7 +747,7 @@ export function Timeline({
     if (sx === 0 && sy === 0) return;
     const seconds = (frame.timeSincePreviousFrame ?? 16) / 1000;
     const window = dragWin.get();
-    const extent = Math.max(duration, playhead.get(), window.start + window.duration);
+    const extent = Math.max(contentEnd, playhead.get(), window.start + window.duration);
     scroll.set(clampScroll(scroll.get() + (sx * seconds) / z, timeWidth, z, extent));
     laneScroll.set(clamp(laneScroll.get() + sy * seconds, 0, maxLaneScroll));
     updateDrag();
@@ -600,11 +759,25 @@ export function Timeline({
   };
   const startAutoScroll = () => autoScroll.setActive(true);
   const stopAutoScroll = () => autoScroll.setActive(false);
-  const pickedUp = (clipId: string) => {
+  const pickedUp = (kind: number, id: string) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setSelectedId(clipId);
+    if (kind === KIND_SECTION) selectSection(id);
+    else selectClip(id);
     autoScroll.setActive(true);
   };
+  const commitSectionDrag = (
+    serial: number,
+    sectionId: string,
+    window: SectionWindow,
+    label: string,
+  ) => {
+    if (sectionEditing?.onPlace(sectionId, window, label)) {
+      awaitingSerial.current = serial;
+    } else if (dragSerial.get() === serial) {
+      clearDrag();
+    }
+  };
+  const requestSection = (window: SectionWindow) => sectionEditing?.onAdd(window);
   const commitDrag = (serial: number, clipId: string, placement: ClipPlacement, label: string) => {
     if (clipEditing?.onPlace(clipId, placement, label)) {
       awaitingSerial.current = serial;
@@ -633,6 +806,22 @@ export function Timeline({
     lift.set(withTiming(0, { duration: LIFT_MS }));
     scheduleOnRN(stopAutoScroll);
     const window = dragWin.get();
+    if (dragKind.get() === KIND_SECTION) {
+      const section = sections[dragIndex.get()];
+      if (!section || (window.start === section.start && window.duration === section.duration)) {
+        dragId.set(null);
+        dragIndex.set(-1);
+        return;
+      }
+      scheduleOnRN(
+        commitSectionDrag,
+        dragSerial.get(),
+        section.id,
+        { start: window.start, duration: window.duration },
+        part === DRAG_MOVE ? 'Move section' : 'Resize section',
+      );
+      return;
+    }
     const row = dragRow.get();
     const trackId = trackIds[row];
     const unchanged =
@@ -661,6 +850,14 @@ export function Timeline({
     () => snapTime.get(),
     (now, before) => {
       if (now >= 0 && before != null && now !== before) scheduleOnRN(snapped);
+    },
+  );
+
+  // A section dragged along bars clicking from bar to bar.
+  useAnimatedReaction(
+    () => barTick.get(),
+    (now, before) => {
+      if (before != null && now !== before) scheduleOnRN(snapped);
     },
   );
 
@@ -700,12 +897,23 @@ export function Timeline({
         scrubbing.set(false);
         return;
       }
-      const onRuler = event.y <= RULER_SIZE + RULER_SLOP;
+      // On the selected section: this pan moves it or (near an edge) resizes it. Else it scrolls.
+      if (event.y < RAIL_SIZE) {
+        scrubbing.set(false);
+        const section = sections[selectedSectionIndex];
+        if (!section || owner.get() !== 0) return;
+        const part = grabPart(section, timeAt(event.x), HANDLE_REACH / zoom.get());
+        if (part === DRAG_NONE) return;
+        owner.set(1);
+        startSectionDrag(selectedSectionIndex, part, event.x);
+        return;
+      }
+      const onRuler = event.y <= HEADER_SIZE + RULER_SLOP;
       scrubbing.set(!isRecording && onRuler);
       // On the selected clip: this pan drags it (an edge trims, the body moves).
       const clip = clips[selectedIndex];
       if (onRuler || !clip || owner.get() !== 0) return;
-      const contentY = event.y - RULER_SIZE + laneScroll.get();
+      const contentY = event.y - HEADER_SIZE + laneScroll.get();
       if (Math.floor(contentY / lane) !== clip.row) return;
       const part = grabPart(clip, timeAt(event.x), HANDLE_REACH / zoom.get());
       if (part === DRAG_NONE) return;
@@ -758,7 +966,7 @@ export function Timeline({
       }
       follow.set(false);
       const currentZoom = zoom.get();
-      const extent = Math.max(duration, playhead.get(), loopEnd.get());
+      const extent = Math.max(contentEnd, playhead.get(), loopEnd.get());
       scroll.set(
         clampScroll(scroll.get() - event.changeX / currentZoom, timeWidth, currentZoom, extent),
       );
@@ -773,7 +981,7 @@ export function Timeline({
       }
       if (owner.get() !== 0 || !panScrolling.get()) return;
       const currentZoom = zoom.get();
-      const extent = Math.max(duration, playhead.get(), loopEnd.get());
+      const extent = Math.max(contentEnd, playhead.get(), loopEnd.get());
       scroll.set(
         withDecay({
           velocity: -event.velocityX / currentZoom,
@@ -801,16 +1009,28 @@ export function Timeline({
   // Holding a clip that isn't selected picks it up: it lights up at once and fills in over the hold
   // (as track reorder does), then lifts with a haptic and follows the finger.
   const pickup = usePanGesture({
-    enabled: editable,
+    enabled: editable || sectionEditable,
     activateAfterLongPress: LONG_PRESS_MS,
     onBegin: (event) => {
       'worklet';
       pickIndex.set(-1);
-      if (event.y <= RULER_SIZE + RULER_SLOP) return;
+      if (event.y < RAIL_SIZE) {
+        const index = sectionEditable ? sectionAt(sections, timeAt(event.x)) : -1;
+        const section = sections[index];
+        if (!section || section.id === selectedSectionKey) return;
+        pickIndex.set(index);
+        pickKind.set(KIND_SECTION);
+        pressId.set(section.id);
+        press.set(PRESS_START);
+        press.set(withTiming(1, { duration: LONG_PRESS_MS }));
+        return;
+      }
+      if (!editable || event.y <= HEADER_SIZE + RULER_SLOP) return;
       const index = clipAt(event.x, event.y);
       const clip = clips[index];
       if (!clip || clip.id === selectedClipId) return;
       pickIndex.set(index);
+      pickKind.set(KIND_CLIP);
       pressId.set(clip.id);
       press.set(PRESS_START);
       press.set(withTiming(1, { duration: LONG_PRESS_MS }));
@@ -818,15 +1038,17 @@ export function Timeline({
     onActivate: (event) => {
       'worklet';
       const index = pickIndex.get();
-      const clip = clips[index];
-      if (!clip || owner.get() !== 0 || panScrolling.get()) return;
+      const kind = pickKind.get();
+      const item = kind === KIND_SECTION ? sections[index] : clips[index];
+      if (!item || owner.get() !== 0 || panScrolling.get()) return;
       owner.set(2);
-      startDrag(index, DRAG_MOVE, event.x, event.y);
+      if (kind === KIND_SECTION) startSectionDrag(index, DRAG_MOVE, event.x);
+      else startDrag(index, DRAG_MOVE, event.x, event.y);
       dragging.set(true);
       follow.set(false);
       press.set(withTiming(0, { duration: LIFT_MS }));
       lift.set(withTiming(1, { duration: LIFT_MS }));
-      scheduleOnRN(pickedUp, clip.id);
+      scheduleOnRN(pickedUp, kind, item.id);
     },
     onUpdate: (event) => {
       'worklet';
@@ -849,7 +1071,7 @@ export function Timeline({
     },
     onUpdate: (event) => {
       'worklet';
-      const extent = Math.max(duration, playhead.get(), loopEnd.get());
+      const extent = Math.max(contentEnd, playhead.get(), loopEnd.get());
       const nextZoom = clampZoom(pinchStartZoom.get() * event.scale, timeWidth, extent);
       const focal = event.focalX - LEADING_SPACE;
       const nextScroll = zoomAroundPoint(scroll.get(), zoom.get(), nextZoom, focal);
@@ -867,13 +1089,34 @@ export function Timeline({
       press.set(withTiming(0, { duration: PRESS_FADE_MS }));
       // A tap on a loop handle does nothing (it's there to be dragged).
       if (loopEdgeAt(event.x, event.y) !== 0) return;
-      const clip = editable && event.y > RULER_SIZE ? clips[clipAt(event.x, event.y)] : undefined;
+      // The rail: a section jumps the playhead to its start (and is selected); an empty spot adds one.
+      if (event.y < RAIL_SIZE) {
+        const time = timeAt(event.x);
+        const section = sections[sectionAt(sections, time)];
+        if (section) {
+          if (sectionEditable) scheduleOnRN(selectSection, section.id);
+          scheduleOnRN(onSeek, section.start);
+          return;
+        }
+        scheduleOnRN(selectClip, null);
+        if (!sectionEditable) return;
+        const bar = barSeconds(meter);
+        const window = newSectionWindow(time, sections, {
+          step: snapToGrid ? bar : 0,
+          defaultLength: grid ? DEFAULT_SECTION_BARS * bar : DEFAULT_SECTION_SECONDS,
+          minLength: MIN_SECTION_SECONDS,
+          reach: RAIL_TAP_REACH / zoom.get(),
+        });
+        if (window) scheduleOnRN(requestSection, window);
+        return;
+      }
+      const clip = editable && event.y > HEADER_SIZE ? clips[clipAt(event.x, event.y)] : undefined;
       if (clip) {
-        scheduleOnRN(setSelectedId, clip.id);
+        scheduleOnRN(selectClip, clip.id);
         return;
       }
       scheduleOnRN(onSeek, seekable(event.x));
-      scheduleOnRN(setSelectedId, null);
+      scheduleOnRN(selectClip, null);
     },
   });
 
@@ -898,8 +1141,9 @@ export function Timeline({
       const stripe = (index: number) =>
         laneSlotDuringDrag(index, lifted, target) % 2 === 1 ? paints.laneAlt : paints.lane;
       const laneTop = (index: number) =>
-        RULER_SIZE + laneTopDuringDrag(index, lane, lifted, dragTop, progress) - ls;
+        HEADER_SIZE + laneTopDuringDrag(index, lane, lifted, dragTop, progress) - ls;
       const selectedNow = selection.get();
+      const selectedSectionNow = sectionSelection.get();
       const dragged = dragId.get();
       const draggedWindow = dragWin.get();
       const draggedRow = dragRow.get();
@@ -1119,7 +1363,9 @@ export function Timeline({
       }
 
       // Ruler: ticks along the bottom edge, labels above them. With the grid on it counts bars
-      // (1, 2, 3…) instead of minutes and seconds.
+      // (1, 2, 3…) instead of minutes and seconds. Drawn in its own coordinates, under the rail.
+      canvas.save();
+      canvas.translate(0, RAIL_SIZE);
       canvas.drawRect(Skia.XYWHRect(0, 0, viewWidth, RULER_SIZE), paints.ruler);
       // The loop region: a band with a handle tab inside each end (faint while Loop is off).
       if (hasLoop) {
@@ -1206,43 +1452,64 @@ export function Timeline({
           canvas.drawText(formatRulerTime(index * steps.label), x + 4, labelY, paints.label, font);
         }
       }
+      canvas.restore();
 
-      const playheadEnd = Math.min(viewHeight, RULER_SIZE + trackCount * lane - ls);
+      // The section rail above the ruler.
+      drawSectionRail(canvas, {
+        sections,
+        width: viewWidth,
+        height: RAIL_SIZE,
+        toX,
+        zoom: z,
+        selectedId: selectedSectionNow,
+        draggedId: dragged,
+        dragged: draggedWindow,
+        lift: lifting,
+        pressedId: pressed,
+        pressAmount,
+        paints: paints.rail,
+        font: sectionFont,
+        hint: sectionEditable ? RAIL_HINT : null,
+      });
+
+      const playheadEnd = Math.min(viewHeight, HEADER_SIZE + trackCount * lane - ls);
 
       // The punch point during the run-up: a dashed line down the lanes, a notch on the ruler.
       if (liveTake && position < liveTake.start) {
         const px = toX(liveTake.start);
-        canvas.drawLine(px, RULER_SIZE, px, Math.max(RULER_SIZE, playheadEnd), paints.punch);
+        canvas.drawLine(px, HEADER_SIZE, px, Math.max(HEADER_SIZE, playheadEnd), paints.punch);
         const notch = Skia.PathBuilder.Make();
-        notch.moveTo(px - PUNCH_NOTCH, RULER_SIZE - PUNCH_NOTCH);
-        notch.lineTo(px + PUNCH_NOTCH, RULER_SIZE - PUNCH_NOTCH);
-        notch.lineTo(px, RULER_SIZE);
+        notch.moveTo(px - PUNCH_NOTCH, HEADER_SIZE - PUNCH_NOTCH);
+        notch.lineTo(px + PUNCH_NOTCH, HEADER_SIZE - PUNCH_NOTCH);
+        notch.lineTo(px, HEADER_SIZE);
         notch.close();
         canvas.drawPath(notch.detach(), paints.playheadHandle);
       }
 
-      // Where a dragged clip edge snapped: a guide line down the lanes.
+      // Where a dragged clip or section edge snapped: a guide line down the lanes (and the rail).
       const snap = snapTime.get();
       if (dragged != null && snap >= 0) {
         const sx = toX(snap);
-        canvas.drawLine(sx, RULER_SIZE, sx, Math.max(RULER_SIZE, playheadEnd), paints.snapLine);
+        canvas.drawLine(sx, 0, sx, Math.max(HEADER_SIZE, playheadEnd), paints.snapLine);
       }
 
-      // Playhead, on top of everything, with a handle on the ruler to show it can be dragged.
+      // Playhead, on top of everything (through the rail), with a handle on the ruler to show it can
+      // be dragged.
       const x = toX(position);
-      canvas.drawLine(x, 0, x, Math.max(RULER_SIZE, playheadEnd), paints.playhead);
+      canvas.drawLine(x, 0, x, Math.max(HEADER_SIZE, playheadEnd), paints.playhead);
       const handle = Skia.PathBuilder.Make();
-      handle.moveTo(x - PLAYHEAD_HANDLE, 0);
-      handle.lineTo(x + PLAYHEAD_HANDLE, 0);
-      handle.lineTo(x + PLAYHEAD_HANDLE, RULER_SIZE - PLAYHEAD_HANDLE * 2);
-      handle.lineTo(x, RULER_SIZE - PLAYHEAD_HANDLE);
-      handle.lineTo(x - PLAYHEAD_HANDLE, RULER_SIZE - PLAYHEAD_HANDLE * 2);
+      handle.moveTo(x - PLAYHEAD_HANDLE, RAIL_SIZE);
+      handle.lineTo(x + PLAYHEAD_HANDLE, RAIL_SIZE);
+      handle.lineTo(x + PLAYHEAD_HANDLE, HEADER_SIZE - PLAYHEAD_HANDLE * 2);
+      handle.lineTo(x, HEADER_SIZE - PLAYHEAD_HANDLE);
+      handle.lineTo(x - PLAYHEAD_HANDLE, HEADER_SIZE - PLAYHEAD_HANDLE * 2);
       handle.close();
       canvas.drawPath(handle.detach(), paints.playheadHandle);
     }),
   );
 
   const clipCount = clips.length;
+  const sectionCount = sections.length;
   return (
     <View
       style={styles.root}
@@ -1254,7 +1521,7 @@ export function Timeline({
         <View
           style={[styles.timeArea, { left: columnWidth }]}
           accessible
-          accessibilityLabel={`Timeline, ${trackCount} ${trackCount === 1 ? 'track' : 'tracks'}, ${clipCount} ${clipCount === 1 ? 'clip' : 'clips'}`}>
+          accessibilityLabel={`Timeline, ${trackCount} ${trackCount === 1 ? 'track' : 'tracks'}, ${clipCount} ${clipCount === 1 ? 'clip' : 'clips'}, ${sectionCount} ${sectionCount === 1 ? 'section' : 'sections'}`}>
           {size.width > 0 ? (
             <Canvas style={StyleSheet.absoluteFill}>
               <Picture picture={picture} />
@@ -1293,7 +1560,7 @@ export function Timeline({
           </Pressable>
           <TrackColumn
             tracks={project.tracks}
-            top={RULER_SIZE}
+            top={HEADER_SIZE}
             width={columnWidth}
             armWidth={CONTROLS_WIDTH}
             expanded={mixerOpen}
@@ -1320,7 +1587,7 @@ export function Timeline({
           />
           <LaneOverlay
             tracks={project.tracks}
-            top={RULER_SIZE}
+            top={HEADER_SIZE}
             left={columnWidth}
             viewport={lanesViewport}
             lane={lane}
@@ -1342,11 +1609,27 @@ export function Timeline({
                 onSplit={() => clipEditing.onSplit(selected.id, playhead.get())}
                 onDuplicate={() => {
                   const copyId = clipEditing.onDuplicate(selected.id);
-                  if (copyId) setSelectedId(copyId);
+                  if (copyId) selectClip(copyId);
                 }}
                 onDelete={() => {
                   clipEditing.onDelete(selected.id);
-                  setSelectedId(null);
+                  selectClip(null);
+                }}
+              />
+            </View>
+          ) : null}
+          {selectedSection && sectionEditing ? (
+            <View pointerEvents="box-none" style={[styles.actionBar, { left: columnWidth }]}>
+              <SectionActionBar
+                key={selectedSection.id}
+                color={selectedSection.color}
+                hasNotes={selectedSection.hasNotes}
+                onRename={() => sectionEditing.onRename(selectedSection.id)}
+                onColor={(color) => sectionEditing.onColor(selectedSection.id, color)}
+                onNotes={() => sectionEditing.onNotes(selectedSection.id)}
+                onDelete={() => {
+                  sectionEditing.onDelete(selectedSection.id);
+                  selectSection(null);
                 }}
               />
             </View>
@@ -1487,6 +1770,7 @@ function makePaints(colors: ThemeColors) {
       paint.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, LIFT_SHADOW_BLUR, true));
       return paint;
     })(),
+    rail: makeRailPaints(colors, fill, stroke),
     /** Layer paint for a lane being dragged (its alpha makes it a bit see-through). */
     liftLayer: Skia.Paint(),
     /** Layer paint for clips of silent (muted / not soloed) tracks. */
@@ -1495,6 +1779,32 @@ function makePaints(colors: ThemeColors) {
       paint.setAlphaf(0.35);
       return paint;
     })(),
+  };
+}
+
+function makeRailPaints(
+  colors: ThemeColors,
+  fill: (color: string, alpha?: number) => SkPaint,
+  stroke: (color: string, width: number) => SkPaint,
+): RailPaints {
+  const fills = {} as Record<SectionColor, SkPaint>;
+  for (const { key } of SECTION_COLORS) fills[key] = fill(colors[sectionColorToken(key)]);
+  const shadow = Skia.Paint();
+  shadow.setColor(Skia.Color('black'));
+  shadow.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 4, true));
+  const glyph = stroke(colors.onSection, 1.5);
+  glyph.setAlphaf(0.75);
+  return {
+    background: fill(colors.background),
+    separator: stroke(colors.border, StyleSheet.hairlineWidth),
+    fills,
+    label: fill(colors.onSection),
+    selected: stroke(colors.onSection, SELECTED_BORDER),
+    handle: fill(colors.onSection),
+    glyph,
+    press: fill(colors.onSection),
+    hint: fill(colors.textTertiary),
+    shadow,
   };
 }
 
@@ -1507,7 +1817,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     left: 0,
-    height: RULER_SIZE,
+    height: HEADER_SIZE,
     justifyContent: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
     // A solid right edge, so the toggle ends cleanly where the ruler starts.

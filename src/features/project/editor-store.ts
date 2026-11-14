@@ -35,8 +35,15 @@ import { projectKeys } from '@/features/projects/queries';
 
 import { applyToProject, invertEdit, type Change, type Edit } from './edit-changes';
 import {
+  addSectionEdit,
   addTrackEdit,
   deleteClipEdit,
+  deleteSectionEdit,
+  placeSectionEdit,
+  renameSectionEdit,
+  setSectionColorEdit,
+  setSectionNotesEdit,
+  type NewSection,
   duplicateClipEdit,
   placeClipEdit,
   recordTakeEdit,
@@ -50,6 +57,7 @@ import {
   type RecordedTakeInput,
 } from './edit-commands';
 import { emptyHistory, pushEdit, redoStep, undoStep, type History } from './edit-history';
+import type { SectionColor } from './sections';
 
 export type EditorState = {
   /** The idea that is open (or loading); `null` when none is. */
@@ -303,6 +311,46 @@ export function duplicateClip(clipId: string): string | null {
 export function deleteClip(clipId: string): Promise<void> {
   const { project } = useEditorStore.getState();
   return executeEdit(project ? deleteClipEdit(project, clipId) : null);
+}
+
+/** Adds a section label (one undo step). Returns its id, or `null` when it doesn't fit. */
+export function addSection(input: NewSection): string | null {
+  const { project } = useEditorStore.getState();
+  const result = project ? addSectionEdit(project, input) : null;
+  void executeEdit(result?.edit ?? null);
+  return result?.sectionId ?? null;
+}
+
+/** Moves and/or resizes a section as one undo step (made when the drag ends). Returns whether it changed. */
+export function placeSection(
+  sectionId: string,
+  window: { start: number; duration: number },
+  label?: string,
+): boolean {
+  const { project } = useEditorStore.getState();
+  const edit = project ? placeSectionEdit(project, sectionId, window, label) : null;
+  void executeEdit(edit);
+  return edit != null;
+}
+
+export function renameSection(sectionId: string, name: string): Promise<void> {
+  const { project } = useEditorStore.getState();
+  return executeEdit(project ? renameSectionEdit(project, sectionId, name) : null);
+}
+
+export function setSectionColor(sectionId: string, color: SectionColor): Promise<void> {
+  const { project } = useEditorStore.getState();
+  return executeEdit(project ? setSectionColorEdit(project, sectionId, color) : null);
+}
+
+export function setSectionNotes(sectionId: string, notes: string): Promise<void> {
+  const { project } = useEditorStore.getState();
+  return executeEdit(project ? setSectionNotesEdit(project, sectionId, notes) : null);
+}
+
+export function deleteSection(sectionId: string): Promise<void> {
+  const { project } = useEditorStore.getState();
+  return executeEdit(project ? deleteSectionEdit(project, sectionId) : null);
 }
 
 /** Arms `trackId` (disarming the previous one), or disarms everything with `null`. Saved, not undoable. */

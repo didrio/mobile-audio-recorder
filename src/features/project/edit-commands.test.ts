@@ -2,12 +2,18 @@ import type { Project } from '@/features/projects/projects-repo';
 
 import { applyToProject, invertEdit } from './edit-changes';
 import {
+  addSectionEdit,
   addTrackEdit,
   deleteClipEdit,
+  deleteSectionEdit,
   deleteTrackEdit,
   duplicateClipEdit,
   MIN_CLIP_SECONDS,
   placeClipEdit,
+  placeSectionEdit,
+  renameSectionEdit,
+  setSectionColorEdit,
+  setSectionNotesEdit,
   splitClipEdit,
   moveTrackEdit,
   recordTakeEdit,
@@ -17,7 +23,8 @@ import {
   setTrackSoloEdit,
   setTrackVolumeEdit,
 } from './edit-commands';
-import { testClip, testProject, testTrack } from './edit-test-data';
+import { testClip, testProject, testSection, testTrack } from './edit-test-data';
+import { MIN_SECTION_SECONDS } from './sections';
 
 const project = testProject([
   testTrack('a', 0, [testClip('c1', 'a', 0, 10)]),
@@ -375,5 +382,86 @@ describe('clip edits', () => {
       expect(undoClips(edit)).toEqual(clips);
       expect(deleteClipEdit(clips, 'nope')).toBeNull();
     });
+  });
+});
+
+describe('section commands', () => {
+  const withSections = testProject(
+    [testTrack('a', 0)],
+    [testSection('s1', 'Verse', 0, 16), testSection('s2', 'Chorus', 20, 16)],
+  );
+  const sectionsOf = (edit: { changes: Parameters<typeof applyToProject>[1] } | null) =>
+    applyToProject(withSections, edit!.changes).sections.map((s) => [s.name, s.start, s.duration]);
+
+  it('adds a section, cut short at the next one, and undo removes it', () => {
+    const result = addSectionEdit(withSections, {
+      name: ' Bridge ',
+      color: 'green',
+      start: 16,
+      duration: 16,
+    })!;
+    expect(sectionsOf(result.edit)).toEqual([
+      ['Verse', 0, 16],
+      ['Bridge', 16, 4],
+      ['Chorus', 20, 16],
+    ]);
+    const after = applyToProject(withSections, result.edit.changes);
+    expect(after.sections[1]).toMatchObject({ id: result.sectionId, color: 'green', notes: '' });
+    expect(applyToProject(after, invertEdit(result.edit).changes)).toEqual(withSections);
+  });
+
+  it('moves a new section that starts inside another to its end; null without a name or room', () => {
+    const inside = addSectionEdit(withSections, {
+      name: 'Pre',
+      color: 'red',
+      start: 10,
+      duration: 8,
+    });
+    expect(sectionsOf(inside?.edit ?? null)[1]).toEqual(['Pre', 16, 4]);
+    expect(
+      addSectionEdit(withSections, { name: '  ', color: 'red', start: 40, duration: 8 }),
+    ).toBeNull();
+    expect(
+      addSectionEdit(withSections, { name: 'X', color: 'red', start: 19.5, duration: 8 }),
+    ).toBeNull();
+  });
+
+  it('places a section between its neighbors, keeping its length when moved too far', () => {
+    expect(
+      sectionsOf(placeSectionEdit(withSections, 's1', { start: 10, duration: 16 }))[0],
+    ).toEqual(['Verse', 4, 16]);
+    const resized = placeSectionEdit(
+      withSections,
+      's2',
+      { start: 18, duration: 2 },
+      'Resize section',
+    );
+    expect(resized?.label).toBe('Resize section');
+    expect(sectionsOf(resized)[1]).toEqual(['Chorus', 18, 2]);
+    // At least the minimum length, and nothing to do when unchanged.
+    expect(
+      sectionsOf(placeSectionEdit(withSections, 's2', { start: 20, duration: 0.1 }))[1],
+    ).toEqual(['Chorus', 20, MIN_SECTION_SECONDS]);
+    expect(placeSectionEdit(withSections, 's2', { start: 20, duration: 16 })).toBeNull();
+    expect(placeSectionEdit(withSections, 'nope', { start: 0, duration: 1 })).toBeNull();
+  });
+
+  it('renames, recolors, sets notes and deletes a section', () => {
+    expect(sectionsOf(renameSectionEdit(withSections, 's1', ' Verse 1 '))[0]?.[0]).toBe('Verse 1');
+    expect(renameSectionEdit(withSections, 's1', '   ')).toBeNull();
+    expect(renameSectionEdit(withSections, 's1', 'Verse')).toBeNull();
+
+    const colored = setSectionColorEdit(withSections, 's1', 'pink')!;
+    expect(applyToProject(withSections, colored.changes).sections[0]?.color).toBe('pink');
+    expect(setSectionColorEdit(withSections, 's1', 'blue')).toBeNull();
+
+    const noted = setSectionNotesEdit(withSections, 's2', 'Fmaj7 – Em7\n')!;
+    expect(noted.label).toBe('Section notes');
+    expect(applyToProject(withSections, noted.changes).sections[1]?.notes).toBe('Fmaj7 – Em7');
+    expect(setSectionNotesEdit(withSections, 's2', '  ')).toBeNull();
+
+    const deleted = deleteSectionEdit(withSections, 's1')!;
+    expect(sectionsOf(deleted)).toEqual([['Chorus', 20, 16]]);
+    expect(deleteSectionEdit(withSections, 'nope')).toBeNull();
   });
 });

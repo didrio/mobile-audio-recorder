@@ -11,8 +11,11 @@ import {
 import { deleteTrackEdit, renameTrackEdit } from './edit-commands';
 import { testClip, testProject, testTrack } from './edit-test-data';
 import {
+  addSection,
   addTrack,
   closeIdea,
+  deleteSection,
+  placeSection,
   executeEdit,
   openIdea,
   recordTake,
@@ -51,9 +54,7 @@ const savedNames = () =>
   jest
     .mocked(saveChanges)
     .mock.calls.map(([, changes]) =>
-      changes.map((c) =>
-        c.table === 'tracks' ? c.after?.name : c.table === 'clips' ? c.after?.takeId : c.after.name,
-      ),
+      changes.map((c) => (c.table === 'clips' ? c.after?.takeId : c.after?.name)),
     );
 
 describe('editor store', () => {
@@ -90,6 +91,29 @@ describe('editor store', () => {
     await redo();
     expect(trackNames()).toEqual(['Track 1', 'Bass']);
     expect(savedNames()).toEqual([['Bass'], ['Track 2'], ['Bass']]);
+  });
+
+  it('adds, moves and deletes a section, each one undo step', async () => {
+    const id = addSection({ name: 'Verse', color: 'blue', start: 2, duration: 8 })!;
+    expect(state().project?.sections).toEqual([
+      expect.objectContaining({ id, name: 'Verse', start: 2, duration: 8 }),
+    ]);
+    expect(placeSection(id, { start: 4, duration: 8 })).toBe(true);
+    expect(placeSection(id, { start: 4, duration: 8 })).toBe(false);
+    await deleteSection(id);
+    expect(state().project?.sections).toEqual([]);
+
+    await undo();
+    expect(state().project?.sections[0]).toMatchObject({ start: 4 });
+    await undo();
+    expect(state().project?.sections[0]).toMatchObject({ start: 2 });
+    expect(jest.mocked(saveChanges).mock.calls.map(([, changes]) => changes[0]?.table)).toEqual([
+      'sections',
+      'sections',
+      'sections',
+      'sections',
+      'sections',
+    ]);
   });
 
   it('adds a track and arms it', async () => {

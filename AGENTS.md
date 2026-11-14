@@ -99,7 +99,7 @@ src/
     (tabs)/settings/      Settings tab: _layout.tsx (Stack) + index.tsx
   features/<feature>/     Screens + feature components, hooks, api.ts, stores, tests (colocated)
   components/ui/          Design-system primitives: Text, Button, Screen, Card, Icon, ListSection/ListRow, SegmentedControl
-  components/             App-level components (AppProviders, ErrorScreen)
+  components/             App-level components (AppProviders, ErrorScreen, RenameDialog)
   lib/                    Infrastructure: api-client, query-client, storage, env, app-info
   theme/                  Tokens (colors, spacing, radius, typography), useTheme, makeStyles
 assets/                   App icon (assets/app.icon = iOS 26 Icon Composer), Android adaptive icon, splash

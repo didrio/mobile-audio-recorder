@@ -6,29 +6,34 @@ import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AndroidHeaderMenu } from '@/components/android-header-menu';
+import { RenameDialog } from '@/components/rename-dialog';
 import { Icon, Text, type IconName } from '@/components/ui';
 import { setTrackGain } from '@/features/audio/audio-engine';
 import { formatTimecode } from '@/features/audio/format-time';
 import { showsBeats } from '@/features/audio/metronome';
 import { confirmDeleteIdea } from '@/features/projects/idea-actions';
 import { useDeleteProject, useDuplicateProject } from '@/features/projects/queries';
-import { Timeline, type ClipEditing } from '@/features/timeline/timeline';
+import { Timeline, type ClipEditing, type SectionEditing } from '@/features/timeline/timeline';
 import { makeStyles, useTheme } from '@/theme';
 
 import { BeatDisplay } from './beat-display';
 import {
   addTrack,
   deleteClip,
+  deleteSection,
   duplicateClip,
   moveTrack,
   placeClip,
+  placeSection,
   redo,
+  renameSection,
   selectArmedTrack,
   splitClip,
   selectCanRedo,
   selectCanUndo,
   setIdeaSettings,
   setLoopRegion,
+  setSectionColor,
   setTrackVolume,
   toggleMute,
   toggleArm,
@@ -43,6 +48,7 @@ import {
 } from './editor-store';
 import { IDEA_MENU_ITEMS, type IdeaMenuItemId } from './idea-menu-items';
 import { hasSolo, trackOutputGain } from './mixer';
+import { SECTION_NAME_MAX } from './sections';
 import { useInputMeter } from './use-input-meter';
 import { useSpeakerRecording } from './use-speaker-mode';
 import { useTransport } from './use-transport';
@@ -316,6 +322,30 @@ export function ProjectScreen() {
     },
   };
 
+  // Section edits from the rail (T18), each one undo step. Adding and notes open sheets over the idea.
+  const [renamingSectionId, setRenamingSectionId] = useState<string | null>(null);
+  const renamingSection = project?.sections.find((section) => section.id === renamingSectionId);
+  const sectionEditing: SectionEditing = {
+    onAdd: (window) =>
+      router.push({
+        pathname: '/new-section',
+        params: {
+          projectId: params.id,
+          start: String(window.start),
+          duration: String(window.duration),
+        },
+      }),
+    onPlace: placeSection,
+    onRename: setRenamingSectionId,
+    onColor: (sectionId, color) => void setSectionColor(sectionId, color),
+    onNotes: (sectionId) =>
+      router.push({
+        pathname: '/section-notes/[id]',
+        params: { id: sectionId, projectId: params.id },
+      }),
+    onDelete: (sectionId) => void deleteSection(sectionId),
+  };
+
   const error = transport.error ?? saveError;
   const errorText = transport.isCleaning ? (
     <Text color="textSecondary" align="center" variant="footnote">
@@ -346,6 +376,7 @@ export function ProjectScreen() {
       armedTrackId={armedTrack?.id ?? null}
       addTrackDisabled={addTrackDisabled}
       clipEditing={isRecording || isBusy ? null : clipEditing}
+      sectionEditing={isRecording || isBusy ? null : sectionEditing}
       onSeek={transport.seek}
       onLoopRegionChange={(region) => {
         void setLoopRegion(region);
@@ -436,6 +467,17 @@ export function ProjectScreen() {
       {visualHint}
       {errorText}
       <View style={styles.timeline}>{timeline}</View>
+      <RenameDialog
+        item={renamingSection ?? null}
+        title="Rename section"
+        inputLabel="Section name"
+        maxLength={SECTION_NAME_MAX}
+        onCancel={() => setRenamingSectionId(null)}
+        onSubmit={(sectionId, name) => {
+          setRenamingSectionId(null);
+          void renameSection(sectionId, name);
+        }}
+      />
       {/* Android's gesture bar reports almost no inset, so it gets more room under the buttons. */}
       <View
         style={[

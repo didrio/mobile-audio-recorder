@@ -10,15 +10,23 @@
  * deleted the next time it opens (see `editor-store.ts`).
  *
  * Idea settings (name, tempo, time signature, grid) are columns of the `projects` row: that change's
- * `before` and `after` are always set. New editable rows (sections) get their own `table` variant here.
+ * `before` and `after` are always set. Each other editable table (tracks, clips, sections) has its own
+ * `table` variant here.
  */
-import type { Clip, IdeaSettings, Project, Track } from '@/features/projects/projects-repo';
+import type {
+  Clip,
+  IdeaSettings,
+  Project,
+  Section,
+  Track,
+} from '@/features/projects/projects-repo';
 
 export type ProjectTrack = Project['tracks'][number];
 
 export type Change =
   | { table: 'tracks'; id: string; before: Track | null; after: Track | null }
   | { table: 'clips'; id: string; before: Clip | null; after: Clip | null }
+  | { table: 'sections'; id: string; before: Section | null; after: Section | null }
   | { table: 'projects'; id: string; before: IdeaSettings; after: IdeaSettings };
 
 /** One undo step. */
@@ -38,6 +46,8 @@ function invertChange(change: Change): Change {
       return { table: 'tracks', id: change.id, before: change.after, after: change.before };
     case 'clips':
       return { table: 'clips', id: change.id, before: change.after, after: change.before };
+    case 'sections':
+      return { table: 'sections', id: change.id, before: change.after, after: change.before };
     case 'projects':
       return { table: 'projects', id: change.id, before: change.after, after: change.before };
   }
@@ -56,12 +66,13 @@ export function trackRow(track: ProjectTrack): Track {
 }
 
 /**
- * The project after `changes`. Tracks are ordered by position and clips by start; clips whose track
+ * The project after `changes`. Tracks are ordered by position, clips and sections by start; clips whose track
  * is gone are dropped (as the database cascade does), and `duration` is recomputed.
  */
 export function applyToProject(project: Project, changes: Change[]): Project {
   const tracks = new Map(project.tracks.map((track) => [track.id, trackRow(track)]));
   const clips = new Map(project.tracks.flatMap((track) => track.clips.map((c) => [c.id, c])));
+  const sections = new Map(project.sections.map((section) => [section.id, section]));
 
   let settings = ideaSettings(project);
   for (const change of changes) {
@@ -70,6 +81,9 @@ export function applyToProject(project: Project, changes: Change[]): Project {
     } else if (change.table === 'tracks') {
       if (change.after) tracks.set(change.id, change.after);
       else tracks.delete(change.id);
+    } else if (change.table === 'sections') {
+      if (change.after) sections.set(change.id, change.after);
+      else sections.delete(change.id);
     } else if (change.after) {
       clips.set(change.id, change.after);
     } else {
@@ -93,5 +107,6 @@ export function applyToProject(project: Project, changes: Change[]): Project {
       return { ...track, clips: trackClips };
     });
 
-  return { ...project, ...settings, tracks: nextTracks, duration };
+  const nextSections = [...sections.values()].sort((a, b) => a.start - b.start);
+  return { ...project, ...settings, tracks: nextTracks, sections: nextSections, duration };
 }

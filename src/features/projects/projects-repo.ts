@@ -15,6 +15,11 @@ import {
   takeRelativePath,
 } from '@/features/audio/take-files';
 import type { Change } from '@/features/project/edit-changes';
+import {
+  DEFAULT_SECTION_COLOR,
+  isSectionColor,
+  type SectionColor,
+} from '@/features/project/sections';
 import { getDb } from '@/lib/db';
 
 export type ProjectSummary = {
@@ -56,6 +61,18 @@ export type Clip = {
   duration: number;
 };
 
+/** A labelled span of the timeline (T18): Intro, Verse… Sections never overlap. */
+export type Section = {
+  id: string;
+  projectId: string;
+  name: string;
+  color: SectionColor;
+  start: number;
+  duration: number;
+  /** Free text (chords, lyric cue); '' when there's none. */
+  notes: string;
+};
+
 /** What the idea settings sheet edits (an undoable edit, see `edit-changes.ts`). */
 export type IdeaSettings = {
   name: string;
@@ -87,6 +104,8 @@ export type Project = ProjectSummary &
     loopRegion: LoopRegion | null;
     tracks: (Track & { clips: Clip[] })[];
     takes: Record<string, Take>;
+    /** Section labels, ordered by start. */
+    sections: Section[];
   };
 
 type ProjectRow = {
@@ -126,6 +145,15 @@ type TakeRow = {
   sample_rate: number;
   channels: number;
   created_at: number;
+};
+type SectionRow = {
+  id: string;
+  project_id: string;
+  name: string;
+  color: string;
+  start: number;
+  duration: number;
+  notes: string;
 };
 type ClipRow = {
   id: string;
@@ -171,7 +199,7 @@ export async function getProject(id: string): Promise<Project | null> {
   );
   if (!row) return null;
 
-  const [trackRows, takeRows, clipRows] = await Promise.all([
+  const [trackRows, takeRows, clipRows, sectionRows] = await Promise.all([
     db.getAllAsync<TrackRow>('SELECT * FROM tracks WHERE project_id = ? ORDER BY position', id),
     db.getAllAsync<TakeRow>('SELECT * FROM takes WHERE project_id = ?', id),
     db.getAllAsync<ClipRow>(
@@ -179,6 +207,7 @@ export async function getProject(id: string): Promise<Project | null> {
        WHERE t.project_id = ? ORDER BY c.start`,
       id,
     ),
+    db.getAllAsync<SectionRow>('SELECT * FROM sections WHERE project_id = ? ORDER BY start', id),
   ]);
 
   const takes: Record<string, Take> = {};
@@ -233,6 +262,15 @@ export async function getProject(id: string): Promise<Project | null> {
         : null,
     tracks,
     takes,
+    sections: sectionRows.map((section) => ({
+      id: section.id,
+      projectId: section.project_id,
+      name: section.name,
+      color: isSectionColor(section.color) ? section.color : DEFAULT_SECTION_COLOR,
+      start: section.start,
+      duration: section.duration,
+      notes: section.notes,
+    })),
   };
 }
 
@@ -415,6 +453,19 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
           );
         }
       }
+      for (const section of source.sections) {
+        await tx.runAsync(
+          `INSERT INTO sections (id, project_id, name, color, start, duration, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          randomUUID(),
+          newId,
+          section.name,
+          section.color,
+          section.start,
+          section.duration,
+          section.notes,
+        );
+      }
       if (source.armedTrackId) {
         await tx.runAsync(
           'UPDATE projects SET armed_track_id = ? WHERE id = ?',
@@ -480,7 +531,7 @@ export async function saveChanges(
     const deleted = changes.flatMap((change) =>
       change.table !== 'projects' && !change.after ? [change] : [],
     );
-    for (const table of ['clips', 'tracks'] as const) {
+    for (const table of ['clips', 'sections', 'tracks'] as const) {
       for (const change of deleted.filter((candidate) => candidate.table === table)) {
         await tx.runAsync(`DELETE FROM ${table} WHERE id = ?`, change.id);
       }
@@ -515,6 +566,23 @@ export async function saveChanges(
         clip.start,
         clip.offset,
         clip.duration,
+      );
+    }
+    for (const change of changes) {
+      if (change.table !== 'sections' || !change.after) continue;
+      const section = change.after;
+      await tx.runAsync(
+        `INSERT INTO sections (id, project_id, name, color, start, duration, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name, color = excluded.color,
+           start = excluded.start, duration = excluded.duration, notes = excluded.notes`,
+        section.id,
+        projectId,
+        section.name,
+        section.color,
+        section.start,
+        section.duration,
+        section.notes,
       );
     }
     await tx.runAsync('UPDATE projects SET updated_at = ? WHERE id = ?', Date.now(), projectId);

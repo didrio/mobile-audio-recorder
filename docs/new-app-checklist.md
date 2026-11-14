@@ -46,6 +46,9 @@ the rest of this checklist with you.
 - [ ] **Fallback / Android-legacy icon**: `assets/images/icon.png`, 1024×1024 PNG, no transparency.
 - [ ] **Android adaptive icon**: `assets/images/android-icon-foreground.png` (+ `-background`, `-monochrome`),
       1024×1024, keep the artwork inside the central ~66% safe zone; set `android.adaptiveIcon.backgroundColor`.
+- [ ] **Dev / preview icons**: `assets/images/variants/` (`icon-<dev|preview>.png` 1024×1024 no transparency,
+      `android-foreground-*` / `android-monochrome-*` inside the central ~66%). Optional: restyle the neutral
+      DEV / PREVIEW labels to the app's look, so the builds are easy to tell apart on a home screen.
 - [ ] **Splash**: `assets/images/splash-icon.png` (a centered logo, transparent background) and the light/dark
       background colors in the `expo-splash-screen` plugin in `app.json`.
 - [ ] **Home screen**: replace `src/features/home` with your first real screen; update its test and

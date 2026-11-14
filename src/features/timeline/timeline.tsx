@@ -120,6 +120,7 @@ type ClipShape = {
 export function Timeline({
   project,
   playhead,
+  revealPlayhead,
   following,
   liveTake,
   armedTrackId,
@@ -137,6 +138,8 @@ export function Timeline({
   project: Project;
   /** Playhead position in seconds, animated by the transport. */
   playhead: SharedValue<number>;
+  /** Bumped to bring the playhead into view (and resume following) even if it didn't move. */
+  revealPlayhead: SharedValue<number>;
   /** Playing or recording: keep the playhead in view until the user scrolls. */
   following: boolean;
   /** The take being recorded, or null. */
@@ -252,6 +255,25 @@ export function Timeline({
       scroll.set(
         clampScroll(
           followScroll(start, position, viewSeconds),
+          timeWidth,
+          currentZoom,
+          Math.max(duration, position),
+        ),
+      );
+    },
+  );
+
+  // Back to start: show the playhead even if it was already there or the user had scrolled away.
+  useAnimatedReaction(
+    () => revealPlayhead.get(),
+    (request, previous) => {
+      const currentZoom = zoom.get();
+      if (previous === null || request === previous || currentZoom <= 0) return;
+      follow.set(true);
+      const position = playhead.get();
+      scroll.set(
+        clampScroll(
+          followScroll(scroll.get(), position, timeWidth / currentZoom),
           timeWidth,
           currentZoom,
           Math.max(duration, position),

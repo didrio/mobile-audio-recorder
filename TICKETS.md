@@ -74,6 +74,9 @@ releases, native dependency changes). See the `wrap` skill.
         visible marker at the punch point while pre-rolling. Stop during the run-up cancels without saving a
         take.
   - [ ] Pre-roll off → recording behaves exactly as today.
+  - [ ] Record while playing punches in on the fly at the current position, as in most DAWs (Record is
+        disabled during playback today). The armed track's own audio is cut at the punch point, with no gap
+        while the recorder restarts: the same machinery as the pre-roll's punch, with the run-up already playing.
   - [ ] Unit tests for the timing math (run-up start, clamping at 0, clip offset).
 - **Context:** Recording start, playback during overdub and latency compensation are in
   `src/features/project/use-transport.ts` (`record`) and `src/features/audio/take-alignment.ts`; scheduling is
@@ -426,6 +429,11 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - Overdub polish: show the live take at its compensated position while recording (it jumps by the latency
   on Stop).
 - Maestro: `tapOn` by `accessibilityLabel` doesn't focus a `TextInput` on iOS (tap by point instead).
+- T30 — Possible swipe-seeks bug (unverified): in one Maestro run on the iOS simulator, a second lane swipe
+  started right after the first (maybe during momentum) moved the playhead to its touch-down point (0:17.5)
+  instead of only scrolling. Might be how Maestro swipes; check by hand on a device first. If real, tap-to-seek
+  in `timeline.tsx` must not fire on a drag or on a touch that only stops momentum (`cancelAnimation(scroll)`
+  in the pan's `onBegin`).
 - Clock text runs ~0.1–0.3 s ahead of the playhead (the playhead includes output latency). Show the clock from
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 - Reorder drag: while a lifted lane passes over a track whose name pill hasn't slid away yet, that pill draws
@@ -434,7 +442,10 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
-- T29 — Record button: stop, not pause — 2026-11-13 — stop square while recording, larger record glyph nudged up 1 pt (stop glyph not yet checked mid-recording)
+- Transport check (no ticket) — 2026-11-13 — Back to start keeps playing and always reveals 0:00
+  (`revealPlayhead`), recording clock shows the timeline position; kept Stop → take start; record-while-playing
+  added to T25
+- T29 — Record button: stop, not pause — 2026-11-13 — stop square while recording, larger record glyph nudged up 1 pt (stop glyph checked mid-recording on iOS)
 - T23 — Reorder tracks — 2026-11-13 — long-press a grip to lift and drag a track, other lanes glide aside,
   edge auto-scroll, one undo step (`moveTrackEdit`), screen-reader Move up / Move down
 - T15 — Arming & input meter — 2026-11-13 — tapping a name pill toggles arming, saved per idea (migration v2),

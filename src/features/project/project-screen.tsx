@@ -131,10 +131,7 @@ export function ProjectScreen() {
       size={SIDE_BUTTON_SIZE}
       kind="secondary"
       disabled={isRecording || isBusy}
-      onPress={() => {
-        if (isPlaying) transport.stopPlaying(0);
-        else transport.seek(0);
-      }}
+      onPress={transport.toStart}
     />
   );
   const playButton = (
@@ -184,6 +181,7 @@ export function ProjectScreen() {
     <Timeline
       project={project}
       playhead={transport.playhead}
+      revealPlayhead={transport.revealPlayhead}
       following={isPlaying || isRecording}
       liveTake={transport.liveTake}
       armedTrackId={armedTrack?.id ?? null}

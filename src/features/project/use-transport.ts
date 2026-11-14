@@ -50,8 +50,10 @@ const TICK_MS = 100;
  *   (`{ from, startedAtMs }`, converted to the UI thread's `performance.now()` clock by
  *   `toUiClock`) while playing or recording; the
  *   React `position` state ticks at 10 Hz for the clock text only.
- * - Play starts at the playhead (from 0 if it's past the end). Stop leaves the playhead where it is;
- *   reaching the end returns it to where Play started.
+ *   The clock always shows the timeline position, recording included.
+ * - Play starts at the playhead (from 0 if it's past the end). Pause leaves the playhead where it is;
+ *   reaching the end returns it to where Play started. Back to start (`toStart`) jumps to 0:00 and
+ *   keeps playing if playing, and always brings the start into view (`revealPlayhead`).
  * - Record records onto the given (armed) track from the playhead while the other tracks play; the
  *   saved clip is lined up with them (`take-alignment.ts`, plus the manual offset from Settings).
  *   Stop returns the playhead to where recording started. Leaving the screen while recording stops
@@ -68,6 +70,8 @@ export function useTransport(project: Project | null | undefined) {
   const anchor = useSharedValue<PlaybackAnchor | null>(null);
   const livePeaks = useSharedValue<number[]>([]);
   const livePeak = useSharedValue(0);
+  /** Bumped to ask the timeline to bring the playhead into view even if it didn't move. */
+  const revealPlayhead = useSharedValue(0);
   const recordingRef = useRef<{
     recording: ActiveRecording;
     takeId: string;
@@ -89,12 +93,18 @@ export function useTransport(project: Project | null | undefined) {
     frameCallback.setActive(isPlaying || isRecording);
   }, [frameCallback, isPlaying, isRecording]);
 
-  // Clock text: elapsed time while recording, timeline position while playing.
+  // Clock text: the timeline position while playing or recording (like the playhead).
   useEffect(() => {
     if (!isRecording && !isPlaying) return;
-    const startedAt = Date.now();
     const timer = setInterval(() => {
-      setPosition(isPlaying ? (playbackPosition() ?? 0) : (Date.now() - startedAt) / 1000);
+      if (isPlaying) {
+        setPosition(playbackPosition() ?? 0);
+        return;
+      }
+      const started = recordingRef.current?.recording.anchor;
+      if (started) {
+        setPosition(started.from + Math.max(0, performance.now() - started.startedAtMs) / 1000);
+      }
     }, TICK_MS);
     return () => clearInterval(timer);
   }, [isRecording, isPlaying]);
@@ -194,7 +204,7 @@ export function useTransport(project: Project | null | undefined) {
       playhead.set(from);
       anchor.set(toUiClock(recording.anchor));
       setLiveTake({ start: from, trackId: track.id });
-      setPosition(0);
+      setPosition(from);
       setStatus('recording');
     } catch (cause) {
       setError(messageOf(cause, 'Recording could not start.'));
@@ -265,12 +275,20 @@ export function useTransport(project: Project | null | undefined) {
     }
   };
 
+  /** Back to start: 0:00, still playing if it was, with the start brought into view. */
+  const toStart = () => {
+    if (status !== 'idle' && status !== 'playing') return;
+    seek(0);
+    revealPlayhead.set(revealPlayhead.get() + 1);
+  };
+
   return {
     status,
     position,
     level,
     error,
     playhead,
+    revealPlayhead,
     liveTake: liveTake
       ? { ...liveTake, peaks: livePeaks, peak: livePeak, peaksPerSecond: LIVE_PEAKS_PER_SECOND }
       : null,
@@ -279,6 +297,7 @@ export function useTransport(project: Project | null | undefined) {
     startPlayback,
     stopPlaying,
     seek,
+    toStart,
   };
 }
 

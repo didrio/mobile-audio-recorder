@@ -319,6 +319,8 @@ describe('ProjectScreen', () => {
         backing: [expect.objectContaining({ takePath: 'projects/p1/takes/t1.wav', start: 0 })],
       }),
     );
+    // The clock shows the timeline position (like the playhead), not the take's elapsed time.
+    expect(await screen.findByLabelText('Recording time')).toHaveTextContent('0:05.0');
     await user.press(await screen.findByRole('button', { name: 'Stop recording' }));
 
     expect(await screen.findByRole('button', { name: 'Record' })).toBeOnTheScreen();
@@ -457,18 +459,17 @@ describe('ProjectScreen', () => {
     expect(await screen.findByRole('button', { name: 'Pause' })).toBeOnTheScreen();
   });
 
-  it('stops playback when going back to the start', async () => {
+  it('keeps playing from the start when going back to the start while playing', async () => {
     jest.mocked(play).mockResolvedValue();
     const user = userEvent.setup();
     await renderScreen();
 
     await user.press(await screen.findByRole('button', { name: 'Seek to 0:05' }));
     await user.press(screen.getByRole('button', { name: 'Play' }));
-    await user.press(await screen.findByRole('button', { name: 'Pause' }));
-    await user.press(screen.getByRole('button', { name: 'Play' }));
     await user.press(await screen.findByRole('button', { name: 'Back to start' }));
 
-    expect(await screen.findByRole('button', { name: 'Play' })).toBeOnTheScreen();
+    expect(play).toHaveBeenLastCalledWith(expect.any(Array), expect.objectContaining({ from: 0 }));
+    expect(await screen.findByRole('button', { name: 'Pause' })).toBeOnTheScreen();
     expect(screen.getByText('0:00.0')).toBeOnTheScreen();
   });
 

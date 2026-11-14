@@ -25,6 +25,8 @@ import { useRecordingSettingsStore } from '@/features/settings/recording-setting
 
 import { ProjectScreen } from './project-screen';
 
+const mockPush = jest.fn();
+
 jest.mock('expo-router', () => {
   const { Pressable, Text } = jest.requireActual<typeof import('react-native')>('react-native');
   const ToolbarButton = ({
@@ -67,12 +69,18 @@ jest.mock('expo-router', () => {
   Toolbar.MenuAction = function MenuAction({
     children,
     disabled,
+    onPress,
   }: {
     children: string;
     disabled?: boolean;
+    onPress?: () => void;
   }) {
     return (
-      <Pressable accessibilityRole="menuitem" accessibilityState={{ disabled }} disabled={disabled}>
+      <Pressable
+        accessibilityRole="menuitem"
+        accessibilityState={{ disabled }}
+        disabled={disabled}
+        onPress={onPress}>
         <Text>{children}</Text>
       </Pressable>
     );
@@ -81,7 +89,7 @@ jest.mock('expo-router', () => {
     Stack: { Screen: () => null, Toolbar },
     useIsFocused: () => true,
     useLocalSearchParams: () => ({ id: 'p1' }),
-    useRouter: () => ({ push: jest.fn() }),
+    useRouter: () => ({ push: mockPush }),
   };
 });
 
@@ -200,6 +208,10 @@ const project: Project = {
   duration: 12,
   armedTrackId: 'track1',
   preRoll: false,
+  bpm: 120,
+  beatsPerBar: 4,
+  beatUnit: 4,
+  grid: false,
   takes: {
     t1: {
       id: 't1',
@@ -263,7 +275,8 @@ describe('ProjectScreen', () => {
     jest.mocked(saveChanges).mockResolvedValue();
     jest.mocked(deleteUnusedTakes).mockResolvedValue([]);
     jest.mocked(playbackPosition).mockReturnValue(0);
-    useRecordingSettingsStore.setState({ latencyOffsetMs: 0, preRollSeconds: 2 });
+    useRecordingSettingsStore.setState({ latencyOffsetMs: 0, preRollSeconds: 2, preRollBars: 1 });
+    mockPush.mockClear();
   });
 
   it('shows the timeline, the playhead time and the transport', async () => {
@@ -407,6 +420,21 @@ describe('ProjectScreen', () => {
     expect(screen.getByText('0:05.0')).toBeOnTheScreen();
   });
 
+  it('with the grid on, the run-up is whole bars of the idea tempo', async () => {
+    // 60 BPM in 4/4: one bar is 4 s, so the run-up starts at 5 - 4 = 1.
+    jest.mocked(getProject).mockResolvedValue({ ...project, preRoll: true, grid: true, bpm: 60 });
+    mockRecording({ from: 1, startedAtMs: performance.now() + 60_000 });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Seek to 0:05' }));
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+
+    expect(startRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ playback: expect.objectContaining({ from: 1 }) }),
+    );
+  });
+
   it('saves nothing when stopped during the run-up', async () => {
     jest.mocked(getProject).mockResolvedValue({ ...project, preRoll: true });
     mockRecording({ from: 3, duration: 1 });
@@ -499,7 +527,7 @@ describe('ProjectScreen', () => {
     expect(saveChanges).toHaveBeenCalledTimes(5);
   });
 
-  it('has a "More" menu: Duplicate and Delete work, the rest are placeholders', async () => {
+  it('has a "More" menu: Idea settings, Duplicate and Delete work, Favorite is a placeholder', async () => {
     await renderScreen();
 
     await screen.findByText('Timeline of Chorus riff');
@@ -507,7 +535,19 @@ describe('ProjectScreen', () => {
     expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeEnabled();
     expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeEnabled();
     expect(screen.getByRole('menuitem', { name: 'Favorite' })).toBeDisabled();
-    expect(screen.getByRole('menuitem', { name: 'Idea settings' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Idea settings' })).toBeEnabled();
+  });
+
+  it('opens the idea settings sheet from the menu', async () => {
+    await renderScreen();
+    await screen.findByText('Timeline of Chorus riff');
+
+    await userEvent.setup().press(screen.getByRole('menuitem', { name: 'Idea settings' }));
+
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/idea-settings/[id]',
+      params: { id: 'p1' },
+    });
   });
 
   it('sets a track volume live and saves it once, as one undo step', async () => {

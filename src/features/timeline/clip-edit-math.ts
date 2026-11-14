@@ -4,6 +4,7 @@
  * seconds, and shows the window `offset…offset + duration` of a source (a clip's take) that is
  * `sourceDuration` long. Times are seconds on the timeline.
  */
+import { nearestGridLine } from './grid-math';
 
 /** What a drag does to the item it grabbed. */
 export const DRAG_NONE = 0;
@@ -99,9 +100,27 @@ export function nearestSnap(
 }
 
 /**
+ * The closest of the nearest candidate and the nearest grid line (every `gridStep` seconds from 0:00;
+ * 0 = no grid) within `threshold` of `time`, or `null`.
+ */
+function nearestSnapOrGrid(
+  time: number,
+  candidates: readonly number[],
+  gridStep: number,
+  threshold: number,
+): number | null {
+  'worklet';
+  const candidate = nearestSnap(time, candidates, threshold);
+  const line = nearestGridLine(time, gridStep, threshold);
+  if (line == null) return candidate;
+  if (candidate == null) return line;
+  return Math.abs(candidate - time) <= Math.abs(line - time) ? candidate : line;
+}
+
+/**
  * Snaps a drag of `part` by `delta`: the edges it moves (both for a move, one for a trim) are pulled
- * onto the nearest candidate within `threshold`. Returns the snapped delta and the time snapped to
- * (-1 when nothing was in reach).
+ * onto the nearest candidate, or grid line when `gridStep` > 0, within `threshold`. Returns the snapped
+ * delta and the time snapped to (-1 when nothing was in reach).
  */
 export function snapDrag(
   part: DragPart,
@@ -109,16 +128,19 @@ export function snapDrag(
   delta: number,
   candidates: readonly number[],
   threshold: number,
+  gridStep = 0,
 ): { delta: number; snapTime: number } {
   'worklet';
   const start = origin.start + delta;
   const end = start + origin.duration;
   const toStart =
     part === DRAG_MOVE || part === DRAG_TRIM_START
-      ? nearestSnap(start, candidates, threshold)
+      ? nearestSnapOrGrid(start, candidates, gridStep, threshold)
       : null;
   const toEnd =
-    part === DRAG_MOVE || part === DRAG_TRIM_END ? nearestSnap(end, candidates, threshold) : null;
+    part === DRAG_MOVE || part === DRAG_TRIM_END
+      ? nearestSnapOrGrid(end, candidates, gridStep, threshold)
+      : null;
   if (toStart == null && toEnd == null) return { delta, snapTime: -1 };
   if (toEnd == null || (toStart != null && Math.abs(toStart - start) <= Math.abs(toEnd - end))) {
     return { delta: delta + (toStart! - start), snapTime: toStart! };

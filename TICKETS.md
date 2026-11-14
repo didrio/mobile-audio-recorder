@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T9 — Idea settings, tempo & grid · Sonnet · high effort · plan mode off
+**Next:** T17 — Metronome & count-in · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -96,34 +96,9 @@ releases, native dependency changes). See the `wrap` skill.
   and menu items are in `project-screen.tsx` and `src/features/project/idea-menu-items.ts`. Time formatting is
   in `src/features/audio/format-time.ts`. A later Search (T10/T19) could match notes too.
 
-### T9 — Idea settings, tempo & grid
-
-- **Status:** ready
-- **Session:** Sonnet · high effort · plan mode off
-- **Goal:** Each idea has a settings sheet with its name, tempo and time signature, and an optional bar/beat
-  grid on the timeline.
-- **Done when:**
-  - [ ] "Idea settings" in the idea's "⋯" menu opens a sheet: Name (rename), Tempo (BPM 40–240, stepper or
-        field, plus a Tap tempo button), Time signature (2/4, 3/4, 4/4, 5/4, 6/8, 7/8, 12/8), and a Grid
-        toggle. A footer note says that changing the tempo moves only the grid, not the audio.
-  - [ ] Migration: `projects.bpm` (default 120), `beats_per_bar` (4), `beat_unit` (4), `grid` (off). Setting
-        a tempo turns the grid on.
-  - [ ] Grid on: bar and beat lines in the lanes (beat lines fade out when zoomed far out), bar numbers on the
-        ruler instead of mm:ss, snap to grid while editing clips (extends T5's snapping: add grid lines to the
-        `candidates` in `updateDrag` in `timeline.tsx`, or snap to the grid first in `snapDrag`). The clock in the
-        status strip stays in time.
-  - [ ] Settings changes are editor-store commands (undoable).
-  - [ ] Pre-roll length (from T25): with the grid on, Settings offers 1 or 2 bars (default 1 bar) instead of
-        1/2/4 s; `recording-settings-store.ts` (`PRE_ROLL_SECONDS_OPTIONS`, `preRollSeconds`) and the Pre-roll
-        section of `settings-screen.tsx`. The run-up length in seconds comes from the bars × tempo
-        (`runUpStart` in `take-alignment.ts` takes seconds).
-- **Context:** Grid lines go in the timeline picture next to the ruler ticks (`rulerSteps` in
-  `timeline-math.ts`). Compound meters (6/8, 12/8): beats are eighths, grouped in threes. T17 adds the
-  metronome section to this sheet. Quantize stays in Backlog.
-
 ### T17 — Metronome & count-in
 
-- **Status:** ready (after T9 and T25)
+- **Status:** ready
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** A metronome that follows the idea's tempo and time signature, with a count-in for recording.
 - **Done when:**
@@ -136,7 +111,12 @@ releases, native dependency changes). See the `wrap` skill.
   - [ ] Count-in is T25's pre-roll with clicks: with the metronome on, the run-up clicks (whole bars, so the
         punch lands on the beat as counted). No separate count-in toggle. The take starts at the playhead, not
         before.
-- **Context:** Scheduling and playback helpers live in `audio-engine.ts`. Recording start and latency
+- **Context:** Tempo and meter (T9) are on the project (`bpm`, `beatsPerBar`, `beatUnit`, `grid`) with pure
+  helpers in `src/features/audio/tempo.ts` (`beatSeconds`, `barSeconds`, `isCompound`, `preRollLength`);
+  `bpm` counts beats of the `1/beatUnit` note (6/8 at 120 = 3 s bars). The Idea settings sheet is
+  `src/features/project/idea-settings-sheet.tsx` (add the metronome volume there, with a `setIdeaSettings`
+  field + migration v5). With the grid on, the pre-roll is whole bars (`use-transport.ts`), so the count-in
+  already lands on the beat. Scheduling and playback helpers live in `audio-engine.ts`. Recording start and latency
   compensation: `take-alignment.ts` and `use-transport.ts`. Turning the metronome on also turns the grid on.
   The pre-roll (T25): `record()` in `use-transport.ts` starts playback at `runUpStart(punch, length)` (can be
   negative: silence before 0:00) via `startRecording({ playback })`, and the run-up is visible as
@@ -166,7 +146,7 @@ releases, native dependency changes). See the `wrap` skill.
 
 ### T18 — Section labels
 
-- **Status:** ready (after T9)
+- **Status:** ready
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Mark the song's structure (Intro, Verse, Chorus…) on a colored rail above the ruler, and jump to
   sections with a tap.
@@ -190,7 +170,8 @@ releases, native dependency changes). See the `wrap` skill.
   start/duration on a row; `grabPart`, `dragWindow`, `snapDrag`), the gestures in `timeline.tsx` (one pan that
   decides on touch-down, a long-press pan beside it, `owner` says who holds the item; the drop draws from the
   drag state until the saved edit renders). Sections have no source window: give `dragWindow` offset 0 and an
-  unbounded source, and stop them at their neighbors. Selection must be a shared value read by the picture
+  unbounded source, and stop them at their neighbors. `snapDrag` already takes a `gridStep` (T9: `gridSnapStep(meter, zoom)` in
+  `grid-math.ts`, 0 = grid off), so sections snap to bars by passing a bar-length step. Selection must be a shared value read by the picture
   (`selection`): values that only reach the picture through its closure redraw a frame or more late. Draw the
   rail in the same per-frame Skia picture as the ruler.
 
@@ -323,6 +304,11 @@ skill). Fix or ticket what fails, then delete the line.
   many tracks, no jump on drop; also check light mode.
 - Timeline: pinch-zoom and pan momentum, tap-to-seek, dragging the playhead on the ruler, playhead vs. audio
   sync, smooth playback on a 3-minute idea with several takes.
+- Idea settings & grid (T9, only seen on the iOS simulator in dark mode): the sheet in light mode and on Android
+  (formSheet, Switch, number-pad keyboard over the BPM field), Tap tempo by hand, ± buttons then Undo (one step),
+  grid on: drag a clip near a bar/beat line (snap guide + haptic), pinch-zoom (beat lines fade, bar numbers
+  thin out), 6/8 and 12/8 group lines, light-mode line contrast, pre-roll with the grid on lands on the bar
+  (Settings → Pre-roll → Grid on).
 - Ideas list (T10, only seen in a screenshot on iOS): swipe left on a row (Rename/Duplicate/Delete), long-press
   menu, Rename dialog, Duplicate then delete the original (the copy still plays), "+" → New Idea, sort menu
   persists, search (on iOS 26 the search field may sit in the bottom toolbar: check it's findable), Settings →
@@ -345,7 +331,7 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   `track-column.tsx`), every horizontal divider is a hairline (lane separators in `timeline.tsx`, the "New
   Track" row in `lane-overlay.tsx`). The user finds the "New Track" top line fainter than the vertical border.
   Decide: all dividers 1 pt, or the verticals hairline; then check light mode, the open mixer and 8 tracks.
-- Quantize clips to the tempo grid (after T9).
+- Quantize clips to the tempo grid (T9 is done: `project.bpm`, `grid-math.ts`; clips only snap while dragging).
 - Pitch correction for vocal takes (the library's `createBufferSource({ pitchCorrection })` is for playback-rate
   changes, not tuning; would need a native DSP library).
 - Input monitoring through headphones; input gain; input device picker (`AudioManager.getDevicesInfo`). With a
@@ -388,6 +374,9 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T9 — Idea settings, tempo & grid — 2026-11-14 — "Idea settings" sheet from the "⋯" menu (name, BPM with ±, typed
+  value and Tap tempo, time signature 2/4…12/8, Grid switch; undoable, migration v4), grid lines + bar numbers on
+  the ruler (beat lines fade when zoomed out), clips snap to grid lines, pre-roll is 1 or 2 bars with the grid on
 - T10 — Ideas library basics — 2026-11-14 — "+" menu (New Idea without recording), swipe/long-press Rename,
   Duplicate (copies take files), Delete with confirmation, also in the idea's "⋯"; date under each idea, sort
   (Recent/Name/Date created, remembered), header search, recordings storage in Settings

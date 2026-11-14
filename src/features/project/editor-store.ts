@@ -23,6 +23,7 @@ import {
   saveChanges,
   setArmedTrack,
   setPreRoll,
+  type IdeaSettings,
   type Project,
   type Take,
 } from '@/features/projects/projects-repo';
@@ -35,6 +36,7 @@ import {
   duplicateClipEdit,
   placeClipEdit,
   recordTakeEdit,
+  setIdeaSettingsEdit,
   splitClipEdit,
   type ClipPlacement,
   moveTrackEdit,
@@ -210,6 +212,12 @@ export function addTrack(): Promise<void> {
   const saved = executeEdit(edit);
   const armed = armTrack(trackId);
   return Promise.all([saved, armed]).then(() => {});
+}
+
+/** Changes the idea's name, tempo, time signature and/or grid as one undo step (see the command). */
+export function setIdeaSettings(patch: Partial<IdeaSettings>): Promise<void> {
+  const { project } = useEditorStore.getState();
+  return executeEdit(project ? setIdeaSettingsEdit(project, patch) : null);
 }
 
 /** Sets a track's volume (linear gain) as one undo step: call it once, when a fader drag ends. */

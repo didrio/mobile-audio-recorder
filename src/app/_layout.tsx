@@ -32,6 +32,14 @@ export default function RootLayout() {
             sheetGrabberVisible: true,
           }}
         />
+        <Stack.Screen
+          name="idea-settings/[id]"
+          options={{
+            presentation: 'formSheet',
+            sheetAllowedDetents: [0.9],
+            sheetGrabberVisible: true,
+          }}
+        />
         <Stack.Screen name="+not-found" options={{ headerShown: true, title: 'Not found' }} />
       </Stack>
     </AppProviders>

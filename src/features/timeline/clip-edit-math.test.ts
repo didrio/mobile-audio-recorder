@@ -129,6 +129,21 @@ describe('snapDrag', () => {
   it('leaves the drag alone when nothing is in reach', () => {
     expect(snapDrag(DRAG_MOVE, origin, 2, [0, 30], 0.3)).toEqual({ delta: 2, snapTime: -1 });
   });
+
+  it('snaps to grid lines when a grid step is given', () => {
+    // Raw 12…16 on a 0.5 s grid: the start is 0.05 from 12, so it moves there.
+    const onGrid = snapDrag(DRAG_MOVE, origin, 2.05, [], 0.3, 0.5);
+    expect(onGrid.delta).toBeCloseTo(2);
+    expect(onGrid.snapTime).toBe(12);
+    // Nothing in reach of a 4 s grid.
+    expect(snapDrag(DRAG_MOVE, origin, 2.5, [], 0.3, 4)).toEqual({ delta: 2.5, snapTime: -1 });
+  });
+
+  it('prefers the closer of a candidate and a grid line', () => {
+    // Start at 12.12: grid line 12 is 0.12 away, candidate 12.1 is 0.02 away.
+    const result = snapDrag(DRAG_MOVE, origin, 2.12, [12.1], 0.3, 0.5);
+    expect(result.snapTime).toBe(12.1);
+  });
 });
 
 describe('rowAt', () => {

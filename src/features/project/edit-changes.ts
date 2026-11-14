@@ -9,15 +9,17 @@
  * Takes are not part of edits: they're append-only while an idea is open, and the ones no clip uses are
  * deleted the next time it opens (see `editor-store.ts`).
  *
- * New editable rows (sections, idea settings) get their own `table` variant here.
+ * Idea settings (name, tempo, time signature, grid) are columns of the `projects` row: that change's
+ * `before` and `after` are always set. New editable rows (sections) get their own `table` variant here.
  */
-import type { Clip, Project, Track } from '@/features/projects/projects-repo';
+import type { Clip, IdeaSettings, Project, Track } from '@/features/projects/projects-repo';
 
 export type ProjectTrack = Project['tracks'][number];
 
 export type Change =
   | { table: 'tracks'; id: string; before: Track | null; after: Track | null }
-  | { table: 'clips'; id: string; before: Clip | null; after: Clip | null };
+  | { table: 'clips'; id: string; before: Clip | null; after: Clip | null }
+  | { table: 'projects'; id: string; before: IdeaSettings; after: IdeaSettings };
 
 /** One undo step. */
 export type Edit = { label: string; changes: Change[] };
@@ -31,9 +33,20 @@ export function invertEdit(edit: Edit): Edit {
 }
 
 function invertChange(change: Change): Change {
-  return change.table === 'tracks'
-    ? { table: 'tracks', id: change.id, before: change.after, after: change.before }
-    : { table: 'clips', id: change.id, before: change.after, after: change.before };
+  switch (change.table) {
+    case 'tracks':
+      return { table: 'tracks', id: change.id, before: change.after, after: change.before };
+    case 'clips':
+      return { table: 'clips', id: change.id, before: change.after, after: change.before };
+    case 'projects':
+      return { table: 'projects', id: change.id, before: change.after, after: change.before };
+  }
+}
+
+/** The settings columns of a project. */
+export function ideaSettings(project: Project): IdeaSettings {
+  const { name, bpm, beatsPerBar, beatUnit, grid } = project;
+  return { name, bpm, beatsPerBar, beatUnit, grid };
 }
 
 /** A track without its clips, as stored in the `tracks` table. */
@@ -50,8 +63,11 @@ export function applyToProject(project: Project, changes: Change[]): Project {
   const tracks = new Map(project.tracks.map((track) => [track.id, trackRow(track)]));
   const clips = new Map(project.tracks.flatMap((track) => track.clips.map((c) => [c.id, c])));
 
+  let settings = ideaSettings(project);
   for (const change of changes) {
-    if (change.table === 'tracks') {
+    if (change.table === 'projects') {
+      settings = change.after;
+    } else if (change.table === 'tracks') {
       if (change.after) tracks.set(change.id, change.after);
       else tracks.delete(change.id);
     } else if (change.after) {
@@ -77,5 +93,5 @@ export function applyToProject(project: Project, changes: Change[]): Project {
       return { ...track, clips: trackClips };
     });
 
-  return { ...project, tracks: nextTracks, duration };
+  return { ...project, ...settings, tracks: nextTracks, duration };
 }

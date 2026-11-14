@@ -7,9 +7,12 @@ export const LATENCY_OFFSET_MIN_MS = -200;
 export const LATENCY_OFFSET_MAX_MS = 500;
 export const LATENCY_OFFSET_STEP_MS = 5;
 
-/** Pre-roll lengths offered while the grid is off (bar lengths come with the grid, T9). */
+/** Pre-roll lengths offered for ideas with the grid off. */
 export const PRE_ROLL_SECONDS_OPTIONS = [1, 2, 4] as const;
 export type PreRollSeconds = (typeof PRE_ROLL_SECONDS_OPTIONS)[number];
+/** Pre-roll lengths for ideas with the grid on: whole bars, so the punch lands on a bar line. */
+export const PRE_ROLL_BARS_OPTIONS = [1, 2] as const;
+export type PreRollBars = (typeof PRE_ROLL_BARS_OPTIONS)[number];
 
 type RecordingSettingsState = {
   /**
@@ -21,6 +24,9 @@ type RecordingSettingsState = {
   /** How long the run-up before a punch-in is, when pre-roll is on for the idea. */
   preRollSeconds: PreRollSeconds;
   setPreRollSeconds: (value: PreRollSeconds) => void;
+  /** The same for ideas with the grid on, in bars of the idea's tempo and time signature. */
+  preRollBars: PreRollBars;
+  setPreRollBars: (value: PreRollBars) => void;
 };
 
 export const useRecordingSettingsStore = create<RecordingSettingsState>()(
@@ -29,6 +35,8 @@ export const useRecordingSettingsStore = create<RecordingSettingsState>()(
       latencyOffsetMs: 0,
       preRollSeconds: 2,
       setPreRollSeconds: (value) => set({ preRollSeconds: value }),
+      preRollBars: 1,
+      setPreRollBars: (value) => set({ preRollBars: value }),
       setLatencyOffsetMs: (value) =>
         set({
           latencyOffsetMs: Math.min(
@@ -44,6 +52,7 @@ export const useRecordingSettingsStore = create<RecordingSettingsState>()(
       partialize: (state) => ({
         latencyOffsetMs: state.latencyOffsetMs,
         preRollSeconds: state.preRollSeconds,
+        preRollBars: state.preRollBars,
       }),
     },
   ),

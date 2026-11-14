@@ -19,7 +19,7 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 
 const DATABASE_NAME = 'audio-recorder.db';
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 let database: Promise<SQLiteDatabase> | null = null;
 
@@ -100,6 +100,15 @@ async function migrate(db: SQLiteDatabase) {
     if (version < 3) {
       // Pre-roll on/off per idea (T25): Record starts playback a little before the playhead.
       await tx.execAsync('ALTER TABLE projects ADD COLUMN pre_roll INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (version < 4) {
+      // Tempo, time signature and the optional bar/beat grid per idea (T9).
+      await tx.execAsync(`
+        ALTER TABLE projects ADD COLUMN bpm INTEGER NOT NULL DEFAULT 120;
+        ALTER TABLE projects ADD COLUMN beats_per_bar INTEGER NOT NULL DEFAULT 4;
+        ALTER TABLE projects ADD COLUMN beat_unit INTEGER NOT NULL DEFAULT 4;
+        ALTER TABLE projects ADD COLUMN grid INTEGER NOT NULL DEFAULT 0;
+      `);
     }
     await tx.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   });

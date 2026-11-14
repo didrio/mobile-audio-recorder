@@ -26,6 +26,7 @@ import {
   runUpStart,
 } from '@/features/audio/take-alignment';
 import { discardRecordedFile, storeRecordedTake } from '@/features/audio/take-files';
+import { preRollLength } from '@/features/audio/tempo';
 import type { Project } from '@/features/projects/projects-repo';
 import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
 import { prefetchTakePeaks } from '@/features/timeline/use-take-peaks';
@@ -228,11 +229,16 @@ export function useTransport(project: Project | null | undefined) {
       const requested = onTheFly
         ? (playbackPosition() ?? playhead.get())
         : Math.max(0, playhead.get());
-      const { preRollSeconds } = useRecordingSettingsStore.getState();
+      const { preRollSeconds, preRollBars } = useRecordingSettingsStore.getState();
+      // Whole bars with the grid on (so the punch lands on the beat as counted), seconds without.
+      const runUp = preRollLength(
+        { grid: project.grid, meter: project },
+        { seconds: preRollSeconds, bars: preRollBars },
+      );
       const playback: RecordingPlayback = onTheFly
         ? { continueFrom: requested }
         : preRoll
-          ? { clips: playableClips(project), from: runUpStart(requested, preRollSeconds) }
+          ? { clips: playableClips(project), from: runUpStart(requested, runUp) }
           : { clips: playableClips(project, (other) => other.id !== track.id), from: requested };
       const peaks = createLivePeaks(LIVE_PEAKS_PER_SECOND);
       let loudest = 0;

@@ -1,4 +1,4 @@
-import { applyToProject, invertEdit, trackRow, type Edit } from './edit-changes';
+import { applyToProject, ideaSettings, invertEdit, trackRow, type Edit } from './edit-changes';
 import { testClip, testProject, testTrack } from './edit-test-data';
 
 const project = testProject([
@@ -78,5 +78,25 @@ describe('applyToProject', () => {
       ['c4', null],
       ['z', null],
     ]);
+  });
+
+  it('applies idea settings and the inverse restores them', () => {
+    const before = ideaSettings(project);
+    const edit: Edit = {
+      label: 'test',
+      changes: [
+        {
+          table: 'projects',
+          id: 'p1',
+          before,
+          after: { ...before, name: 'Demo', bpm: 90, beatsPerBar: 6, beatUnit: 8, grid: true },
+        },
+      ],
+    };
+    const { after, restored } = roundTrip(edit);
+
+    expect(after).toMatchObject({ name: 'Demo', bpm: 90, beatsPerBar: 6, beatUnit: 8, grid: true });
+    expect(after.tracks).toEqual(project.tracks);
+    expect(restored).toEqual(project);
   });
 });

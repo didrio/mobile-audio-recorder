@@ -34,6 +34,7 @@ import {
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 
 import { Icon } from '@/components/ui';
+import { barSeconds, beatSeconds, isCompound } from '@/features/audio/tempo';
 import { canSplitAt, MIN_CLIP_SECONDS, type ClipPlacement } from '@/features/project/edit-commands';
 import type { Project } from '@/features/projects/projects-repo';
 import { useTheme, type ThemeColors } from '@/theme';
@@ -50,6 +51,7 @@ import {
   type DragPart,
   type ItemWindow,
 } from './clip-edit-math';
+import { gridSnapStep, gridSteps, LINE_BAR, LINE_GROUP, lineKind } from './grid-math';
 import { LaneOverlay } from './lane-overlay';
 import { autoScrollSpeed, laneSlotDuringDrag, laneTopDuringDrag } from './reorder-math';
 import {
@@ -114,6 +116,8 @@ const CLIP_LIFT_SCALE = 0.04;
 /** Dragging a clip this close to an edge of the view scrolls it (points, points per second). */
 const AUTO_SCROLL_EDGE = 40;
 const AUTO_SCROLL_SPEED = 600;
+/** Opacity of the beat lines at full strength (they fade out when zoomed far out). */
+const GRID_BEAT_ALPHA = 0.22;
 /** Skia resolves fonts through the system font manager, which doesn't know RN's 'System' alias. */
 const FONT_FAMILY = Platform.select({ ios: 'Helvetica', default: 'sans-serif' });
 
@@ -245,6 +249,9 @@ export function Timeline({
   const maxLaneScroll = laneScrollMax(lanesViewport, trackCount, lane, NEW_TRACK_ROW_HEIGHT);
   const duration = project.duration;
   const isRecording = liveTake != null;
+  // The bar/beat grid (T9): lines in the lanes, bar numbers on the ruler, and a snap target for drags.
+  const grid = project.grid;
+  const meter = { bpm: project.bpm, beatsPerBar: project.beatsPerBar, beatUnit: project.beatUnit };
 
   const editable = clipEditing != null && !isRecording;
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -466,6 +473,7 @@ export function Timeline({
       timeAt(fingerX.get()) - grabTime.get(),
       candidates,
       SNAP_POINTS / z,
+      grid ? gridSnapStep(meter, z) : 0,
     );
     const next = dragWindow(part, origin, snapped.delta, clip.takeDuration, MIN_CLIP_SECONDS);
     // A limit (0:00, the take's bounds) can stop the edge short of the snap point: no guide then.
@@ -763,12 +771,62 @@ export function Timeline({
       const visibleEnd = s + timeWidth / z;
       const toX = (time: number) => LEADING_SPACE + (time - s) * z;
 
+      // The grid's vertical lines for one lane (drawn translated to each lane's top): beats while
+      // they're far enough apart, else every bar or every few bars. Bars are the strongest lines;
+      // compound meters (6/8, 12/8) add a medium line at each group of three.
+      const gridLevels = grid ? gridSteps(meter, z) : null;
+      const gridPaths = (() => {
+        if (!gridLevels) return null;
+        const barLength = barSeconds(meter);
+        const bars = Skia.PathBuilder.Make();
+        const groups = Skia.PathBuilder.Make();
+        const beats = Skia.PathBuilder.Make();
+        const line = (builder: typeof bars, time: number) => {
+          const gx = toX(time);
+          if (gx < 0.5 || gx > viewWidth) return;
+          builder.moveTo(gx, 0);
+          builder.lineTo(gx, lane);
+        };
+        if (gridLevels.beatAlpha > 0) {
+          const beatLength = beatSeconds(meter);
+          const compound = isCompound(meter.beatsPerBar, meter.beatUnit);
+          const last = Math.ceil(visibleEnd / beatLength);
+          for (
+            let beat = Math.max(0, Math.floor(visibleStart / beatLength));
+            beat <= last;
+            beat++
+          ) {
+            const kind = lineKind(beat, meter.beatsPerBar, compound);
+            line(
+              kind === LINE_BAR ? bars : kind === LINE_GROUP ? groups : beats,
+              beat * beatLength,
+            );
+          }
+        } else {
+          const every = gridLevels.lineEvery;
+          const first = Math.max(0, Math.floor(visibleStart / barLength / every) * every);
+          for (let bar = first; bar * barLength <= visibleEnd; bar += every) {
+            line(bars, bar * barLength);
+          }
+        }
+        paints.gridBeat.setAlphaf(GRID_BEAT_ALPHA * gridLevels.beatAlpha);
+        return { bars: bars.detach(), groups: groups.detach(), beats: beats.detach() };
+      })();
+
       const drawLane = (index: number) => {
         const top = laneTop(index);
         canvas.drawRect(
           Skia.XYWHRect(0, top, viewWidth, lane),
           index === lifted ? paints.laneLifted : stripe(index),
         );
+        if (gridPaths) {
+          canvas.save();
+          canvas.translate(0, top);
+          canvas.drawPath(gridPaths.beats, paints.gridBeat);
+          canvas.drawPath(gridPaths.groups, paints.gridGroup);
+          canvas.drawPath(gridPaths.bars, paints.gridBar);
+          canvas.restore();
+        }
         canvas.drawLine(0, top + lane, viewWidth, top + lane, paints.separator);
       };
       // A clip showing `offset…offset + length` of its take from `start` on lane `row` (a drag can
@@ -909,26 +967,69 @@ export function Timeline({
         });
       }
 
-      // Ruler: ticks along the bottom edge, labels above them.
-      const steps = rulerSteps(z);
+      // Ruler: ticks along the bottom edge, labels above them. With the grid on it counts bars
+      // (1, 2, 3…) instead of minutes and seconds.
       canvas.drawRect(Skia.XYWHRect(0, 0, viewWidth, RULER_SIZE), paints.ruler);
-      const firstTick = Math.max(0, Math.floor(visibleStart / steps.tick));
-      const lastTick = Math.ceil(visibleEnd / steps.tick);
-      for (let index = firstTick; index <= lastTick; index++) {
-        const time = index * steps.tick;
-        const x = toX(time);
-        // The tick at the column edge would thicken the toggle's right border.
-        if (x < 1) continue;
-        const isLabel = isMultiple(time, steps.label);
-        canvas.drawLine(x, RULER_SIZE - (isLabel ? 10 : 5), x, RULER_SIZE, paints.tick);
-      }
-      canvas.drawLine(0, RULER_SIZE, viewWidth, RULER_SIZE, paints.separator);
-      const firstLabel = Math.max(0, Math.floor(visibleStart / steps.label));
-      const lastLabel = Math.ceil(visibleEnd / steps.label);
       const labelY = RULER_SIZE - 13;
-      for (let index = firstLabel; index <= lastLabel; index++) {
-        const x = toX(index * steps.label);
-        canvas.drawText(formatRulerTime(index * steps.label), x + 4, labelY, paints.label, font);
+      if (gridLevels) {
+        const barLength = barSeconds(meter);
+        const { lineEvery, labelEvery } = gridLevels;
+        const lastBar = Math.ceil(visibleEnd / barLength);
+        for (
+          let bar = Math.max(0, Math.floor(visibleStart / barLength / lineEvery) * lineEvery);
+          bar <= lastBar;
+          bar += lineEvery
+        ) {
+          const x = toX(bar * barLength);
+          if (x < 1) continue;
+          canvas.drawLine(
+            x,
+            RULER_SIZE - (bar % labelEvery === 0 ? 10 : 5),
+            x,
+            RULER_SIZE,
+            paints.tick,
+          );
+        }
+        if (gridLevels.beatAlpha > 0) {
+          const beatLength = beatSeconds(meter);
+          paints.tickBeat.setAlphaf(gridLevels.beatAlpha);
+          const lastBeat = Math.ceil(visibleEnd / beatLength);
+          for (
+            let beat = Math.max(0, Math.floor(visibleStart / beatLength));
+            beat <= lastBeat;
+            beat++
+          ) {
+            const x = toX(beat * beatLength);
+            if (x < 1 || beat % meter.beatsPerBar === 0) continue;
+            canvas.drawLine(x, RULER_SIZE - 4, x, RULER_SIZE, paints.tickBeat);
+          }
+        }
+        canvas.drawLine(0, RULER_SIZE, viewWidth, RULER_SIZE, paints.separator);
+        const firstLabel = Math.max(0, Math.floor(visibleStart / barLength / labelEvery));
+        const lastLabel = Math.ceil(visibleEnd / barLength / labelEvery);
+        for (let index = firstLabel; index <= lastLabel; index++) {
+          const bar = index * labelEvery;
+          canvas.drawText(String(bar + 1), toX(bar * barLength) + 4, labelY, paints.label, font);
+        }
+      } else {
+        const steps = rulerSteps(z);
+        const firstTick = Math.max(0, Math.floor(visibleStart / steps.tick));
+        const lastTick = Math.ceil(visibleEnd / steps.tick);
+        for (let index = firstTick; index <= lastTick; index++) {
+          const time = index * steps.tick;
+          const x = toX(time);
+          // The tick at the column edge would thicken the toggle's right border.
+          if (x < 1) continue;
+          const isLabel = isMultiple(time, steps.label);
+          canvas.drawLine(x, RULER_SIZE - (isLabel ? 10 : 5), x, RULER_SIZE, paints.tick);
+        }
+        canvas.drawLine(0, RULER_SIZE, viewWidth, RULER_SIZE, paints.separator);
+        const firstLabel = Math.max(0, Math.floor(visibleStart / steps.label));
+        const lastLabel = Math.ceil(visibleEnd / steps.label);
+        for (let index = firstLabel; index <= lastLabel; index++) {
+          const x = toX(index * steps.label);
+          canvas.drawText(formatRulerTime(index * steps.label), x + 4, labelY, paints.label, font);
+        }
       }
 
       const playheadEnd = Math.min(viewHeight, RULER_SIZE + trackCount * lane - ls);
@@ -1172,6 +1273,19 @@ function makePaints(colors: ThemeColors) {
     liveWaveform: fill(colors.primary, 0.8),
     ruler: fill(colors.surfaceMuted),
     tick: stroke(colors.textTertiary, 1),
+    tickBeat: stroke(colors.textTertiary, 1),
+    gridBar: (() => {
+      const paint = stroke(colors.textTertiary, 1);
+      paint.setAlphaf(0.5);
+      return paint;
+    })(),
+    gridGroup: (() => {
+      const paint = stroke(colors.textTertiary, StyleSheet.hairlineWidth);
+      paint.setAlphaf(0.35);
+      return paint;
+    })(),
+    /** Alpha set per frame (the beat lines fade with the zoom). */
+    gridBeat: stroke(colors.textTertiary, StyleSheet.hairlineWidth),
     label: fill(colors.textSecondary),
     playhead: stroke(colors.primary, PLAYHEAD_WIDTH),
     playheadHandle: fill(colors.primary),

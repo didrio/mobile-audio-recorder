@@ -1,8 +1,8 @@
 import type { IconName } from '@/components/ui';
 
 /**
- * The idea's "⋯" header menu. Placeholders for now (shown disabled): Idea settings comes with T9,
- * Duplicate and Delete are live (T10), Favorite with T19.
+ * The idea's "⋯" header menu. Idea settings (T9), Duplicate and Delete (T10) are live; Favorite is a
+ * placeholder (shown disabled) until T19.
  */
 export type IdeaMenuItemId = 'settings' | 'duplicate' | 'favorite' | 'delete';
 

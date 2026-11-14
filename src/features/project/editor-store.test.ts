@@ -44,7 +44,9 @@ const savedNames = () =>
   jest
     .mocked(saveChanges)
     .mock.calls.map(([, changes]) =>
-      changes.map((c) => (c.table === 'tracks' ? c.after?.name : c.after?.takeId)),
+      changes.map((c) =>
+        c.table === 'tracks' ? c.after?.name : c.table === 'clips' ? c.after?.takeId : c.after.name,
+      ),
     );
 
 describe('editor store', () => {

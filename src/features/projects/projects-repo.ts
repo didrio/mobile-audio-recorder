@@ -54,14 +54,26 @@ export type Clip = {
   duration: number;
 };
 
-export type Project = ProjectSummary & {
-  /** The track Record records onto; `null` when nothing is armed. */
-  armedTrackId: string | null;
-  /** Record starts with a run-up: playback begins the pre-roll length before the playhead. */
-  preRoll: boolean;
-  tracks: (Track & { clips: Clip[] })[];
-  takes: Record<string, Take>;
+/** What the idea settings sheet edits (an undoable edit, see `edit-changes.ts`). */
+export type IdeaSettings = {
+  name: string;
+  /** Beats per minute; a beat is a `1/beatUnit` note (`@/features/audio/tempo`). */
+  bpm: number;
+  beatsPerBar: number;
+  beatUnit: number;
+  /** Show the bar/beat grid on the timeline and snap to it. */
+  grid: boolean;
 };
+
+export type Project = ProjectSummary &
+  IdeaSettings & {
+    /** The track Record records onto; `null` when nothing is armed. */
+    armedTrackId: string | null;
+    /** Record starts with a run-up: playback begins the pre-roll length before the playhead. */
+    preRoll: boolean;
+    tracks: (Track & { clips: Clip[] })[];
+    takes: Record<string, Take>;
+  };
 
 type ProjectRow = {
   id: string;
@@ -70,6 +82,10 @@ type ProjectRow = {
   updated_at: number;
   armed_track_id: string | null;
   pre_roll: number;
+  bpm: number;
+  beats_per_bar: number;
+  beat_unit: number;
+  grid: number;
   duration: number;
 };
 type TrackRow = {
@@ -101,6 +117,7 @@ type ClipRow = {
 
 const PROJECT_COLUMNS = `
   p.id, p.name, p.created_at, p.updated_at, p.armed_track_id, p.pre_roll,
+  p.bpm, p.beats_per_bar, p.beat_unit, p.grid,
   COALESCE((
     SELECT MAX(c.start + c.duration) FROM clips c JOIN tracks t ON t.id = c.track_id
     WHERE t.project_id = p.id
@@ -179,6 +196,10 @@ export async function getProject(id: string): Promise<Project | null> {
     ...toSummary(row),
     armedTrackId: row.armed_track_id,
     preRoll: row.pre_roll === 1,
+    bpm: row.bpm,
+    beatsPerBar: row.beats_per_bar,
+    beatUnit: row.beat_unit,
+    grid: row.grid === 1,
     tracks,
     takes,
   };
@@ -268,12 +289,17 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
     }
     await db.withExclusiveTransactionAsync(async (tx) => {
       await tx.runAsync(
-        'INSERT INTO projects (id, name, created_at, updated_at, pre_roll) VALUES (?, ?, ?, ?, ?)',
+        `INSERT INTO projects (id, name, created_at, updated_at, pre_roll, bpm, beats_per_bar, beat_unit, grid)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         newId,
         name,
         now,
         now,
         source.preRoll ? 1 : 0,
+        source.bpm,
+        source.beatsPerBar,
+        source.beatUnit,
+        source.grid ? 1 : 0,
       );
       for (const track of source.tracks) {
         await tx.runAsync(
@@ -362,7 +388,22 @@ export async function saveChanges(
         take.createdAt,
       );
     }
-    const deleted = changes.filter((change) => !change.after);
+    for (const change of changes) {
+      if (change.table !== 'projects') continue;
+      const settings = change.after;
+      await tx.runAsync(
+        'UPDATE projects SET name = ?, bpm = ?, beats_per_bar = ?, beat_unit = ?, grid = ? WHERE id = ?',
+        settings.name,
+        settings.bpm,
+        settings.beatsPerBar,
+        settings.beatUnit,
+        settings.grid ? 1 : 0,
+        projectId,
+      );
+    }
+    const deleted = changes.flatMap((change) =>
+      change.table !== 'projects' && !change.after ? [change] : [],
+    );
     for (const table of ['clips', 'tracks'] as const) {
       for (const change of deleted.filter((candidate) => candidate.table === table)) {
         await tx.runAsync(`DELETE FROM ${table} WHERE id = ?`, change.id);

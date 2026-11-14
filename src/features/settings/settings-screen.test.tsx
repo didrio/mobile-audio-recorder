@@ -29,7 +29,7 @@ describe('SettingsScreen', () => {
 
   beforeEach(() => {
     useAppearanceStore.setState({ preference: 'system' });
-    useRecordingSettingsStore.setState({ latencyOffsetMs: 0, preRollSeconds: 2 });
+    useRecordingSettingsStore.setState({ latencyOffsetMs: 0, preRollSeconds: 2, preRollBars: 1 });
   });
 
   it('shows the current appearance preference', async () => {
@@ -81,6 +81,17 @@ describe('SettingsScreen', () => {
     expect(screen.getByRole('radio', { name: '4 s' })).toBeChecked();
     expect(useRecordingSettingsStore.getState().preRollSeconds).toBe(4);
     expect(storage.getString('settings.recording')).toContain('"preRollSeconds":4');
+  });
+
+  it('changes and persists the pre-roll length for ideas with the grid on (1 bar by default)', async () => {
+    await render(<SettingsScreen />);
+    expect(screen.getByRole('radio', { name: '1 bar' })).toBeChecked();
+
+    await fireEvent.press(screen.getByRole('radio', { name: '2 bars' }));
+
+    expect(screen.getByRole('radio', { name: '2 bars' })).toBeChecked();
+    expect(useRecordingSettingsStore.getState().preRollBars).toBe(2);
+    expect(storage.getString('settings.recording')).toContain('"preRollBars":2');
   });
 
   it('shows app version info', async () => {

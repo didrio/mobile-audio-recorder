@@ -23,8 +23,10 @@ import {
   LATENCY_OFFSET_MAX_MS,
   LATENCY_OFFSET_MIN_MS,
   LATENCY_OFFSET_STEP_MS,
+  PRE_ROLL_BARS_OPTIONS,
   PRE_ROLL_SECONDS_OPTIONS,
   useRecordingSettingsStore,
+  type PreRollBars,
   type PreRollSeconds,
 } from './recording-settings-store';
 
@@ -39,6 +41,11 @@ const preRollOptions = PRE_ROLL_SECONDS_OPTIONS.map((seconds) => ({
   label: `${seconds} s`,
 }));
 
+const preRollBarOptions = PRE_ROLL_BARS_OPTIONS.map((bars) => ({
+  value: String(bars),
+  label: bars === 1 ? '1 bar' : `${bars} bars`,
+}));
+
 export function SettingsScreen() {
   const styles = useStyles();
   const preference = useAppearanceStore((state) => state.preference);
@@ -47,6 +54,8 @@ export function SettingsScreen() {
   const setLatencyOffsetMs = useRecordingSettingsStore((state) => state.setLatencyOffsetMs);
   const preRollSeconds = useRecordingSettingsStore((state) => state.preRollSeconds);
   const setPreRollSeconds = useRecordingSettingsStore((state) => state.setPreRollSeconds);
+  const preRollBars = useRecordingSettingsStore((state) => state.preRollBars);
+  const setPreRollBars = useRecordingSettingsStore((state) => state.setPreRollBars);
   // Recomputed whenever the tab is shown, since ideas change elsewhere.
   const storage = useQuery({
     queryKey: ['storage', 'recordings'],
@@ -107,8 +116,11 @@ export function SettingsScreen() {
 
       <ListSection
         title="Pre-roll"
-        footer="With pre-roll on (the button above an idea's timeline), Record starts playback this long before the playhead and recording kicks in at the playhead.">
+        footer="With pre-roll on (the button above an idea's timeline), Record starts playback this long before the playhead and recording kicks in at the playhead. Ideas with the grid on use whole bars, so the punch lands on the beat.">
         <View style={styles.segmentRow}>
+          <Text variant="footnote" color="textSecondary">
+            Grid off
+          </Text>
           <SegmentedControl
             accessibilityLabel="Pre-roll length"
             options={preRollOptions}
@@ -116,6 +128,20 @@ export function SettingsScreen() {
             onChange={(value) => {
               const seconds = PRE_ROLL_SECONDS_OPTIONS.find((option) => String(option) === value);
               if (seconds) setPreRollSeconds(seconds as PreRollSeconds);
+            }}
+          />
+        </View>
+        <View style={styles.segmentRow}>
+          <Text variant="footnote" color="textSecondary">
+            Grid on
+          </Text>
+          <SegmentedControl
+            accessibilityLabel="Pre-roll length with the grid on"
+            options={preRollBarOptions}
+            value={String(preRollBars)}
+            onChange={(value) => {
+              const bars = PRE_ROLL_BARS_OPTIONS.find((option) => String(option) === value);
+              if (bars) setPreRollBars(bars as PreRollBars);
             }}
           />
         </View>
@@ -184,7 +210,7 @@ function StepButton({
 }
 
 const useStyles = makeStyles((t) => ({
-  segmentRow: { padding: t.spacing.md },
+  segmentRow: { padding: t.spacing.md, gap: t.spacing.xs },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, marginLeft: 'auto' },
   stepperValue: { minWidth: 56, textAlign: 'center', fontVariant: ['tabular-nums'] },
   stepButton: {

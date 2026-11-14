@@ -45,8 +45,8 @@ import { useTransport } from './use-transport';
  * playing punches in on the fly; with pre-roll on, Record starts with a run-up (`use-transport.ts`). The app is portrait-only
  * (`orientation` in app.json), so there is no landscape layout. One track is
  * armed: Record records onto it while the others play. Tracks are added from the timeline's
- * "+ New Track" row. The header has Undo, Redo (enabled only while idle) and "⋯" (Duplicate and Delete work, the rest are placeholders until
- * T9/T19). The idea itself lives in the editor store (`editor-store.ts`), open while this screen is.
+ * "+ New Track" row. The header has Undo, Redo (enabled only while idle) and "⋯" (Idea settings, Duplicate, Delete; Favorite is a
+ * placeholder until T19). The idea itself lives in the editor store (`editor-store.ts`), open while this screen is.
  */
 export function ProjectScreen() {
   const styles = useStyles();
@@ -114,10 +114,11 @@ export function ProjectScreen() {
     if (track) setTrackGain(trackId, trackOutputGain({ ...track, volume }, hasSolo(tracks)));
   };
 
-  // The "⋯" menu: only Duplicate and Delete do something yet (T10); the rest stay disabled.
+  // The "⋯" menu: Favorite is the only item that doesn't do anything yet (T19); it stays disabled.
   const duplicateProject = useDuplicateProject();
   const deleteProject = useDeleteProject();
   const menuActions: Partial<Record<IdeaMenuItemId, () => void>> = {
+    settings: () => router.push({ pathname: '/idea-settings/[id]', params: { id: params.id } }),
     duplicate: () => {
       duplicateProject.mutate(params.id, {
         onSuccess: (copy) => {

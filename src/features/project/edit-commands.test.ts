@@ -12,6 +12,7 @@ import {
   moveTrackEdit,
   recordTakeEdit,
   renameTrackEdit,
+  setIdeaSettingsEdit,
   setTrackMutedEdit,
   setTrackSoloEdit,
   setTrackVolumeEdit,
@@ -25,6 +26,45 @@ const project = testProject([
 
 const undo = (edit: { changes: Parameters<typeof applyToProject>[1]; label: string }) =>
   applyToProject(applyToProject(project, edit.changes), invertEdit(edit).changes);
+
+describe('setIdeaSettingsEdit', () => {
+  it('changes the time signature, name and grid together, and undo restores them', () => {
+    const edit = setIdeaSettingsEdit(project, {
+      name: '  Demo  ',
+      beatsPerBar: 6,
+      beatUnit: 8,
+      grid: true,
+    })!;
+    const after = applyToProject(project, edit.changes);
+    expect(after).toMatchObject({
+      name: 'Demo',
+      beatsPerBar: 6,
+      beatUnit: 8,
+      grid: true,
+      bpm: 120,
+    });
+    expect(undo(edit)).toEqual(project);
+  });
+
+  it('turns the grid on when the tempo changes, unless told otherwise', () => {
+    const edit = setIdeaSettingsEdit(project, { bpm: 90 })!;
+    expect(applyToProject(project, edit.changes)).toMatchObject({ bpm: 90, grid: true });
+    const off = setIdeaSettingsEdit(project, { bpm: 90, grid: false })!;
+    expect(applyToProject(project, off.changes)).toMatchObject({ bpm: 90, grid: false });
+  });
+
+  it('clamps the tempo and keeps the grid as it was when the tempo is unchanged', () => {
+    const gridOff = setIdeaSettingsEdit(project, { bpm: 1000 })!;
+    expect(applyToProject(project, gridOff.changes).bpm).toBe(240);
+    expect(setIdeaSettingsEdit(project, { bpm: 120 })).toBeNull();
+  });
+
+  it('ignores a blank name and does nothing when nothing changes', () => {
+    expect(setIdeaSettingsEdit(project, { name: '   ' })).toBeNull();
+    expect(setIdeaSettingsEdit(project, { name: 'Idea 1', grid: false })).toBeNull();
+    expect(setIdeaSettingsEdit(project, {})).toBeNull();
+  });
+});
 
 describe('addTrackEdit', () => {
   it('adds "Track N" after the last track, and undo removes it', () => {

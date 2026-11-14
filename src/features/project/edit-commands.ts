@@ -4,11 +4,12 @@
  */
 import { randomUUID } from 'expo-crypto';
 
+import { clampBpm } from '@/features/audio/tempo';
 import { clearRange } from '@/features/projects/clip-overlap';
-import type { Clip, Project, Take, Track } from '@/features/projects/projects-repo';
+import type { Clip, IdeaSettings, Project, Take, Track } from '@/features/projects/projects-repo';
 import { moveIndex } from '@/features/timeline/reorder-math';
 
-import { trackRow, type Change, type Edit } from './edit-changes';
+import { ideaSettings, trackRow, type Change, type Edit } from './edit-changes';
 
 /** Adds an empty track after the last one, named "Track N". */
 export function addTrackEdit(project: Project): { edit: Edit; trackId: string } {
@@ -315,5 +316,37 @@ export function deleteClipEdit(project: Project, clipId: string): Edit | null {
   return {
     label: 'Delete clip',
     changes: [{ table: 'clips', id: clipId, before: clip, after: null }],
+  };
+}
+
+/**
+ * Changes the idea's name, tempo, time signature and/or grid in one step. A blank name is ignored and the
+ * tempo is clamped; setting a tempo that differs from the current one turns the grid on, unless the same
+ * patch says otherwise. `null` when nothing would change.
+ */
+export function setIdeaSettingsEdit(project: Project, patch: Partial<IdeaSettings>): Edit | null {
+  const before = ideaSettings(project);
+  const after = { ...before };
+  const name = patch.name?.trim();
+  if (name) after.name = name;
+  if (patch.bpm !== undefined) {
+    after.bpm = clampBpm(patch.bpm);
+    if (after.bpm !== before.bpm) after.grid = true;
+  }
+  if (patch.beatsPerBar !== undefined) after.beatsPerBar = patch.beatsPerBar;
+  if (patch.beatUnit !== undefined) after.beatUnit = patch.beatUnit;
+  if (patch.grid !== undefined) after.grid = patch.grid;
+  if (
+    after.name === before.name &&
+    after.bpm === before.bpm &&
+    after.beatsPerBar === before.beatsPerBar &&
+    after.beatUnit === before.beatUnit &&
+    after.grid === before.grid
+  ) {
+    return null;
+  }
+  return {
+    label: 'Idea settings',
+    changes: [{ table: 'projects', id: project.id, before, after }],
   };
 }

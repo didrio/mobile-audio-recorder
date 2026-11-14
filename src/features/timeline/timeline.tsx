@@ -413,6 +413,8 @@ export function Timeline({
       for (let index = firstTick; index <= lastTick; index++) {
         const time = index * steps.tick;
         const x = toX(time);
+        // The tick at the column edge would thicken the toggle's right border.
+        if (x < 1) continue;
         const isLabel = isMultiple(time, steps.label);
         canvas.drawLine(x, RULER_SIZE - (isLabel ? 10 : 5), x, RULER_SIZE, paints.tick);
       }
@@ -476,7 +478,8 @@ export function Timeline({
                 backgroundColor: mixerOpen
                   ? theme.colors.surfacePressed
                   : theme.colors.surfaceMuted,
-                borderColor: theme.colors.textTertiary,
+                borderBottomColor: theme.colors.border,
+                borderRightColor: theme.colors.textTertiary,
               },
               pressed && styles.pressed,
             ]}>
@@ -638,8 +641,9 @@ const styles = StyleSheet.create({
     left: 0,
     height: RULER_SIZE,
     justifyContent: 'center',
-    // Enclosed like a button: a full border on all four sides.
-    borderWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    // A solid right edge, so the toggle ends cleanly where the ruler starts.
+    borderRightWidth: 1,
   },
   // The icon stays centered over the arm buttons whether the mixer is open or not.
   cornerIcon: { width: CONTROLS_WIDTH, alignItems: 'center' },

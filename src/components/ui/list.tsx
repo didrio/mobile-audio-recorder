@@ -46,11 +46,15 @@ export function ListSection({ title, footer, children }: ListSectionProps) {
 
 export type ListRowProps = {
   title: string;
+  /** A smaller line under the title (a date, a hint…). */
+  subtitle?: string;
   /** Secondary text shown on the right (e.g. a current value). */
   value?: string | null;
   icon?: IconName;
   /** Makes the row pressable and shows a chevron. */
   onPress?: () => void;
+  /** Long-press handler (e.g. open a context menu). Only used together with `onPress`. */
+  onLongPress?: () => void;
   /** Custom trailing element (switch, badge…). Replaces `value`. */
   accessory?: ReactNode;
   /** Allow long-press to copy the value (useful for IDs). */
@@ -60,9 +64,11 @@ export type ListRowProps = {
 
 export function ListRow({
   title,
+  subtitle,
   value,
   icon,
   onPress,
+  onLongPress,
   accessory,
   selectable,
   testID,
@@ -71,9 +77,18 @@ export function ListRow({
   const content = (
     <>
       {icon ? <Icon name={icon} size={20} color="primary" /> : null}
-      <Text style={styles.rowTitle} numberOfLines={1}>
-        {title}
-      </Text>
+      {subtitle ? (
+        <View style={styles.rowTexts}>
+          <Text numberOfLines={1}>{title}</Text>
+          <Text variant="footnote" color="textSecondary" numberOfLines={1}>
+            {subtitle}
+          </Text>
+        </View>
+      ) : (
+        <Text style={styles.rowTitle} numberOfLines={1}>
+          {title}
+        </Text>
+      )}
       {accessory ??
         (value != null ? (
           <Text
@@ -106,6 +121,7 @@ export function ListRow({
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
+      onLongPress={onLongPress}
       testID={testID}
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
       {content}
@@ -139,5 +155,6 @@ const useStyles = makeStyles((t) => ({
   },
   rowPressed: { backgroundColor: t.colors.surfacePressed },
   rowTitle: { flexShrink: 0 },
+  rowTexts: { flexShrink: 1 },
   rowValue: { flex: 1, textAlign: 'right' },
 }));

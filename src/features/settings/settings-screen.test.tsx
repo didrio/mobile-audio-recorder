@@ -1,4 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, render as rntlRender, screen } from '@testing-library/react-native';
+import type { ReactElement } from 'react';
 import { Appearance } from 'react-native';
 
 import { storage } from '@/lib/storage';
@@ -7,7 +9,24 @@ import { useAppearanceStore } from './appearance-store';
 import { useRecordingSettingsStore } from './recording-settings-store';
 import { SettingsScreen } from './settings-screen';
 
+jest.mock('expo-router', () => ({ useFocusEffect: jest.fn() }));
+jest.mock('@/features/audio/take-files', () => ({ recordingsSizeBytes: () => 5 * 1024 * 1024 }));
+
+const render = (element: ReactElement) =>
+  rntlRender(
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      {element}
+    </QueryClientProvider>,
+  );
+
 describe('SettingsScreen', () => {
+  it('shows the storage used by recordings', async () => {
+    await render(<SettingsScreen />);
+
+    expect(await screen.findByText('5.0 MB')).toBeOnTheScreen();
+  });
+
   beforeEach(() => {
     useAppearanceStore.setState({ preference: 'system' });
     useRecordingSettingsStore.setState({ latencyOffsetMs: 0, preRollSeconds: 2 });

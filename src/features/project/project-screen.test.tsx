@@ -499,12 +499,15 @@ describe('ProjectScreen', () => {
     expect(saveChanges).toHaveBeenCalledTimes(5);
   });
 
-  it('has a "More" menu with the idea actions (placeholders for now)', async () => {
+  it('has a "More" menu: Duplicate and Delete work, the rest are placeholders', async () => {
     await renderScreen();
 
     await screen.findByText('Timeline of Chorus riff');
     expect(screen.getByText('More')).toBeOnTheScreen();
-    expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'Favorite' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Idea settings' })).toBeDisabled();
   });
 
   it('sets a track volume live and saves it once, as one undo step', async () => {

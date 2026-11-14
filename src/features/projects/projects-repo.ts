@@ -6,7 +6,12 @@
  */
 import { randomUUID } from 'expo-crypto';
 
-import { deleteProjectFiles, deleteTakeFiles } from '@/features/audio/take-files';
+import {
+  copyTakeFiles,
+  deleteProjectFiles,
+  deleteTakeFiles,
+  takeRelativePath,
+} from '@/features/audio/take-files';
 import type { Change } from '@/features/project/edit-changes';
 import { getDb } from '@/lib/db';
 
@@ -221,6 +226,115 @@ export async function createProject(name?: string): Promise<ProjectSummary> {
   });
 
   return { id, name: projectName, createdAt: now, updatedAt: now, duration: 0 };
+}
+
+/** Renames an idea (blank names are ignored). Counts as an edit, so it moves up in "Recent". */
+export async function renameProject(id: string, name: string): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  const db = await getDb();
+  await db.runAsync(
+    'UPDATE projects SET name = ?, updated_at = ? WHERE id = ?',
+    trimmed,
+    Date.now(),
+    id,
+  );
+}
+
+/**
+ * Copies an idea: new rows with new IDs and its own copy of every take file, so deleting one idea never
+ * affects the other. Named "<name> copy". Returns `null` if the idea no longer exists.
+ */
+export async function duplicateProject(id: string): Promise<ProjectSummary | null> {
+  const source = await getProject(id);
+  if (!source) return null;
+  const db = await getDb();
+  const now = Date.now();
+  const newId = randomUUID();
+  const name = `${source.name} copy`;
+
+  const takeIds = new Map<string, string>();
+  const takePaths = new Map<string, string>();
+  for (const take of Object.values(source.takes)) {
+    const takeId = randomUUID();
+    takeIds.set(take.id, takeId);
+    takePaths.set(take.id, takeRelativePath(newId, takeId));
+  }
+  const trackIds = new Map(source.tracks.map((track) => [track.id, randomUUID()]));
+
+  try {
+    for (const take of Object.values(source.takes)) {
+      copyTakeFiles(take.path, takePaths.get(take.id)!);
+    }
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      await tx.runAsync(
+        'INSERT INTO projects (id, name, created_at, updated_at, pre_roll) VALUES (?, ?, ?, ?, ?)',
+        newId,
+        name,
+        now,
+        now,
+        source.preRoll ? 1 : 0,
+      );
+      for (const track of source.tracks) {
+        await tx.runAsync(
+          `INSERT INTO tracks (id, project_id, position, name, volume, muted, solo)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          trackIds.get(track.id)!,
+          newId,
+          track.position,
+          track.name,
+          track.volume,
+          track.muted ? 1 : 0,
+          track.solo ? 1 : 0,
+        );
+      }
+      for (const take of Object.values(source.takes)) {
+        await tx.runAsync(
+          `INSERT INTO takes (id, project_id, path, duration, sample_rate, channels, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          takeIds.get(take.id)!,
+          newId,
+          takePaths.get(take.id)!,
+          take.duration,
+          take.sampleRate,
+          take.channels,
+          take.createdAt,
+        );
+      }
+      for (const track of source.tracks) {
+        for (const clip of track.clips) {
+          await tx.runAsync(
+            `INSERT INTO clips (id, track_id, take_id, start, offset, duration)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            randomUUID(),
+            trackIds.get(track.id)!,
+            takeIds.get(clip.takeId)!,
+            clip.start,
+            clip.offset,
+            clip.duration,
+          );
+        }
+      }
+      if (source.armedTrackId) {
+        await tx.runAsync(
+          'UPDATE projects SET armed_track_id = ? WHERE id = ?',
+          trackIds.get(source.armedTrackId) ?? null,
+          newId,
+        );
+      }
+    });
+  } catch (error) {
+    deleteProjectFiles(newId);
+    throw error;
+  }
+
+  return {
+    id: newId,
+    name,
+    createdAt: now,
+    updatedAt: now,
+    duration: source.duration,
+  };
 }
 
 /**

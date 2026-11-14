@@ -63,3 +63,18 @@ export function deleteProjectFiles(projectId: string): void {
   const directory = new Directory(Paths.document, 'projects', projectId);
   if (directory.exists) directory.delete();
 }
+
+/** Copies a take's audio (and its waveform file, when there is one) to another relative path. */
+export function copyTakeFiles(fromRelativePath: string, toRelativePath: string): void {
+  const destination = new File(Paths.document, toRelativePath);
+  destination.parentDirectory.create({ intermediates: true, idempotent: true });
+  new File(Paths.document, fromRelativePath).copy(destination);
+  const peaks = peaksFile(fromRelativePath);
+  if (peaks.exists) peaks.copy(peaksFile(toRelativePath));
+}
+
+/** Bytes used by every idea's audio files. */
+export function recordingsSizeBytes(): number {
+  const directory = new Directory(Paths.document, 'projects');
+  return directory.exists ? (directory.size ?? 0) : 0;
+}

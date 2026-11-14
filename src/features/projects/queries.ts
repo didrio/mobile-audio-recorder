@@ -7,7 +7,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { forgetTakes } from '@/features/audio/audio-engine';
 
-import { createProject, deleteProject, listProjects } from './projects-repo';
+import {
+  createProject,
+  deleteProject,
+  duplicateProject,
+  listProjects,
+  renameProject,
+} from './projects-repo';
 
 export const projectKeys = {
   all: ['projects'] as const,
@@ -34,5 +40,21 @@ export function useDeleteProject() {
       forgetTakes(takePaths);
       return queryClient.invalidateQueries({ queryKey: projectKeys.list() });
     },
+  });
+}
+
+export function useRenameProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => renameProject(id, name),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: projectKeys.list() }),
+  });
+}
+
+export function useDuplicateProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => duplicateProject(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: projectKeys.list() }),
   });
 }

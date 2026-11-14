@@ -5,13 +5,15 @@ import { useEffect, useRef } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AndroidHeaderMenu } from '@/components/android-header-menu';
 import { Icon, Text, type IconName } from '@/components/ui';
 import { setTrackGain } from '@/features/audio/audio-engine';
 import { formatTimecode } from '@/features/audio/format-time';
+import { confirmDeleteIdea } from '@/features/projects/idea-actions';
+import { useDeleteProject, useDuplicateProject } from '@/features/projects/queries';
 import { Timeline, type ClipEditing } from '@/features/timeline/timeline';
 import { makeStyles, useTheme } from '@/theme';
 
-import { AndroidIdeaMenu } from './android-idea-menu';
 import {
   addTrack,
   deleteClip,
@@ -32,7 +34,7 @@ import {
   useEditorStore,
   useOpenIdea,
 } from './editor-store';
-import { IDEA_MENU_ITEMS } from './idea-menu-items';
+import { IDEA_MENU_ITEMS, type IdeaMenuItemId } from './idea-menu-items';
 import { hasSolo, trackOutputGain } from './mixer';
 import { useInputMeter } from './use-input-meter';
 import { useTransport } from './use-transport';
@@ -43,8 +45,8 @@ import { useTransport } from './use-transport';
  * playing punches in on the fly; with pre-roll on, Record starts with a run-up (`use-transport.ts`). The app is portrait-only
  * (`orientation` in app.json), so there is no landscape layout. One track is
  * armed: Record records onto it while the others play. Tracks are added from the timeline's
- * "+ New Track" row. The header has Undo, Redo (enabled only while idle) and "⋯" (placeholders until
- * T9/T10/T19). The idea itself lives in the editor store (`editor-store.ts`), open while this screen is.
+ * "+ New Track" row. The header has Undo, Redo (enabled only while idle) and "⋯" (Duplicate and Delete work, the rest are placeholders until
+ * T9/T19). The idea itself lives in the editor store (`editor-store.ts`), open while this screen is.
  */
 export function ProjectScreen() {
   const styles = useStyles();
@@ -111,6 +113,27 @@ export function ProjectScreen() {
     const track = tracks.find((candidate) => candidate.id === trackId);
     if (track) setTrackGain(trackId, trackOutputGain({ ...track, volume }, hasSolo(tracks)));
   };
+
+  // The "⋯" menu: only Duplicate and Delete do something yet (T10); the rest stay disabled.
+  const duplicateProject = useDuplicateProject();
+  const deleteProject = useDeleteProject();
+  const menuActions: Partial<Record<IdeaMenuItemId, () => void>> = {
+    duplicate: () => {
+      duplicateProject.mutate(params.id, {
+        onSuccess: (copy) => {
+          if (copy) router.replace({ pathname: '/project/[id]', params: { id: copy.id } });
+        },
+      });
+    },
+    delete: () => {
+      if (!project) return;
+      confirmDeleteIdea(project.name, () => {
+        router.back();
+        deleteProject.mutate(params.id);
+      });
+    },
+  };
+  const menuEnabled = (id: IdeaMenuItemId) => !!project && isIdle && !!menuActions[id];
 
   const editTrack = (trackId: string) =>
     router.push({ pathname: '/track/[id]', params: { id: trackId, projectId: params.id } });
@@ -277,7 +300,15 @@ export function ProjectScreen() {
                   disabled={redoDisabled}
                   onPress={onRedo}
                 />
-                <AndroidIdeaMenu />
+                <AndroidHeaderMenu
+                  label="More"
+                  icon={{ ios: 'ellipsis', android: 'more_vert' }}
+                  items={IDEA_MENU_ITEMS.map((item) => ({
+                    label: item.label,
+                    disabled: !menuEnabled(item.id),
+                    onPress: menuActions[item.id],
+                  }))}
+                />
               </View>
             ),
           }),
@@ -305,7 +336,8 @@ export function ProjectScreen() {
                 key={item.label}
                 icon={item.icon.ios}
                 destructive={item.destructive}
-                disabled>
+                disabled={!menuEnabled(item.id)}
+                onPress={menuActions[item.id]}>
                 {item.label}
               </Stack.Toolbar.MenuAction>
             ))}

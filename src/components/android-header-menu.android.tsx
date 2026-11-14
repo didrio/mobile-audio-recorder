@@ -3,6 +3,7 @@ import {
   DropdownMenuItem,
   Host,
   RNHostView,
+  SelectableDropdownMenuItem,
   Text as ComposeText,
 } from '@expo/ui/jetpack-compose';
 import { useState } from 'react';
@@ -11,13 +12,13 @@ import { Pressable } from 'react-native';
 import { Icon } from '@/components/ui';
 import { makeStyles } from '@/theme';
 
-import { IDEA_MENU_ITEMS } from './idea-menu-items';
+import type { AndroidHeaderMenuProps } from './android-header-menu';
 
 /**
- * Android's "⋯" header button and its Material dropdown (`@expo/ui`). The trigger is an RN
- * Pressable so it matches the other header buttons. iOS uses `Stack.Toolbar.Menu` instead.
+ * An icon header button with a Material dropdown (`@expo/ui`). The trigger is an RN Pressable so it
+ * matches the other header buttons. iOS uses `Stack.Toolbar.Menu` instead.
  */
-export function AndroidIdeaMenu() {
+export function AndroidHeaderMenu({ label, icon, items }: AndroidHeaderMenuProps) {
   const styles = useStyles();
   const [expanded, setExpanded] = useState(false);
   return (
@@ -27,22 +28,42 @@ export function AndroidIdeaMenu() {
           <RNHostView matchContents>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="More"
+              accessibilityLabel={label}
               hitSlop={8}
               onPress={() => setExpanded(true)}
               style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
-              <Icon name={{ ios: 'ellipsis', android: 'more_vert' }} size={24} />
+              <Icon name={icon} size={24} />
             </Pressable>
           </RNHostView>
         </DropdownMenu.Trigger>
         <DropdownMenu.Items>
-          {IDEA_MENU_ITEMS.map((item) => (
-            <DropdownMenuItem key={item.label} enabled={false}>
+          {items.map((item) => {
+            const onClick = () => {
+              setExpanded(false);
+              item.onPress?.();
+            };
+            const text = (
               <DropdownMenuItem.Text>
                 <ComposeText>{item.label}</ComposeText>
               </DropdownMenuItem.Text>
-            </DropdownMenuItem>
-          ))}
+            );
+            return item.selected === undefined ? (
+              <DropdownMenuItem
+                key={item.label}
+                enabled={!item.disabled && !!item.onPress}
+                onClick={onClick}>
+                {text}
+              </DropdownMenuItem>
+            ) : (
+              <SelectableDropdownMenuItem
+                key={item.label}
+                selected={item.selected}
+                enabled={!item.disabled}
+                onClick={onClick}>
+                {text}
+              </SelectableDropdownMenuItem>
+            );
+          })}
         </DropdownMenu.Items>
       </DropdownMenu>
     </Host>

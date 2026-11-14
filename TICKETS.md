@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T10 — Ideas library basics · Sonnet · medium effort · plan mode off
+**Next:** T9 — Idea settings, tempo & grid · Sonnet · high effort · plan mode off
 
 ## In progress
 
@@ -39,8 +39,8 @@ releases, native dependency changes). See the `wrap` skill.
   transport. "+ New Track" is a row after the last lane, not a header button.
 - **Header of an idea**: Undo · Redo · "⋯" (Idea settings, Duplicate, Delete, Favorite). The menu has disabled
   placeholders: items in `src/features/project/idea-menu-items.ts`, iOS `Stack.Toolbar.Menu` in
-  `project-screen.tsx`, Android `@expo/ui` Compose dropdown in `android-idea-menu.android.tsx`. Enable an item
-  by giving it an action there.
+  `project-screen.tsx`, Android `@expo/ui` Compose dropdown via `src/components/android-header-menu.android.tsx`. Enable an item
+  by giving it an action in `project-screen.tsx` (`menuActions`; Duplicate and Delete are live from T10).
 - **Undo/redo** covers every edit, in memory per open idea (100 steps), cleared when leaving the idea. A new
   edit is a pure builder in `src/features/project/edit-commands.ts` returning an `Edit` (before/after snapshots
   of the rows it touches, `edit-changes.ts`), applied with `executeEdit()` from `editor-store.ts`. One gesture =
@@ -50,27 +50,6 @@ releases, native dependency changes). See the `wrap` skill.
   record the same audio onto each track). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
-
-### T10 — Ideas library basics
-
-- **Status:** ready (independent of the editor tickets)
-- **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** Manage ideas: create without recording, rename, duplicate, delete, sort, find.
-- **Done when:**
-  - [ ] "+" in the Ideas tab header (iOS toolbar menu; Android `headerRight`) with "New Idea" (T19 adds "New
-        Folder"). It creates an idea with Track 1 (armed) and opens it **without** recording. The "Record new
-        idea" hero stays as it is.
-  - [ ] Rename, duplicate ("<name> copy": copies the rows and the take files, so deleting one idea never
-        affects the other) and delete with confirmation. Available from swipe actions and the long-press
-        context menu on rows. Duplicate and Delete are also in the idea's "⋯" header menu. Rename there
-        lives in Idea settings (T9).
-  - [ ] Date under each idea. Sort menu: Recent (default), Name, Date created (remember the choice in
-        `@/lib/storage`). Search in the header.
-  - [ ] Storage used by recordings shown in Settings.
-- **Context:** `deleteProject` (rows + files) and `useDeleteProject` (also clears decoded buffers) already exist
-  in `src/features/projects/` but have no UI yet. Names default to "Idea N" (`createProject`). The list is
-  `src/features/projects/projects-screen.tsx`. T19 adds folders on top of this screen, so keep the row and
-  sort code reusable for a folder's contents.
 
 ### T26 — Loop region
 
@@ -110,7 +89,7 @@ releases, native dependency changes). See the `wrap` skill.
         A7sus4") without needing section labels.
   - [ ] Migration: `projects.notes` (TEXT, default ''). Saved debounced and on close. Not an undo step (the text
         field has its own undo).
-  - [ ] Duplicate (T10) copies the notes.
+  - [ ] Duplicate (`duplicateProject` in `projects-repo.ts`, T10) copies the notes: add the column to its INSERT.
   - [ ] Unit tests for finding and inserting time stamps.
 - **Context:** Decided with the user: idea-wide notes first, because they work without sections and add almost
   no UI. Per-section notes are part of T18, and first-class chord progressions are in Backlog. The status strip
@@ -252,7 +231,7 @@ releases, native dependency changes). See the `wrap` skill.
         subfolder of itself). Select mode (Edit) for moving or deleting several at once.
   - [ ] Search spans every folder and shows each result's folder path.
   - [ ] Unit tests for the tree logic (descendants, move validation, delete counts).
-- **Context:** The Ideas stack is `src/app/(tabs)/(home)/`. `deleteProject` deletes rows + files; deleting a
+- **Context:** The Ideas stack is `src/app/(tabs)/(home)/`. `deleteProject` deletes rows + files; T10's list code (`ideas-list.ts` sort/filter, `idea-row.tsx`, `idea-actions.ts`, `rename-idea-dialog.tsx`) is meant to be reused for a folder's contents; deleting a
   folder must do that for every idea under it. A "Recently Deleted" safety net is in Backlog.
 
 ### T7 — Background recording & interruptions
@@ -344,6 +323,10 @@ skill). Fix or ticket what fails, then delete the line.
   many tracks, no jump on drop; also check light mode.
 - Timeline: pinch-zoom and pan momentum, tap-to-seek, dragging the playhead on the ruler, playhead vs. audio
   sync, smooth playback on a 3-minute idea with several takes.
+- Ideas list (T10, only seen in a screenshot on iOS): swipe left on a row (Rename/Duplicate/Delete), long-press
+  menu, Rename dialog, Duplicate then delete the original (the copy still plays), "+" → New Idea, sort menu
+  persists, search (on iOS 26 the search field may sit in the bottom toolbar: check it's findable), Settings →
+  Storage updates after deleting. Android: header Sort/Add dropdowns (Compose, never run), long-press alert.
 - Android: the old "Idea 1" clip drew without a waveform on the emulator (missing take file or peaks?).
 
 ## Backlog
@@ -405,6 +388,9 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T10 — Ideas library basics — 2026-11-14 — "+" menu (New Idea without recording), swipe/long-press Rename,
+  Duplicate (copies take files), Delete with confirmation, also in the idea's "⋯"; date under each idea, sort
+  (Recent/Name/Date created, remembered), header search, recordings storage in Settings
 - T5 — Clip editing — 2026-11-14 — tap selects (handles + Split/Duplicate/Delete bar), drag moves across tracks
   and trims (back out to the take), long-press picks up, snaps to clip edges/playhead/0:00, drops replace what's
   under them, one undo step each; edits while playing restart playback; tap no longer fires on swipes (T30);

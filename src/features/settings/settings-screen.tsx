@@ -1,4 +1,7 @@
+import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
+import { useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
 import { Pressable, View } from 'react-native';
 
 import {
@@ -10,6 +13,8 @@ import {
   Text,
   type IconName,
 } from '@/components/ui';
+import { recordingsSizeBytes } from '@/features/audio/take-files';
+import { formatBytes } from '@/features/projects/ideas-list';
 import { appInfo, runtimeLabels } from '@/lib/app-info';
 import { makeStyles } from '@/theme';
 
@@ -42,6 +47,17 @@ export function SettingsScreen() {
   const setLatencyOffsetMs = useRecordingSettingsStore((state) => state.setLatencyOffsetMs);
   const preRollSeconds = useRecordingSettingsStore((state) => state.preRollSeconds);
   const setPreRollSeconds = useRecordingSettingsStore((state) => state.setPreRollSeconds);
+  // Recomputed whenever the tab is shown, since ideas change elsewhere.
+  const storage = useQuery({
+    queryKey: ['storage', 'recordings'],
+    queryFn: () => recordingsSizeBytes(),
+  });
+  const refetchStorage = storage.refetch;
+  useFocusEffect(
+    useCallback(() => {
+      void refetchStorage();
+    }, [refetchStorage]),
+  );
   const { updates } = appInfo;
   // OTA update details only mean something in release builds (dev builds load JS from the bundler).
   const showUpdates = updates.enabled && appInfo.runtime === 'release-build';
@@ -103,6 +119,13 @@ export function SettingsScreen() {
             }}
           />
         </View>
+      </ListSection>
+
+      <ListSection title="Storage" footer="Audio files of all your ideas, on this device.">
+        <ListRow
+          title="Recordings"
+          value={storage.data != null ? formatBytes(storage.data) : '—'}
+        />
       </ListSection>
 
       <ListSection title="About">

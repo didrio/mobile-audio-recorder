@@ -53,6 +53,8 @@ export const lightColors = {
   onMute: '#FFFFFF',
   solo: '#F5B800',
   onSolo: '#000000',
+  /** Dimmed backdrop behind dialogs. */
+  scrim: '#00000066',
 } as const;
 
 export type ThemeColors = { readonly [K in keyof typeof lightColors]: string };
@@ -84,6 +86,8 @@ export const darkColors: ThemeColors = {
   onMute: '#FFFFFF',
   solo: '#FFD60A',
   onSolo: '#000000',
+  /** Dimmed backdrop behind dialogs. */
+  scrim: '#00000066',
 };
 
 /** 4pt spacing scale. Use for padding, margin and gap. */

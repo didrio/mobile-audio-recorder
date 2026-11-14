@@ -479,7 +479,7 @@ export function Timeline({
                   ? theme.colors.surfacePressed
                   : theme.colors.surfaceMuted,
                 borderBottomColor: theme.colors.border,
-                borderRightColor: theme.colors.textTertiary,
+                borderRightColor: theme.colors.border,
               },
               pressed && styles.pressed,
             ]}>

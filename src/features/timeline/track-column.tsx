@@ -194,7 +194,7 @@ const useStyles = makeStyles((t) => ({
     borderBottomColor: t.colors.border,
     // A solid right edge on each track's cell (same as the mixer toggle's), ending at the last track.
     borderRightWidth: 1,
-    borderRightColor: t.colors.textTertiary,
+    borderRightColor: t.colors.border,
     backgroundColor: t.colors.background,
   },
   cellAlt: { backgroundColor: t.colors.laneAlt },

@@ -63,8 +63,8 @@ import { LEVEL_COUNT, LEVEL_FACTOR, maxAmplitude, peaksPerSecond } from './wavef
 const RULER_SIZE = 32;
 /** Touches this far below the ruler still scrub (it's a thin target). */
 const RULER_SLOP = 12;
-/** Space before 0:00, so the playhead (and its handle) at the start isn't cut off by the edge. */
-const LEADING_SPACE = 14;
+/** Space before 0:00: half the playhead handle, so it at the start just fits beside the track column. */
+const LEADING_SPACE = 7;
 const CLIP_INSET = 3;
 const CLIP_RADIUS = 6;
 const PLAYHEAD_WIDTH = 2;

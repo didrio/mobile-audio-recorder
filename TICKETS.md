@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T26 — Loop region · Opus · high effort · plan mode on
+**Next:** T24 — Idea notes · Sonnet · medium effort · plan mode off
 
 ## In progress
 
@@ -53,30 +53,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   record the same audio onto each track). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
-
-### T26 — Loop region
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Simple looping: one loop region on the ruler, set in a tap, with gapless looped playback. Looping
-  individual clips or sections and recording over a loop are parked for a rethink (Backlog).
-- **Done when:**
-  - [ ] A Loop toggle in the transport (SF `repeat`, Material `repeat`), saved per idea with the region
-        (migration: `projects.loop_on`, `loop_start`, `loop_end`, nullable).
-  - [ ] The region shows as a tinted band on the ruler with a handle at each end. Dragging a handle resizes the
-        region (snaps to bars with the grid on, T9). Everything else on the ruler still scrubs the playhead, so
-        the handles are hit-tested first. While Loop is on, the lanes inside the region get a light tint.
-  - [ ] Turning Loop on with no region creates one: 8 s (or 2 bars with the grid on) from the playhead.
-  - [ ] Playback with Loop on starts at the playhead if it's inside the region, otherwise at the region start.
-        At the region end it wraps back without a gap or click (iterations scheduled ahead on the context
-        clock). The playhead and clock wrap too.
-  - [ ] Loop applies to playback only: Record ignores it for now (backing plays straight through).
-  - [ ] Changing the region isn't an undo step (like the playhead). Unit tests cover the wrap/scheduling math.
-- **Context:** `play()` and `PlayableClip` are in `audio-engine.ts`. The library's buffer-source
-  `loop`/`loopStart`/`loopEnd` only loops one buffer, so multitrack looping means rescheduling every clip each
-  iteration. The playhead anchor math is in `use-transport.ts` (`playbackAnchor`), and the ruler gesture is in
-  `timeline.tsx`. The transport and status strip are getting crowded (pre-roll, notes, keyboard, metronome):
-  check with a screenshot.
 
 ### T24 — Idea notes
 
@@ -302,6 +278,12 @@ skill). Fix or ticket what fails, then delete the line.
   readable in light mode outdoors but still lighter than bar lines (`GRID_BEAT_ALPHA`, `GRID_LOOSE_FADE` in
   `timeline.tsx`). Pre-roll icon right of Record is easy to hit; Record new idea has no grid, "+" has one.
   Live waveform while recording with pre-roll (T35) sits inside the red clip. Android: the Snap and pre-roll icons.
+- Loop (T26, iPhone, never heard): loop a region that cuts through a sustained note or chord and listen at the
+  wrap: no gap, no click (else lengthen `LOOP_FADE_SECONDS` in `loop-math.ts`, 5 ms). Let it loop for a few
+  minutes: the playhead and audio stay together, the metronome (on) clicks on the beat across the wrap.
+  Handles: drag both ends with the grid + Snap on (whole bars, haptic per bar) and off; the start handle vs.
+  the playhead handle when they overlap. Toggle Loop and drag a handle while playing (short restart, no
+  stutter). Record while looping: the loop stops and recording starts from there, backing straight through.
 - App icons: the DEV icon on the iPhone home screen (installed 2026-11-14); the PREVIEW icon after the next
   preview build (`npm run build:preview`, iOS only while Android is paused).
 - Android: the old "Idea 1" clip drew without a waveform on the emulator (missing take file or peaks?).
@@ -310,6 +292,10 @@ skill). Fix or ticket what fails, then delete the line.
 
 Ideas that aren't ready to work on yet. Promote them to "Up next" with full detail when they are.
 
+- Loop region polish (from T26, decide after trying it on a phone): the lane tint is drawn under clips, so on
+  a full lane it's barely visible (tint over the clips, or dim outside the region instead?); the start handle
+  covers the playhead's ruler handle when both sit at the region start (handles win; the default region starts
+  at the playhead). Drawing and hit-testing are in `timeline.tsx` (`loopEdgeAt`, `LOOP_REACH_*`).
 - Loop recording & takes, to rethink with the user after the current Up next list: singing over a loop again
   and again, keeping passes as alternate takes (badge + picker), comping one take from several passes, looping
   a clip or section directly, a punch-out end point. Clips are already windows onto immutable takes (`db.ts`),
@@ -365,6 +351,12 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T26 — Loop region — 2026-11-14 — Loop toggle left of the transport (saved per idea with its region,
+  migration v8, not undoable, copied by Duplicate; first turn-on makes 8 s / 2 bars at the playhead); ruler
+  band + handle tabs (faint with Loop off), handles hit-tested before scrub, snap to bars with the grid;
+  gapless looped playback: clips rescheduled per pass ~1 s ahead with 5 ms crossfades at cuts, clicks follow
+  the wrap (`loop-math.ts`, engine `scheduleLoop`); Record while looping stops the loop and records straight
+  through. Simulator light + dark; not heard on a device
 - T35 — Live waveform in step with the take during pre-roll — 2026-11-14 — `drawLivePeaks` anchors bars at the
   take file's start (`peaksStart`, before the punch with pre-roll) instead of the punch; the index/x math is in
   `livePeakRange` / `livePeakPoint` (`timeline-math.ts`, unit tests). Seen on the simulator
@@ -386,20 +378,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   the transport's unclamped `beatClock` (counts in before 0:00) with `beatAt` in `metronome.ts`; per-idea
   output Sound / Visual / Both in Idea settings (undoable, migration v6; Visual = engine click at volume 0, so
   timing and alignment are unchanged); "Use Visual" hint in Speaker mode. Simulator only; device check pending
-- T21 — Speaker mode (echo cancellation) — 2026-11-14 — after Stop, the backing that played is removed from
-  takes recorded without headphones (local module `modules/echo-canceller`: C core with a fixed
-  speaker → room → mic model incl. distortion, delay search, measured click suppression; Swift wrapper, iOS
-  only, T32 for Android); raw take kept as `.raw.wav`; Settings → Speaker mode (experimental, off by
-  default) with Light/Strong. iOS voice processing and SpeexDSP were tried and rejected (details in
-  `docs/decisions.md`). Two iPhone tests: tracks cancel decently, clicks better but audible → T33 + T34.
-  Also: DEV/PREVIEW labelled app icons (`app.config.ts`), e2e flows fixed (Settings scroll, wait for Record)
-- T17 — Metronome & count-in — 2026-11-14 — clicks synthesized in code (`metronome.ts`, accented downbeat, 6/8
-  and 12/8 groups) scheduled on the context clock with playback and recording (lookahead scheduler in the
-  engine, also before 0:00 so pre-roll is the count-in, whole bars with the metronome on); strip toggle (saved,
-  turns the grid on) and volume slider in Idea settings (undoable), migration v5. Device clap check pending
-- T9 — Idea settings, tempo & grid — 2026-11-14 — "Idea settings" sheet from the "⋯" menu (name, BPM with ±, typed
-  value and Tap tempo, time signature 2/4…12/8, Grid switch; undoable, migration v4), grid lines + bar numbers on
-  the ruler (beat lines fade when zoomed out), clips snap to grid lines, pre-roll is 1 or 2 bars with the grid on
-- T10 — Ideas library basics — 2026-11-14 — "+" menu (New Idea without recording), swipe/long-press Rename,
-  Duplicate (copies take files), Delete with confirmation, also in the idea's "⋯"; date under each idea, sort
-  (Recent/Name/Date created, remembered), header search, recordings storage in Settings

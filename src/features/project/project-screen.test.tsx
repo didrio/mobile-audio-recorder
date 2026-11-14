@@ -8,12 +8,14 @@ import {
   cutTrackAt,
   ensureRecordPermission,
   play,
+  playbackAnchor,
   playbackPosition,
   setMetering,
   setMetronome,
   setTrackGain,
   silenceOutput,
   startRecording,
+  stopPlayback,
   type FinishedRecording,
 } from '@/features/audio/audio-engine';
 import { discardRecordedFile, storeRecordedTake } from '@/features/audio/take-files';
@@ -23,6 +25,7 @@ import {
   getProject,
   saveChanges,
   setArmedTrack,
+  setLoop,
   setMetronome as saveMetronome,
   setPreRoll,
   setSnap,
@@ -137,6 +140,7 @@ jest.mock('@/features/timeline/timeline', () => {
       onToggleMute,
       onVolumeLive,
       onVolumeCommit,
+      onLoopRegionChange,
     }: {
       project: Project;
       armedTrackId: string | null;
@@ -147,8 +151,14 @@ jest.mock('@/features/timeline/timeline', () => {
       onToggleMute: (trackId: string) => void;
       onVolumeLive: (trackId: string, gain: number) => void;
       onVolumeCommit: (trackId: string, gain: number) => void;
+      onLoopRegionChange: (region: { start: number; end: number }) => void;
     }) => (
       <View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Drag the loop to 0:01–0:03"
+          onPress={() => onLoopRegionChange({ start: 1, end: 3 })}
+        />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Seek to 0:05"
@@ -209,6 +219,7 @@ jest.mock('@/features/projects/projects-repo', () => ({
   setPreRoll: jest.fn(() => Promise.resolve()),
   setSnap: jest.fn(() => Promise.resolve()),
   setMetronome: jest.fn(() => Promise.resolve()),
+  setLoop: jest.fn(() => Promise.resolve()),
   deleteUnusedTakes: jest.fn(),
   listProjects: jest.fn(),
   createProject: jest.fn(),
@@ -231,6 +242,8 @@ const project: Project = {
   metronome: false,
   metronomeVolume: 1,
   metronomeOutput: 'both',
+  loopOn: false,
+  loopRegion: null,
   takes: {
     t1: {
       id: 't1',
@@ -296,6 +309,7 @@ describe('ProjectScreen', () => {
     jest.mocked(saveChanges).mockResolvedValue();
     jest.mocked(deleteUnusedTakes).mockResolvedValue([]);
     jest.mocked(playbackPosition).mockReturnValue(0);
+    jest.mocked(playbackAnchor).mockReturnValue(null);
     useRecordingSettingsStore.setState({
       latencyOffsetMs: 0,
       preRollSeconds: 2,
@@ -332,7 +346,7 @@ describe('ProjectScreen', () => {
   } = {}) {
     jest.mocked(ensureRecordPermission).mockResolvedValue(true);
     jest.mocked(startRecording).mockResolvedValue({
-      anchor: { from, startedAtMs },
+      anchor: { from, startedAtMs, loop: null },
       whenStarted: () => Promise.resolve(alignment),
       stop: jest.fn(() =>
         Promise.resolve({
@@ -496,6 +510,64 @@ describe('ProjectScreen', () => {
 
     expect(screen.getByRole('switch', { name: 'Pre-roll' })).toBeChecked();
     expect(setPreRoll).toHaveBeenCalledWith('p1', true);
+  });
+
+  it('toggles Loop: the first time it makes a region at the playhead; the ruler resizes it', async () => {
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Seek to 0:05' }));
+    expect(screen.getByRole('switch', { name: 'Loop' })).not.toBeChecked();
+    await user.press(screen.getByRole('switch', { name: 'Loop' }));
+
+    expect(screen.getByRole('switch', { name: 'Loop' })).toBeChecked();
+    expect(setLoop).toHaveBeenLastCalledWith('p1', true, { start: 5, end: 13 });
+    await user.press(screen.getByRole('button', { name: 'Drag the loop to 0:01–0:03' }));
+    expect(setLoop).toHaveBeenLastCalledWith('p1', true, { start: 1, end: 3 });
+    // Not undo steps.
+    expect(saveChanges).not.toHaveBeenCalled();
+  });
+
+  it('with Loop on, plays the region from its start when the playhead is outside it', async () => {
+    jest.mocked(getProject).mockResolvedValue({
+      ...project,
+      loopOn: true,
+      loopRegion: { start: 2, end: 4 },
+    });
+    jest.mocked(play).mockResolvedValue();
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Seek to 0:05' }));
+    await user.press(screen.getByRole('button', { name: 'Play' }));
+
+    expect(play).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ from: 2, loop: { start: 2, end: 4 } }),
+    );
+  });
+
+  it('Record while looping stops the loop and records from where it was, straight through', async () => {
+    const region = { start: 2, end: 6 };
+    jest.mocked(getProject).mockResolvedValue({ ...project, loopOn: true, loopRegion: region });
+    jest.mocked(play).mockResolvedValue();
+    mockRecording({ from: 3 });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Play' }));
+    expect(await screen.findByRole('button', { name: 'Pause' })).toBeOnTheScreen();
+    jest.mocked(playbackAnchor).mockReturnValue({ from: 2, startedAtMs: 0, loop: region });
+    jest.mocked(playbackPosition).mockReturnValue(3);
+    jest.mocked(stopPlayback).mockClear();
+    jest.mocked(cutTrackAt).mockClear();
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+
+    expect(stopPlayback).toHaveBeenCalled();
+    expect(startRecording).toHaveBeenLastCalledWith(
+      expect.objectContaining({ playback: expect.objectContaining({ from: 3 }) }),
+    );
+    expect(cutTrackAt).not.toHaveBeenCalled();
   });
 
   it('toggles Snap when the grid shows, saving it with the idea (not an undo step)', async () => {

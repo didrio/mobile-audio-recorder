@@ -17,12 +17,14 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 
 import { forgetTakes } from '@/features/audio/audio-engine';
+import { defaultLoopRegion, type LoopRegion } from '@/features/audio/loop-math';
 import {
   deleteUnusedTakes,
   getProject,
   saveChanges,
   setArmedTrack,
   setMetronome,
+  setLoop,
   setPreRoll,
   setSnap,
   type IdeaSettings,
@@ -63,6 +65,9 @@ export type EditorState = {
   snap: boolean;
   /** The metronome toggle (T17). Saved per idea, but not an undo step. */
   metronome: boolean;
+  /** The Loop toggle and region (T26). Saved per idea, but not undo steps (like the playhead). */
+  loopOn: boolean;
+  loopRegion: LoopRegion | null;
   /** Set when a change couldn't be saved (the idea was reloaded). */
   saveError: string | null;
 };
@@ -76,6 +81,8 @@ const closedState: EditorState = {
   preRoll: false,
   snap: true,
   metronome: false,
+  loopOn: false,
+  loopRegion: null,
   saveError: null,
 };
 
@@ -123,6 +130,8 @@ async function reload(projectId: string) {
     preRoll: project ? project.preRoll : state.preRoll,
     snap: project ? project.snap : state.snap,
     metronome: project ? project.metronome : state.metronome,
+    loopOn: project ? project.loopOn : state.loopOn,
+    loopRegion: project ? project.loopRegion : state.loopRegion,
     saveError: SAVE_ERROR,
   });
 }
@@ -157,6 +166,8 @@ export function openIdea(projectId: string, options: { onSaved?: () => void } = 
             preRoll: project.preRoll,
             snap: project.snap,
             metronome: project.metronome,
+            loopOn: project.loopOn,
+            loopRegion: project.loopRegion,
             status: 'ready',
           }
         : { status: 'error' },
@@ -330,6 +341,30 @@ export function toggleMetronome(): Promise<void> {
   const grid = on && project && !project.grid ? setIdeaSettings({ grid: true }) : Promise.resolve();
   if (!projectId) return grid;
   return Promise.all([grid, enqueue(() => setMetronome(projectId, on))]).then(() => {});
+}
+
+/**
+ * The Loop toggle in the transport. Saved, not undoable. Turning it on without a region makes one
+ * at the playhead (`defaultLoopRegion`: two bars with the grid on, else 8 s).
+ */
+export function toggleLoop(playhead: number): Promise<void> {
+  const { projectId, project, loopOn, loopRegion } = useEditorStore.getState();
+  const on = !loopOn;
+  const region =
+    on && !loopRegion && project
+      ? defaultLoopRegion(playhead, { grid: project.grid, meter: project })
+      : loopRegion;
+  useEditorStore.setState({ loopOn: on, loopRegion: region });
+  if (!projectId) return Promise.resolve();
+  return enqueue(() => setLoop(projectId, on, region));
+}
+
+/** Moves or resizes the loop region (a handle drag on the ruler). Saved, not undoable. */
+export function setLoopRegion(region: LoopRegion): Promise<void> {
+  const { projectId, loopOn } = useEditorStore.getState();
+  useEditorStore.setState({ loopRegion: region });
+  if (!projectId) return Promise.resolve();
+  return enqueue(() => setLoop(projectId, loopOn, region));
 }
 
 /** Tapping a track's name: arms it, or disarms it when it is the armed one. */

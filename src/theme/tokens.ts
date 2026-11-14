@@ -46,6 +46,8 @@ export const lightColors = {
   clipSelected: '#BFD3F8',
   /** Timeline: the guide line where a dragged clip edge snaps. */
   snapLine: '#E08A00',
+  /** Timeline: the loop region (T26): its handles, and tinted on the ruler and lanes. */
+  loop: '#1E9BB3',
   /** Timeline: track header chip floating over the lane (slightly translucent). */
   trackHeader: '#F2F2F7EB',
   /** Track mixer: active Mute (M) and Solo (S) buttons, and their text. */
@@ -84,6 +86,7 @@ export const darkColors: ThemeColors = {
   waveform: '#82A9F2',
   clipSelected: '#2A4470',
   snapLine: '#FFB340',
+  loop: '#40C8E0',
   trackHeader: '#1C1C1EEB',
   mute: '#4A8DFF',
   onMute: '#FFFFFF',

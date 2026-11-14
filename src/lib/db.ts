@@ -19,7 +19,7 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 
 const DATABASE_NAME = 'audio-recorder.db';
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 let database: Promise<SQLiteDatabase> | null = null;
 
@@ -126,6 +126,14 @@ async function migrate(db: SQLiteDatabase) {
     if (version < 7) {
       // Snap on/off per idea (T31): clips and the playhead snap to the grid lines when it's on.
       await tx.execAsync('ALTER TABLE projects ADD COLUMN snap INTEGER NOT NULL DEFAULT 1;');
+    }
+    if (version < 8) {
+      // Loop toggle and region per idea (T26). No region (NULL) until Loop is first turned on.
+      await tx.execAsync(`
+        ALTER TABLE projects ADD COLUMN loop_on INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE projects ADD COLUMN loop_start REAL;
+        ALTER TABLE projects ADD COLUMN loop_end REAL;
+      `);
     }
     await tx.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   });

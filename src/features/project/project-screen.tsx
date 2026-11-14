@@ -28,9 +28,11 @@ import {
   selectCanRedo,
   selectCanUndo,
   setIdeaSettings,
+  setLoopRegion,
   setTrackVolume,
   toggleMute,
   toggleArm,
+  toggleLoop,
   toggleMetronome,
   togglePreRoll,
   toggleSnap,
@@ -47,7 +49,8 @@ import { useTransport } from './use-transport';
 
 /**
  * The project editor: a thin status strip (clock, metronome and snap toggles, meter), the beat
- * display while the metronome is on and shown (Visual / Both, `beat-display.tsx`), the timeline, then a compact transport row (Back to start · Play · Record, pre-roll toggle on the right). Record while
+ * display while the metronome is on and shown (Visual / Both, `beat-display.tsx`), the timeline, then a compact transport row (Loop toggle on the left, Back to start · Play · Record, pre-roll toggle on the right). With
+ * Loop on, playback repeats the region set on the ruler (T26); Record ignores it. Record while
  * playing punches in on the fly; with pre-roll on, Record starts with a run-up (`use-transport.ts`). The app is portrait-only
  * (`orientation` in app.json), so there is no landscape layout. One track is
  * armed: Record records onto it while the others play. Tracks are added from the timeline's
@@ -73,6 +76,8 @@ export function ProjectScreen() {
   const preRoll = useEditorStore((state) => state.preRoll);
   const snap = useEditorStore((state) => state.snap);
   const metronome = useEditorStore((state) => state.metronome);
+  const loopOn = useEditorStore((state) => state.loopOn);
+  const loopRegion = useEditorStore((state) => state.loopRegion);
   const canUndo = useEditorStore(selectCanUndo);
   const canRedo = useEditorStore(selectCanRedo);
   const speakerRecording = useSpeakerRecording();
@@ -251,8 +256,20 @@ export function ProjectScreen() {
       onPress={isPlaying ? () => transport.stopPlaying() : () => void transport.startPlayback()}
     />
   );
-  // Pre-roll (T25) sits right of Record as a plain icon; an empty slot of the same width on the left
-  // keeps Back to start, Play and Record where they were.
+  // Loop (T26) and Pre-roll (T25) flank the buttons as plain icons, Loop left of Back to start,
+  // Pre-roll right of Record. Looping applies at once, also mid-playback (`replay`).
+  const loopToggle = (
+    <StripToggle
+      label="Loop"
+      icon={{ ios: 'repeat', android: 'repeat' }}
+      on={loopOn}
+      disabled={isRecording || isBusy || !project}
+      onPress={() => {
+        void toggleLoop(transport.playhead.get());
+        transport.replay();
+      }}
+    />
+  );
   const preRollToggle = (
     <StripToggle
       label="Pre-roll"
@@ -324,10 +341,16 @@ export function ProjectScreen() {
       following={isPlaying || isRecording}
       liveTake={transport.liveTake}
       snap={snap}
+      loopOn={loopOn}
+      loopRegion={loopRegion}
       armedTrackId={armedTrack?.id ?? null}
       addTrackDisabled={addTrackDisabled}
       clipEditing={isRecording || isBusy ? null : clipEditing}
       onSeek={transport.seek}
+      onLoopRegionChange={(region) => {
+        void setLoopRegion(region);
+        transport.replay();
+      }}
       onArm={(trackId) => void toggleArm(trackId)}
       onEditTrack={editTrack}
       onMoveTrack={(trackId, toIndex) => void moveTrack(trackId, toIndex)}
@@ -424,7 +447,7 @@ export function ProjectScreen() {
         ]}>
         {/* The outer two share a size, so Play stays centered. */}
         <View style={styles.buttons}>
-          <View style={styles.sideSlot} />
+          <View style={styles.sideSlot}>{loopToggle}</View>
           {backToStart}
           {playButton}
           {recordButton}
@@ -553,7 +576,7 @@ function TransportButton({
 
 const PLAY_BUTTON_SIZE = 60;
 const SIDE_BUTTON_SIZE = 44;
-/** The two slots flanking the transport buttons (the pre-roll toggle and an empty twin). */
+/** The two slots flanking the transport buttons (the Loop and pre-roll toggles). */
 const SIDE_SLOT_WIDTH = 36;
 
 const useStyles = makeStyles((t) => ({

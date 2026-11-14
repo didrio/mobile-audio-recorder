@@ -4,6 +4,7 @@ import {
   getProject,
   saveChanges,
   setArmedTrack,
+  setLoop,
   setMetronome,
 } from '@/features/projects/projects-repo';
 
@@ -19,8 +20,10 @@ import {
   selectArmedTrack,
   selectCanRedo,
   selectCanUndo,
+  setLoopRegion,
   setTrackVolume,
   toggleArm,
+  toggleLoop,
   toggleMetronome,
   toggleMute,
   toggleSolo,
@@ -34,6 +37,7 @@ jest.mock('@/features/projects/projects-repo', () => ({
   saveChanges: jest.fn(),
   setArmedTrack: jest.fn(),
   setMetronome: jest.fn(),
+  setLoop: jest.fn(),
   deleteUnusedTakes: jest.fn(),
 }));
 
@@ -217,6 +221,29 @@ describe('editor store', () => {
     await undo();
     expect(state()).toMatchObject({ metronome: false, project: { grid: false } });
     expect(selectCanUndo(state())).toBe(false);
+  });
+
+  it('toggles Loop, making a region at the playhead the first time (saved, not undoable)', async () => {
+    jest.mocked(setLoop).mockResolvedValue();
+    await toggleLoop(3);
+    expect(state()).toMatchObject({ loopOn: true, loopRegion: { start: 3, end: 11 } });
+    expect(setLoop).toHaveBeenLastCalledWith('p1', true, { start: 3, end: 11 });
+
+    await setLoopRegion({ start: 4, end: 6 });
+    await toggleLoop(0);
+    expect(state()).toMatchObject({ loopOn: false, loopRegion: { start: 4, end: 6 } });
+    // Turning it on again keeps the region.
+    await toggleLoop(20);
+    expect(state()).toMatchObject({ loopOn: true, loopRegion: { start: 4, end: 6 } });
+    expect(setLoop).toHaveBeenLastCalledWith('p1', true, { start: 4, end: 6 });
+    expect(selectCanUndo(state())).toBe(false);
+  });
+
+  it('makes a two-bar region from the playhead’s bar with the grid on', async () => {
+    jest.mocked(getProject).mockResolvedValue({ ...project, grid: true, bpm: 120 });
+    await openIdea('p1');
+    await toggleLoop(5.1);
+    expect(state().loopRegion).toEqual({ start: 4, end: 8 });
   });
 
   it('forgets history when the idea closes', async () => {

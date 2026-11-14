@@ -22,6 +22,7 @@ import {
   type RecordingPlayback,
 } from '@/features/audio/audio-engine';
 import { echoPlan } from '@/features/audio/echo-reference';
+import { loopedPosition, loopStartPosition } from '@/features/audio/loop-math';
 import { clickVolume } from '@/features/audio/metronome';
 import {
   choosePunch,
@@ -101,6 +102,11 @@ const TICK_MS = 100;
  *   on, following its tempo, meter and metronome volume live. The pre-roll's run-up clicks too, so
  *   it is the count-in; with the metronome on it is always whole bars, so the punch lands on a beat
  *   as counted. With the idea's output set to Visual it runs silently (`clickVolume`).
+ * - Loop (T26): with the idea's Loop on, Play starts at the playhead if it's inside the region,
+ *   else at its start, and wraps at its end gaplessly until paused; the playhead, clock and beat
+ *   display wrap with it (`loop-math.ts`). Toggling Loop or changing the region while playing
+ *   continues from where playback is (`replay`). Recording ignores the loop: Record while a loop
+ *   plays stops it and records from where it was, as Record from stopped would.
  */
 export function useTransport(
   project: Project | null | undefined,
@@ -157,7 +163,9 @@ export function useTransport(
       beatClock.set(null);
       return;
     }
-    const time = current.from + Math.max(0, performance.now() - current.startedAtMs) / 1000;
+    const elapsed = (performance.now() - current.startedAtMs) / 1000;
+    // Waits at `from` until it's heard (and before 0:00 in a run-up); a loop wraps.
+    const time = elapsed > 0 ? loopedPosition(current.from, current.loop, elapsed) : current.from;
     playhead.set(Math.max(0, time));
     beatClock.set(time);
   }, false);
@@ -313,7 +321,14 @@ export function useTransport(
     if (!project || (status !== 'idle' && status !== 'playing')) return;
     const track = project.tracks.find((candidate) => candidate.id === trackId);
     if (!track) return;
-    const onTheFly = status === 'playing';
+    // Recording ignores the loop: a looped playback stops, and Record starts from where it was.
+    const looping = status === 'playing' && playbackAnchor()?.loop != null;
+    if (looping) {
+      const at = playbackPosition() ?? playhead.get();
+      stopPlayback();
+      moveTo(at);
+    }
+    const onTheFly = status === 'playing' && !looping;
     const { preRoll, metronome } = useEditorStore.getState();
     const punchIn = onTheFly || preRoll;
     setError(null);
@@ -431,13 +446,20 @@ export function useTransport(
   const playFrom = async (requested: number, source: Project | null | undefined = project) => {
     if (!source) return;
     setError(null);
-    const from = requested < source.duration ? requested : 0;
+    const { loopOn, loopRegion } = useEditorStore.getState();
+    const loop = loopOn ? loopRegion : null;
+    const from = loop
+      ? loopStartPosition(requested, loop)
+      : requested < source.duration
+        ? requested
+        : 0;
     const clips = playableClips(source);
     try {
       moveTo(from);
       setStatus('playing');
       await play(clips, {
         from,
+        loop,
         onEnded: () => {
           moveTo(from);
           setStatus('idle');
@@ -546,7 +568,11 @@ function playableClips(
 
 /** The timeline position an anchor's playback has reached now. */
 function anchorPosition(anchor: PlaybackAnchor): number {
-  return anchor.from + Math.max(0, performance.now() - anchor.startedAtMs) / 1000;
+  return loopedPosition(
+    anchor.from,
+    anchor.loop,
+    Math.max(0, performance.now() - anchor.startedAtMs) / 1000,
+  );
 }
 
 function messageOf(cause: unknown, fallback: string): string {

@@ -37,6 +37,12 @@
  * - Speaker mode (T21): `stop()` also says what the backing played (`BackingPlayed`: the clips at
  *   their track gains, where a track was cut, the metronome), so the take can be cleaned of it
  *   afterwards (`echo-reference.ts`, `@/lib/echo-canceller`).
+ * - Loop (T26): `play(…, { loop })` repeats a region gaplessly. Clips are rescheduled every pass
+ *   (a buffer source's own `loop` only loops one buffer), a pass about a second before it sounds,
+ *   on the context clock, by the same scheduler tick as the clicks (`loop-math.ts` maps elapsed time
+ *   to passes and clip pieces). Where the loop cuts a clip, the tail rings on a few milliseconds
+ *   fading out while the head fades in (a per-piece gain), so the wrap doesn't click. A looped
+ *   playback never ends by itself. Recording never loops.
  * - Playhead: `playbackAnchor()` gives the moment (on the `performance.now()` clock, shared by the
  *   JS and UI threads) when timeline position `from` is heard, so the UI can animate the playhead
  *   per frame without calling into the engine.
@@ -56,6 +62,7 @@ import {
   type GainNode,
 } from 'react-native-audio-api';
 
+import { clipPieces, loopedPosition, loopSegments, type LoopRegion } from './loop-math';
 import { clicksBetween, clickSamples, type ClickAccent } from './metronome';
 import type { TakeAlignment } from './take-alignment';
 import { takeFilePath } from './take-files';
@@ -141,6 +148,8 @@ const CUT_FADE_SECONDS = 0.005;
 /** How far ahead clicks are scheduled, and how often the scheduler looks. */
 const CLICK_LOOKAHEAD_SECONDS = 0.25;
 const CLICK_TICK_MS = 50;
+/** How far ahead a loop pass is scheduled (it's scheduled whole once its start is this close). */
+const LOOP_LOOKAHEAD_SECONDS = 1;
 
 export type MetronomeConfig = { meter: Meter; volume: number };
 let metronome: MetronomeConfig | null = null;
@@ -150,8 +159,7 @@ const clickBuffers = new Map<ClickAccent, AudioBuffer>();
 type ClickScheduler = {
   /** Every click goes through this gain (the metronome volume) to the playback output. */
   gain: GainNode;
-  timer: ReturnType<typeof setInterval>;
-  /** Clicks before this timeline position have been scheduled (or skipped). */
+  /** Clicks before this elapsed time (seconds since the playback's start) are scheduled or skipped. */
   scheduledUntil: number;
   /** Started click sources with their context start time, for cancelling ones not heard yet. */
   sources: { source: AudioBufferSourceNode; at: number }[];
@@ -173,6 +181,10 @@ let playback: {
   /** Ends the playback after the last clip; `undefined` for an endless (recording) playback. */
   endTimer: ReturnType<typeof setTimeout> | undefined;
   clicks: ClickScheduler;
+  /** Schedules clicks and loop passes ahead. */
+  timer: ReturnType<typeof setInterval>;
+  /** The loop region (`null`: plays straight through) and its pass scheduling. */
+  loop: LoopScheduler | null;
   /** Called when the last clip finishes; recording clears it so the take keeps going. */
   onEnded: (() => void) | undefined;
   startedAt: number;
@@ -180,11 +192,24 @@ let playback: {
   startedAtMs: number;
 } | null = null;
 
+type LoopScheduler = {
+  region: LoopRegion;
+  /** The clips that play in the region, with their decoded audio. */
+  clips: (PlayableClip & { buffer: AudioBuffer | null })[];
+  /** The next pass to schedule, and when it starts (elapsed). */
+  nextIndex: number;
+  nextElapsed: number;
+  /** Started sources with the context time they end, for stopping and forgetting them. */
+  sources: { source: AudioBufferSourceNode; endsAt: number }[];
+};
+
 export type PlaybackAnchor = {
   /** Timeline position (seconds) heard at `startedAtMs`. */
   from: number;
   /** `performance.now()` time when `from` is heard (includes output latency). */
   startedAtMs: number;
+  /** The region playback loops in after reaching its end; `null` when it plays straight through. */
+  loop: LoopRegion | null;
 };
 
 function getContext(): AudioContext {
@@ -279,6 +304,8 @@ export async function startRecording(options: {
     from = options.playback.from;
     await play(options.playback.clips, { from, endless: true, silent: options.playback.silent });
   } else {
+    // A looped playback can't become a recording's backing (the transport stops it first).
+    if (playback?.loop) stopPlayback();
     from = playback?.from ?? options.playback.continueFrom;
     // The take (and the click) keeps going past the last clip.
     if (playback) {
@@ -366,7 +393,7 @@ export async function startRecording(options: {
   if (!ctx) settleStarted(null);
 
   return {
-    anchor: { from, startedAtMs: backing?.startedAtMs ?? performance.now() },
+    anchor: { from, startedAtMs: backing?.startedAtMs ?? performance.now(), loop: null },
     whenStarted: () => firstMeasurement,
     async stop() {
       clearInterval(measureTimer);
@@ -428,17 +455,30 @@ export function forgetTakes(takePaths: string[]) {
  * Plays the clips from timeline position `from` (seconds). Resolves once playback has started.
  * `onEnded` fires when the last clip finishes (not when `stopPlayback` is called). An `endless`
  * playback (recording) runs until `stopPlayback`, and exists without audible clips when the
- * metronome is on. A `silent` one plays nothing out loud (silent recording).
+ * metronome is on. A `silent` one plays nothing out loud (silent recording). With `loop`, playback
+ * wraps from the region's end to its start until stopped (`from` should be inside the region).
  */
 export async function play(
   clips: PlayableClip[],
-  options: { from?: number; onEnded?: () => void; endless?: boolean; silent?: boolean } = {},
+  options: {
+    from?: number;
+    onEnded?: () => void;
+    endless?: boolean;
+    silent?: boolean;
+    loop?: LoopRegion | null;
+  } = {},
 ): Promise<void> {
   stopPlayback();
   const generation = playGeneration;
   const from = options.from ?? 0;
-  const audible = clips.filter((clip) => clip.start + clip.duration > from);
-  if (audible.length === 0 && !(options.endless && metronome)) {
+  const region = options.loop && options.loop.end > options.loop.start ? options.loop : null;
+  const audible = region
+    ? clips.filter(
+        (clip) =>
+          clip.start + clip.duration > Math.min(from, region.start) && clip.start < region.end,
+      )
+    : clips.filter((clip) => clip.start + clip.duration > from);
+  if (!region && audible.length === 0 && !(options.endless && metronome)) {
     options.onEnded?.();
     return;
   }
@@ -459,18 +499,10 @@ export async function play(
   let end = 0;
 
   const tracks = new Map<string, GainNode>();
-  const trackGain = (trackId: string) => {
-    let node = tracks.get(trackId);
-    if (!node) {
-      node = ctx.createGain();
-      node.gain.value = trackGains.get(trackId) ?? 1;
-      node.connect(master);
-      tracks.set(trackId, node);
-    }
-    return node;
-  };
+  const trackGain = (trackId: string) => trackGainNode(ctx, tracks, master, trackId);
 
-  const sources = audible.map((clip, index) => {
+  // A loop's passes are scheduled by the tick; straight playback starts every clip now.
+  const sources = (region ? [] : audible).map((clip, index) => {
     const skipped = Math.max(0, from - clip.start);
     const source = ctx.createBufferSource();
     source.buffer = buffers[index] ?? null;
@@ -494,29 +526,102 @@ export async function play(
     tracks,
     cutTracks: new Map(),
     played: audible.map((clip) => ({ ...clip, gain: trackGains.get(clip.trackId) ?? 1 })),
-    endTimer: options.endless
-      ? undefined
-      : setTimeout(
-          () => {
-            endPlayback(current);
-            if (playback === current) playback = null;
-            current.onEnded?.();
-          },
-          (end + SCHEDULE_AHEAD_SECONDS) * 1000,
-        ),
-    clicks: {
-      gain: clickGain,
-      timer: setInterval(() => scheduleClicks(current), CLICK_TICK_MS),
-      scheduledUntil: from,
-      sources: [],
-    },
-    onEnded: options.onEnded,
+    endTimer:
+      options.endless || region
+        ? undefined
+        : setTimeout(
+            () => {
+              endPlayback(current);
+              if (playback === current) playback = null;
+              current.onEnded?.();
+            },
+            (end + SCHEDULE_AHEAD_SECONDS) * 1000,
+          ),
+    clicks: { gain: clickGain, scheduledUntil: 0, sources: [] },
+    timer: setInterval(() => tick(current), CLICK_TICK_MS),
+    loop: region
+      ? {
+          region,
+          clips: audible.map((clip, index) => ({ ...clip, buffer: buffers[index] ?? null })),
+          nextIndex: 0,
+          nextElapsed: 0,
+          sources: [],
+        }
+      : null,
+    onEnded: region ? undefined : options.onEnded,
     startedAt,
     from,
     startedAtMs,
   };
   playback = current;
+  tick(current);
+}
+
+/** One gain per track, made on first use at the track's current gain. */
+function trackGainNode(
+  ctx: AudioContext,
+  tracks: Map<string, GainNode>,
+  output: GainNode,
+  trackId: string,
+): GainNode {
+  let node = tracks.get(trackId);
+  if (!node) {
+    node = ctx.createGain();
+    node.gain.value = trackGains.get(trackId) ?? 1;
+    node.connect(output);
+    tracks.set(trackId, node);
+  }
+  return node;
+}
+
+function tick(current: NonNullable<typeof playback>) {
+  scheduleLoop(current);
   scheduleClicks(current);
+}
+
+/**
+ * Starts every clip piece of the loop passes that begin within the lookahead, each pass whole, with
+ * fades where the loop cuts a clip.
+ */
+function scheduleLoop(current: NonNullable<typeof playback>) {
+  const loop = current.loop;
+  if (!loop || !context) return;
+  const ctx = context;
+  const now = ctx.currentTime;
+  const until = now - current.startedAt + LOOP_LOOKAHEAD_SECONDS;
+  for (const segment of loopSegments(current.from, loop.region, loop.nextElapsed, until)) {
+    if (segment.index < loop.nextIndex) continue;
+    for (const piece of clipPieces(loop.clips, segment)) {
+      const at = current.startedAt + piece.at;
+      // Late (the JS thread stalled): start now, further into the take, so it stays in time.
+      const late = Math.max(0, now - at);
+      if (late >= piece.duration) continue;
+      const source = ctx.createBufferSource();
+      source.buffer = piece.clip.buffer;
+      const track = trackGainNode(ctx, current.tracks, current.output, piece.clip.trackId);
+      if (piece.fadeIn > 0 || piece.fadeOut > 0) {
+        const fade = ctx.createGain();
+        fade.gain.value = piece.fadeIn > 0 ? 0 : 1;
+        fade.gain.setValueAtTime(fade.gain.value, at);
+        if (piece.fadeIn > 0) fade.gain.linearRampToValueAtTime(1, at + piece.fadeIn);
+        if (piece.fadeOut > 0) {
+          const fadeOutAt = current.startedAt + piece.fadeOutAt;
+          fade.gain.setValueAtTime(1, fadeOutAt);
+          fade.gain.linearRampToValueAtTime(0, fadeOutAt + piece.fadeOut);
+        }
+        fade.connect(track);
+        source.connect(fade);
+      } else {
+        source.connect(track);
+      }
+      source.start(at + late, piece.offset + late, piece.duration - late);
+      loop.sources.push({ source, endsAt: at + piece.duration });
+    }
+    loop.nextIndex = segment.index + 1;
+    loop.nextElapsed = segment.elapsed + (segment.end - segment.start);
+  }
+  // Forget pieces that have finished.
+  loop.sources = loop.sources.filter(({ endsAt }) => endsAt > now - 1);
 }
 
 /** Starts the clicks that fall in the next lookahead window (none while the metronome is off). */
@@ -525,25 +630,27 @@ function scheduleClicks(current: NonNullable<typeof playback>) {
   const ctx = context;
   const clicks = current.clicks;
   const now = ctx.currentTime;
-  const position = current.from + (now - current.startedAt);
-  const until = position + CLICK_LOOKAHEAD_SECONDS;
+  const elapsed = now - current.startedAt;
+  const until = elapsed + CLICK_LOOKAHEAD_SECONDS;
   if (metronome && until > clicks.scheduledUntil) {
     // A click whose time has passed (the JS thread stalled) is skipped rather than played late.
-    for (const click of clicksBetween(
-      metronome.meter,
-      Math.max(clicks.scheduledUntil, position),
-      until,
-    )) {
-      const at = current.startedAt + (click.position - current.from);
-      const source = ctx.createBufferSource();
-      source.buffer = clickBuffer(ctx, click.accent);
-      source.connect(clicks.gain);
-      source.start(at);
-      clicks.sources.push({ source, at });
+    const fromElapsed = Math.max(clicks.scheduledUntil, elapsed);
+    const region = current.loop?.region ?? null;
+    for (const segment of loopSegments(current.from, region, fromElapsed, until)) {
+      const a = segment.start + Math.max(0, fromElapsed - segment.elapsed);
+      const b = Math.min(segment.end, segment.start + (until - segment.elapsed));
+      for (const click of clicksBetween(metronome.meter, a, b)) {
+        const at = current.startedAt + segment.elapsed + (click.position - segment.start);
+        const source = ctx.createBufferSource();
+        source.buffer = clickBuffer(ctx, click.accent);
+        source.connect(clicks.gain);
+        source.start(at);
+        clicks.sources.push({ source, at });
+      }
     }
     clicks.scheduledUntil = until;
   } else if (!metronome) {
-    clicks.scheduledUntil = Math.max(clicks.scheduledUntil, position);
+    clicks.scheduledUntil = Math.max(clicks.scheduledUntil, elapsed);
   }
   // Forget clicks that have finished.
   clicks.sources = clicks.sources.filter(({ at }) => at > now - 1);
@@ -562,7 +669,7 @@ function cancelClicks(current: NonNullable<typeof playback>) {
     }
   }
   current.clicks.sources = current.clicks.sources.filter(({ at }) => at <= now);
-  current.clicks.scheduledUntil = current.from + (now - current.startedAt);
+  current.clicks.scheduledUntil = now - current.startedAt;
 }
 
 function clickBuffer(ctx: AudioContext, accent: ClickAccent): AudioBuffer {
@@ -604,7 +711,7 @@ export function setMetronome(config: MetronomeConfig | null) {
 
 /** Releases a playback's graph and stops its click scheduler. */
 function endPlayback(current: NonNullable<typeof playback>) {
-  clearInterval(current.clicks.timer);
+  clearInterval(current.timer);
   current.output.disconnect();
 }
 
@@ -657,7 +764,11 @@ export function stopPlayback() {
   playGeneration++;
   if (!playback) return;
   clearTimeout(playback.endTimer);
-  for (const source of [...playback.sources, ...playback.clicks.sources.map((c) => c.source)]) {
+  for (const source of [
+    ...playback.sources,
+    ...playback.clicks.sources.map((c) => c.source),
+    ...(playback.loop?.sources.map((s) => s.source) ?? []),
+  ]) {
     try {
       source.stop();
     } catch {
@@ -676,7 +787,13 @@ function outputLatency(ctx: AudioContext): number {
 
 /** When playback started, for animating the playhead; `null` when not playing. */
 export function playbackAnchor(): PlaybackAnchor | null {
-  return playback ? { from: playback.from, startedAtMs: playback.startedAtMs } : null;
+  return playback
+    ? {
+        from: playback.from,
+        startedAtMs: playback.startedAtMs,
+        loop: playback.loop?.region ?? null,
+      }
+    : null;
 }
 
 export function isPlaying(): boolean {
@@ -686,5 +803,9 @@ export function isPlaying(): boolean {
 /** Current timeline position in seconds while playing, otherwise `null`. */
 export function playbackPosition(): number | null {
   if (!playback || !context) return null;
-  return playback.from + Math.max(0, context.currentTime - playback.startedAt);
+  return loopedPosition(
+    playback.from,
+    playback.loop?.region ?? null,
+    Math.max(0, context.currentTime - playback.startedAt),
+  );
 }

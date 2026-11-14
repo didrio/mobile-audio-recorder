@@ -15,5 +15,5 @@ export function toUiClock(anchor: PlaybackAnchor): PlaybackAnchor {
     return performance.now();
   });
   const after = performance.now();
-  return { from: anchor.from, startedAtMs: anchor.startedAtMs + ui - (before + after) / 2 };
+  return { ...anchor, startedAtMs: anchor.startedAtMs + ui - (before + after) / 2 };
 }

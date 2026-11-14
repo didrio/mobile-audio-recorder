@@ -6,6 +6,7 @@
  */
 import { randomUUID } from 'expo-crypto';
 
+import type { LoopRegion } from '@/features/audio/loop-math';
 import { isMetronomeOutput, type MetronomeOutput } from '@/features/audio/metronome';
 import {
   copyTakeFiles,
@@ -80,6 +81,10 @@ export type Project = ProjectSummary &
     snap: boolean;
     /** The metronome clicks during playback and recording (and the pre-roll counts in). */
     metronome: boolean;
+    /** Playback loops in `loopRegion` (T26). Recording ignores it. */
+    loopOn: boolean;
+    /** The loop region; `null` until Loop is first turned on. */
+    loopRegion: LoopRegion | null;
     tracks: (Track & { clips: Clip[] })[];
     takes: Record<string, Take>;
   };
@@ -99,6 +104,9 @@ type ProjectRow = {
   metronome: number;
   metronome_volume: number;
   metronome_output: string;
+  loop_on: number;
+  loop_start: number | null;
+  loop_end: number | null;
   duration: number;
 };
 type TrackRow = {
@@ -131,7 +139,7 @@ type ClipRow = {
 const PROJECT_COLUMNS = `
   p.id, p.name, p.created_at, p.updated_at, p.armed_track_id, p.pre_roll, p.snap,
   p.bpm, p.beats_per_bar, p.beat_unit, p.grid, p.metronome, p.metronome_volume,
-  p.metronome_output,
+  p.metronome_output, p.loop_on, p.loop_start, p.loop_end,
   COALESCE((
     SELECT MAX(c.start + c.duration) FROM clips c JOIN tracks t ON t.id = c.track_id
     WHERE t.project_id = p.id
@@ -218,6 +226,11 @@ export async function getProject(id: string): Promise<Project | null> {
     metronome: row.metronome === 1,
     metronomeVolume: row.metronome_volume,
     metronomeOutput: isMetronomeOutput(row.metronome_output) ? row.metronome_output : 'both',
+    loopOn: row.loop_on === 1,
+    loopRegion:
+      row.loop_start != null && row.loop_end != null && row.loop_end > row.loop_start
+        ? { start: row.loop_start, end: row.loop_end }
+        : null,
     tracks,
     takes,
   };
@@ -245,6 +258,22 @@ export async function setSnap(projectId: string, on: boolean): Promise<void> {
 export async function setMetronome(projectId: string, on: boolean): Promise<void> {
   const db = await getDb();
   await db.runAsync('UPDATE projects SET metronome = ? WHERE id = ?', on ? 1 : 0, projectId);
+}
+
+/** Remembers the Loop toggle and region. Not an edit: it leaves `updated_at` alone. */
+export async function setLoop(
+  projectId: string,
+  on: boolean,
+  region: LoopRegion | null,
+): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    'UPDATE projects SET loop_on = ?, loop_start = ?, loop_end = ? WHERE id = ?',
+    on ? 1 : 0,
+    region?.start ?? null,
+    region?.end ?? null,
+    projectId,
+  );
 }
 
 /**
@@ -327,8 +356,8 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
     await db.withExclusiveTransactionAsync(async (tx) => {
       await tx.runAsync(
         `INSERT INTO projects (id, name, created_at, updated_at, pre_roll, snap, bpm, beats_per_bar, beat_unit, grid,
-           metronome, metronome_volume, metronome_output)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           metronome, metronome_volume, metronome_output, loop_on, loop_start, loop_end)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         newId,
         name,
         now,
@@ -342,6 +371,9 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
         source.metronome ? 1 : 0,
         source.metronomeVolume,
         source.metronomeOutput,
+        source.loopOn ? 1 : 0,
+        source.loopRegion?.start ?? null,
+        source.loopRegion?.end ?? null,
       );
       for (const track of source.tracks) {
         await tx.runAsync(

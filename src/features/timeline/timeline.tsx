@@ -34,6 +34,12 @@ import {
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 
 import { Icon } from '@/components/ui';
+import {
+  dragLoopEdge,
+  LOOP_EDGE_START,
+  MIN_LOOP_SECONDS,
+  type LoopRegion,
+} from '@/features/audio/loop-math';
 import { barSeconds, beatSeconds, isCompound } from '@/features/audio/tempo';
 import { canSplitAt, MIN_CLIP_SECONDS, type ClipPlacement } from '@/features/project/edit-commands';
 import type { Project } from '@/features/projects/projects-repo';
@@ -123,6 +129,11 @@ const GRID_BEAT_ALPHA = 0.32;
 /** With Snap off the lines are dotted and this much fainter (Ableton-style: still there to read). */
 const GRID_LOOSE_FADE = 0.65;
 const GRID_DASH = [2, 3];
+/** The loop region's handles: tabs this wide just inside its edges, grabbed this far out and in. */
+const LOOP_TAB_WIDTH = 6;
+const LOOP_TAB_INSET = 4;
+const LOOP_REACH_OUT = 8;
+const LOOP_REACH_IN = 22;
 /** Skia resolves fonts through the system font manager, which doesn't know RN's 'System' alias. */
 const FONT_FAMILY = Platform.select({ ios: 'Helvetica', default: 'sans-serif' });
 
@@ -189,6 +200,10 @@ export type ClipEditing = {
  * (one undo step); until the saved project renders, the clip is drawn from the drag state, so it
  * doesn't flicker back. The pan decides on touch-down what it does (scrub, move, trim or scroll); the
  * long-press pan runs alongside it, and whichever takes the clip first owns it (`owner`).
+ * Loop region (T26): a band on the ruler (tinted while Loop is on, faint while off) with a handle
+ * tab inside each end; the lanes inside it are tinted while Loop is on. The handles are hit-tested
+ * before the ruler's scrub: dragging one resizes the region (whole bars while the grid snaps), and
+ * the drop is one `onLoopRegionChange` call (not an undo step).
  * Waveforms share one vertical scale per project (the loudest take fills its lane), so relative
  * loudness between takes stays true.
  */
@@ -199,10 +214,13 @@ export function Timeline({
   following,
   liveTake,
   snap,
+  loopOn,
+  loopRegion,
   armedTrackId,
   addTrackDisabled,
   clipEditing,
   onSeek,
+  onLoopRegionChange,
   onArm,
   onEditTrack,
   onMoveTrack,
@@ -223,10 +241,15 @@ export function Timeline({
   liveTake: LiveTake | null;
   /** Snap clips and the playhead to the grid lines (only while the grid shows). */
   snap: boolean;
+  /** Playback loops in `loopRegion` (lanes tinted); the region shows on the ruler either way. */
+  loopOn: boolean;
+  loopRegion: LoopRegion | null;
   armedTrackId: string | null;
   addTrackDisabled: boolean;
   clipEditing: ClipEditing | null;
   onSeek: (time: number) => void;
+  /** A loop handle was dragged (called once, on release). */
+  onLoopRegionChange: (region: LoopRegion) => void;
   onArm: (trackId: string) => void;
   onEditTrack: (trackId: string) => void;
   /** A track was dragged to index `toIndex`. */
@@ -334,6 +357,23 @@ export function Timeline({
   const scrubTime = useSharedValue(-1);
   /** The grid line the scrubbed playhead is stuck to, or -1 (for the haptic). */
   const scrubSnap = useSharedValue(-1);
+  // The loop region as the picture draws it (-1: none): from the props, or live while a handle is
+  // dragged (`loopEdge`: which one; the region before the drag, and the grab's offset from the edge).
+  const loopStart = useSharedValue(loopRegion?.start ?? -1);
+  const loopEnd = useSharedValue(loopRegion?.end ?? -1);
+  const loopActive = useSharedValue(loopOn);
+  const loopEdge = useSharedValue(0);
+  const loopOrigin = useSharedValue<LoopRegion>({ start: 0, end: 0 });
+  const loopGrab = useSharedValue(0);
+  const savedLoopStart = loopRegion?.start ?? -1;
+  const savedLoopEnd = loopRegion?.end ?? -1;
+  useEffect(() => {
+    loopStart.set(savedLoopStart);
+    loopEnd.set(savedLoopEnd);
+  }, [loopStart, loopEnd, savedLoopStart, savedLoopEnd]);
+  useEffect(() => {
+    loopActive.set(loopOn);
+  }, [loopActive, loopOn]);
 
   // Fit the zoom and scroll to the view: on first layout, rotation and when the idea grows. Runs on
   // the UI thread: scroll is moved there (gestures, following), so a JS-side read could be stale and
@@ -342,14 +382,14 @@ export function Timeline({
     if (timeWidth <= 0) return;
     scheduleOnUI(() => {
       'worklet';
-      const extent = Math.max(duration, playhead.get());
+      const extent = Math.max(duration, playhead.get(), loopEnd.get());
       const nextZoom =
         zoom.get() > 0 ? clampZoom(zoom.get(), timeWidth, extent) : defaultZoom(timeWidth, extent);
       zoom.set(nextZoom);
       scroll.set(clampScroll(scroll.get(), timeWidth, nextZoom, extent));
       laneScroll.set(clamp(laneScroll.get(), 0, maxLaneScroll));
     });
-  }, [timeWidth, duration, maxLaneScroll, zoom, scroll, laneScroll, playhead]);
+  }, [timeWidth, duration, maxLaneScroll, zoom, scroll, laneScroll, playhead, loopEnd]);
 
   useEffect(() => {
     if (following) follow.set(true);
@@ -455,6 +495,22 @@ export function Timeline({
   const timeAt = (x: number) => {
     'worklet';
     return pointToTime(x - LEADING_SPACE, scroll.get(), zoom.get());
+  };
+
+  /** The loop handle under a point (`LOOP_EDGE_START`/`_END`), or 0. The nearer edge wins. */
+  const loopEdgeAt = (x: number, y: number): number => {
+    'worklet';
+    const start = loopStart.get();
+    const end = loopEnd.get();
+    if (isRecording || y > RULER_SIZE + RULER_SLOP || start < 0 || !(end > start)) return 0;
+    const z = zoom.get();
+    // Positive inside the region.
+    const intoStart = (timeAt(x) - start) * z;
+    const intoEnd = (end - timeAt(x)) * z;
+    const nearStart = intoStart >= -LOOP_REACH_OUT && intoStart <= LOOP_REACH_IN;
+    const nearEnd = intoEnd >= -LOOP_REACH_OUT && intoEnd <= LOOP_REACH_IN;
+    if (nearStart && nearEnd) return Math.abs(intoStart) <= Math.abs(intoEnd) ? 1 : 2;
+    return nearStart ? 1 : nearEnd ? 2 : 0;
   };
 
   /** Index of the clip under a point, or -1. */
@@ -608,6 +664,19 @@ export function Timeline({
     },
   );
 
+  // A loop handle clicking from bar to bar while the grid snaps.
+  useAnimatedReaction(
+    () => {
+      const edge = loopEdge.get();
+      return edge === 0 ? -1 : edge === LOOP_EDGE_START ? loopStart.get() : loopEnd.get();
+    },
+    (now, before) => {
+      if (snapToGrid && now >= 0 && before != null && before >= 0 && now !== before) {
+        scheduleOnRN(snapped);
+      }
+    },
+  );
+
   // The playhead clicking onto a grid line as it's dragged along the ruler.
   useAnimatedReaction(
     () => scrubSnap.get(),
@@ -620,9 +689,19 @@ export function Timeline({
     onBegin: (event) => {
       'worklet';
       cancelAnimation(scroll);
+      panScrolling.set(false);
+      // A loop handle: this pan resizes the region.
+      const edge = loopEdgeAt(event.x, event.y);
+      loopEdge.set(edge);
+      if (edge !== 0) {
+        const region = { start: loopStart.get(), end: loopEnd.get() };
+        loopOrigin.set(region);
+        loopGrab.set(timeAt(event.x) - (edge === LOOP_EDGE_START ? region.start : region.end));
+        scrubbing.set(false);
+        return;
+      }
       const onRuler = event.y <= RULER_SIZE + RULER_SLOP;
       scrubbing.set(!isRecording && onRuler);
-      panScrolling.set(false);
       // On the selected clip: this pan drags it (an edge trims, the body moves).
       const clip = clips[selectedIndex];
       if (onRuler || !clip || owner.get() !== 0) return;
@@ -640,13 +719,27 @@ export function Timeline({
         follow.set(false);
         if (dragPart.get() === DRAG_MOVE) lift.set(withTiming(1, { duration: LIFT_MS }));
         scheduleOnRN(startAutoScroll);
-      } else if (owner.get() === 0 && !scrubbing.get()) {
+      } else if (owner.get() === 0 && !scrubbing.get() && loopEdge.get() === 0) {
         panScrolling.set(true);
         press.set(0);
       }
     },
     onUpdate: (event) => {
       'worklet';
+      const edge = loopEdge.get();
+      if (edge !== 0) {
+        // Whole bars while the grid snaps (and at least one bar), else free (at least a second).
+        const step = snapToGrid ? barSeconds(meter) : 0;
+        const next = dragLoopEdge(
+          loopOrigin.get(),
+          edge === LOOP_EDGE_START ? 1 : 2,
+          timeAt(event.x) - loopGrab.get(),
+          { step, minLength: step > 0 ? step : MIN_LOOP_SECONDS },
+        );
+        loopStart.set(next.start);
+        loopEnd.set(next.end);
+        return;
+      }
       if (scrubbing.get()) {
         const time = seekable(event.x);
         scrubTime.set(time);
@@ -665,7 +758,7 @@ export function Timeline({
       }
       follow.set(false);
       const currentZoom = zoom.get();
-      const extent = Math.max(duration, playhead.get());
+      const extent = Math.max(duration, playhead.get(), loopEnd.get());
       scroll.set(
         clampScroll(scroll.get() - event.changeX / currentZoom, timeWidth, currentZoom, extent),
       );
@@ -680,7 +773,7 @@ export function Timeline({
       }
       if (owner.get() !== 0 || !panScrolling.get()) return;
       const currentZoom = zoom.get();
-      const extent = Math.max(duration, playhead.get());
+      const extent = Math.max(duration, playhead.get(), loopEnd.get());
       scroll.set(
         withDecay({
           velocity: -event.velocityX / currentZoom,
@@ -694,6 +787,14 @@ export function Timeline({
       scrubTime.set(-1);
       scrubSnap.set(-1);
       if (owner.get() === 1) finishDrag();
+      if (loopEdge.get() !== 0) {
+        loopEdge.set(0);
+        const origin = loopOrigin.get();
+        const region = { start: loopStart.get(), end: loopEnd.get() };
+        if (region.start !== origin.start || region.end !== origin.end) {
+          scheduleOnRN(onLoopRegionChange, region);
+        }
+      }
     },
   });
 
@@ -748,7 +849,7 @@ export function Timeline({
     },
     onUpdate: (event) => {
       'worklet';
-      const extent = Math.max(duration, playhead.get());
+      const extent = Math.max(duration, playhead.get(), loopEnd.get());
       const nextZoom = clampZoom(pinchStartZoom.get() * event.scale, timeWidth, extent);
       const focal = event.focalX - LEADING_SPACE;
       const nextScroll = zoomAroundPoint(scroll.get(), zoom.get(), nextZoom, focal);
@@ -764,6 +865,8 @@ export function Timeline({
     onActivate: (event) => {
       'worklet';
       press.set(withTiming(0, { duration: PRESS_FADE_MS }));
+      // A tap on a loop handle does nothing (it's there to be dragged).
+      if (loopEdgeAt(event.x, event.y) !== 0) return;
       const clip = editable && event.y > RULER_SIZE ? clips[clipAt(event.x, event.y)] : undefined;
       if (clip) {
         scheduleOnRN(setSelectedId, clip.id);
@@ -806,6 +909,10 @@ export function Timeline({
       const visibleStart = s - LEADING_SPACE / z;
       const visibleEnd = s + timeWidth / z;
       const toX = (time: number) => LEADING_SPACE + (time - s) * z;
+      const loopFrom = loopStart.get();
+      const loopTo = loopEnd.get();
+      const hasLoop = loopFrom >= 0 && loopTo > loopFrom;
+      const looping = hasLoop && loopActive.get();
 
       // The grid's vertical lines for one lane (drawn translated to each lane's top): beats while
       // they're far enough apart, else every bar or every few bars. Bars are the strongest lines;
@@ -859,6 +966,10 @@ export function Timeline({
           Skia.XYWHRect(0, top, viewWidth, lane),
           index === lifted ? paints.laneLifted : stripe(index),
         );
+        if (looping) {
+          const lx = toX(loopFrom);
+          canvas.drawRect(Skia.XYWHRect(lx, top, toX(loopTo) - lx, lane), paints.loopLane);
+        }
         if (gridPaths) {
           canvas.save();
           canvas.translate(0, top);
@@ -1010,6 +1121,30 @@ export function Timeline({
       // Ruler: ticks along the bottom edge, labels above them. With the grid on it counts bars
       // (1, 2, 3…) instead of minutes and seconds.
       canvas.drawRect(Skia.XYWHRect(0, 0, viewWidth, RULER_SIZE), paints.ruler);
+      // The loop region: a band with a handle tab inside each end (faint while Loop is off).
+      if (hasLoop) {
+        const x0 = toX(loopFrom);
+        const x1 = toX(loopTo);
+        if (x1 > 0 && x0 < viewWidth) {
+          canvas.drawRect(
+            Skia.XYWHRect(x0, 0, x1 - x0, RULER_SIZE),
+            looping ? paints.loopBand : paints.loopBandOff,
+          );
+          const tabPaint = looping ? paints.loopHandle : paints.loopHandleOff;
+          const tabWidth = Math.min(LOOP_TAB_WIDTH, (x1 - x0) / 2);
+          const tab = (x: number) =>
+            canvas.drawRRect(
+              Skia.RRectXY(
+                Skia.XYWHRect(x, LOOP_TAB_INSET, tabWidth, RULER_SIZE - LOOP_TAB_INSET * 2),
+                2,
+                2,
+              ),
+              tabPaint,
+            );
+          tab(x0);
+          tab(x1 - tabWidth);
+        }
+      }
       const labelY = RULER_SIZE - 13;
       if (gridLevels) {
         const barLength = barSeconds(meter);
@@ -1316,6 +1451,11 @@ function makePaints(colors: ThemeColors) {
     /** The fill over a clip being held before pickup (alpha set per frame). */
     press: fill(colors.waveform),
     snapLine: stroke(colors.snapLine, 1.5),
+    loopBand: fill(colors.loop, 0.3),
+    loopBandOff: fill(colors.textTertiary, 0.18),
+    loopHandle: fill(colors.loop),
+    loopHandleOff: fill(colors.textTertiary, 0.8),
+    loopLane: fill(colors.loop, 0.08),
     clipBorder: (() => {
       const paint = stroke(colors.waveform, 1);
       paint.setAlphaf(0.45);

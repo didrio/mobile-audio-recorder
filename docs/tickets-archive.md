@@ -2,6 +2,23 @@
 
 Oldest finished tickets, moved out of `TICKETS.md` to keep it lean. Newest first.
 
+- T21 — Speaker mode (echo cancellation) — 2026-11-14 — after Stop, the backing that played is removed from
+  takes recorded without headphones (local module `modules/echo-canceller`: C core with a fixed
+  speaker → room → mic model incl. distortion, delay search, measured click suppression; Swift wrapper, iOS
+  only, T32 for Android); raw take kept as `.raw.wav`; Settings → Speaker mode (experimental, off by
+  default) with Light/Strong. iOS voice processing and SpeexDSP were tried and rejected (details in
+  `docs/decisions.md`). Two iPhone tests: tracks cancel decently, clicks better but audible → T33 + T34.
+  Also: DEV/PREVIEW labelled app icons (`app.config.ts`), e2e flows fixed (Settings scroll, wait for Record)
+- T17 — Metronome & count-in — 2026-11-14 — clicks synthesized in code (`metronome.ts`, accented downbeat, 6/8
+  and 12/8 groups) scheduled on the context clock with playback and recording (lookahead scheduler in the
+  engine, also before 0:00 so pre-roll is the count-in, whole bars with the metronome on); strip toggle (saved,
+  turns the grid on) and volume slider in Idea settings (undoable), migration v5. Device clap check pending
+- T9 — Idea settings, tempo & grid — 2026-11-14 — "Idea settings" sheet from the "⋯" menu (name, BPM with ±, typed
+  value and Tap tempo, time signature 2/4…12/8, Grid switch; undoable, migration v4), grid lines + bar numbers on
+  the ruler (beat lines fade when zoomed out), clips snap to grid lines, pre-roll is 1 or 2 bars with the grid on
+- T10 — Ideas library basics — 2026-11-14 — "+" menu (New Idea without recording), swipe/long-press Rename,
+  Duplicate (copies take files), Delete with confirmation, also in the idea's "⋯"; date under each idea, sort
+  (Recent/Name/Date created, remembered), header search, recordings storage in Settings
 - T5 — Clip editing — 2026-11-14 — tap selects (handles + Split/Duplicate/Delete bar), drag moves across tracks
   and trims (back out to the take), long-press picks up, snaps to clip edges/playhead/0:00, drops replace what's
   under them, one undo step each; edits while playing restart playback; tap no longer fires on swipes (T30);

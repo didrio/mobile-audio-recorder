@@ -3,7 +3,10 @@ import {
   displayPosition,
   fileStartPosition,
   placeTake,
+  PUNCH_LEAD_SECONDS,
+  punchLead,
   runUpStart,
+  silentFade,
   type TakeAlignment,
 } from './take-alignment';
 
@@ -95,5 +98,31 @@ describe('placeTake', () => {
 
   it('is no take when stopped during the run-up', () => {
     expect(placeTake({ fileStart: 3, floor: 5, takeDuration: 1.5 })).toBeNull();
+  });
+});
+
+describe('silent recording fade', () => {
+  it('fades out before the punch, finished well before it', () => {
+    const fade = silentFade(5);
+    expect(fade.start).toBeCloseTo(4.9);
+    expect(fade.end).toBeCloseTo(4.93);
+    expect(fade.end).toBeLessThan(5);
+  });
+
+  it('needs a longer lead when silent, so the whole fade can be scheduled ahead', () => {
+    expect(punchLead(false)).toBe(PUNCH_LEAD_SECONDS);
+    expect(punchLead(true)).toBeCloseTo(0.13);
+  });
+
+  it('punches in on the fly late enough for the fade', () => {
+    // Recording while playing: requested = now, the recorder already has audio.
+    const now = 7;
+    const punch = choosePunch(now, 6.95, now, punchLead(true));
+    expect(silentFade(punch).start).toBeGreaterThanOrEqual(now + PUNCH_LEAD_SECONDS - 1e-9);
+  });
+
+  it('keeps the requested punch after a pre-roll run-up', () => {
+    // Pre-roll from 3 to the punch at 5; the run-up is long gone past the fade lead.
+    expect(choosePunch(5, 3.1, 3.2, punchLead(true))).toBe(5);
   });
 });

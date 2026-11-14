@@ -2,6 +2,10 @@
 
 Oldest finished tickets, moved out of `TICKETS.md` to keep it lean. Newest first.
 
+- T5 — Clip editing — 2026-11-14 — tap selects (handles + Split/Duplicate/Delete bar), drag moves across tracks
+  and trims (back out to the take), long-press picks up, snaps to clip edges/playhead/0:00, drops replace what's
+  under them, one undo step each; edits while playing restart playback; tap no longer fires on swipes (T30);
+  `/wrap` now publishes a preview OTA (`scripts/ota-check.mjs`)
 - T25 — Pre-roll (punch in at the playhead) — 2026-11-13 — pre-roll toggle per idea (migration v3), 1/2/4 s
   length in Settings, run-up plays every track and cuts the armed one at the punch (`cutTrackAt`), dashed punch
   marker, stop in the run-up saves nothing, Record while playing punches in on the fly; clap test is in Device

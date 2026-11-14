@@ -75,6 +75,32 @@ export function choosePunch(
   return Math.max(requested, fileStart, nowPosition + lead);
 }
 
+/** How far ahead of the current playback position a punch has to be, so the cut can be scheduled. */
+export const PUNCH_LEAD_SECONDS = 0.03;
+
+/**
+ * Silent recording (T34): the whole output fades out this long before the punch point, over
+ * `SILENT_FADE_SECONDS`. Audio scheduled for timeline position `p` lands at `p` in the placed take, so
+ * a fade that ends before the punch keeps the take clean; the gap after it covers latency error and
+ * the room's tail. Tune by ear on a device.
+ */
+export const SILENT_FADE_LEAD_SECONDS = 0.1;
+export const SILENT_FADE_SECONDS = 0.03;
+
+/** The silent-recording fade before `punch`, as timeline positions. */
+export function silentFade(punch: number): { start: number; end: number } {
+  const start = punch - SILENT_FADE_LEAD_SECONDS;
+  return { start, end: start + SILENT_FADE_SECONDS };
+}
+
+/**
+ * The `lead` for `choosePunch`: silent recording needs the whole fade (which starts before the
+ * punch) to be scheduled ahead too.
+ */
+export function punchLead(silent: boolean): number {
+  return PUNCH_LEAD_SECONDS + (silent ? SILENT_FADE_LEAD_SECONDS : 0);
+}
+
 /**
  * Clip placement for a take whose first sample sits at timeline position `fileStart`: it starts at
  * `fileStart`, but no earlier than `floor` (0, or the punch point), skipping the take's beginning to

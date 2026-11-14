@@ -12,6 +12,7 @@ import {
   setMetering,
   setMetronome,
   setTrackGain,
+  silenceOutput,
   startRecording,
   type FinishedRecording,
 } from '@/features/audio/audio-engine';
@@ -106,6 +107,7 @@ jest.mock('@/features/audio/audio-engine', () => ({
   setMetering: jest.fn(() => Promise.resolve()),
   startRecording: jest.fn(),
   cutTrackAt: jest.fn(),
+  silenceOutput: jest.fn(),
   peakLevel: jest.fn(() => 0),
   play: jest.fn(),
   setTrackGain: jest.fn(),
@@ -296,6 +298,7 @@ describe('ProjectScreen', () => {
       preRollSeconds: 2,
       preRollBars: 1,
       speakerMode: false,
+      silentRecording: false,
       cleanupStrength: 'light',
     });
     mockPush.mockClear();
@@ -699,6 +702,79 @@ describe('ProjectScreen', () => {
       ]),
       expect.anything(),
     );
+  });
+
+  it('silent recording: plays the run-up, fades everything out before the punch, shows the beat', async () => {
+    useRecordingSettingsStore.setState({ silentRecording: true });
+    jest.mocked(getProject).mockResolvedValue({
+      ...project,
+      preRoll: true,
+      metronome: true,
+      metronomeOutput: 'sound',
+    });
+    // 120 BPM: a one-bar count-in from 3.
+    mockRecording({ from: 3, startedAtMs: performance.now() + 60_000 });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Seek to 0:05' }));
+    expect(screen.queryByRole('image', { name: 'Visual metronome' })).not.toBeOnTheScreen();
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+
+    // The run-up plays out loud (no `silent` playback); the fade ends 70 ms before the punch.
+    expect(startRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ playback: { from: 3, clips: expect.any(Array) } }),
+    );
+    expect(cutTrackAt).toHaveBeenCalledWith('track1', 5);
+    expect(silenceOutput).toHaveBeenCalledWith(expect.closeTo(4.9), expect.closeTo(4.93));
+    // Sound-only metronome, but in silence the beat display is the only way to keep time.
+    expect(await screen.findByRole('image', { name: 'Visual metronome' })).toBeOnTheScreen();
+
+    await user.press(screen.getByRole('button', { name: 'Stop recording' }));
+    await screen.findByRole('button', { name: 'Record' });
+    expect(screen.queryByRole('image', { name: 'Visual metronome' })).not.toBeOnTheScreen();
+  });
+
+  it('silent recording without pre-roll: muted from the start, nothing for Speaker mode to clean', async () => {
+    useRecordingSettingsStore.setState({ silentRecording: true, speakerMode: true });
+    jest.mocked(getProject).mockResolvedValue(twoTracks);
+    mockRecording({
+      backing: { from: 5, clips: [], cuts: [], metronome: { meter: METER, volume: 1 } },
+    });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Arm Track 2' }));
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+    await user.press(await screen.findByRole('button', { name: 'Stop recording' }));
+    await screen.findByRole('button', { name: 'Record' });
+
+    expect(startRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ playback: expect.objectContaining({ silent: true }) }),
+    );
+    expect(silenceOutput).not.toHaveBeenCalled();
+    expect(cleanTake).not.toHaveBeenCalled();
+    expect(storeRecordedTake).toHaveBeenCalledWith('/cache/take.wav', 'p1', expect.any(String));
+  });
+
+  it('silent recording does nothing with headphones connected', async () => {
+    useRecordingSettingsStore.setState({ silentRecording: true });
+    jest.mocked(AudioManager.getDevicesInfo).mockResolvedValueOnce({
+      availableInputs: [],
+      availableOutputs: [],
+      currentInputs: [],
+      currentOutputs: [{ id: 'h', name: 'Headphones', category: 'Headphones' }],
+    });
+    jest.mocked(getProject).mockResolvedValue({ ...project, preRoll: true });
+    mockRecording({ from: 3, startedAtMs: performance.now() + 60_000 });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Seek to 0:05' }));
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+
+    expect(cutTrackAt).toHaveBeenCalledWith('track1', 5);
+    expect(silenceOutput).not.toHaveBeenCalled();
   });
 
   it('adds a track and arms it', async () => {

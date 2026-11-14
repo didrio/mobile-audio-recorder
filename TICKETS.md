@@ -4,7 +4,8 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T34 — Silent recording (playback drops out at the punch) · Opus · high effort · plan mode on
+**Next:** T35 + T31 in one session (both Sonnet, both in `timeline.tsx`): `/start T35`, then T31 · Sonnet · high
+effort · plan mode off
 
 ## In progress
 
@@ -53,32 +54,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   record the same audio onto each track). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
-
-### T34 — Silent recording (playback drops out at the punch)
-
-- **Status:** ready (T33 done: the visual metronome keeps time in the silence)
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Record without headphones and without any bleed: everything plays as usual (tracks and the
-  click) up to the punch, then all audio fades out just before it and the take is recorded in silence,
-  with the visual metronome (T33) keeping time. Nothing from the speaker reaches the take, so nothing needs
-  cleaning (T21's Speaker mode stays an optional extra).
-- **Done when:**
-  - [ ] A setting in Settings → Recording (decoupled from the visual metronome and Speaker mode), e.g.
-        "Silent while recording": playback mutes during the take. Off by default.
-  - [ ] With pre-roll: the run-up plays everything, including the click (the count-in), and the whole output
-        fades out a little _before_ the punch (start around 100 ms before with a ~30 ms fade, tune by ear) so
-        the speaker's sound and the room's tail are gone when the take begins. Sample-accurate on the context
-        clock, like `cutTrackAt` (a fade on the master gain, which also covers the clicks).
-  - [ ] Record while playing (punch in on the fly): the same, from the chosen punch point (or at once, when
-        that's sooner than the fade needs).
-  - [ ] Decide with the user: Record with pre-roll off and the setting on (silent from the first moment,
-        or a short automatic lead-in?). The visual metronome keeps going in silence either way.
-  - [ ] Playback after Stop sounds as usual. Unit tests for the fade timing (`take-alignment.ts`-style math).
-- **Context:** Proposed by the user on 2026-11-14 after T21's second iPhone test: echo cancellation got
-  better but not clean enough, while muting at the punch removes the problem. Punch and cut: `cutTrackAt`
-  and `choosePunch` in `audio-engine.ts` / `take-alignment.ts`, run-up and record-while-playing in
-  `use-transport.ts`. Clips are placed at the punch already (`placeTake` skips the run-up), so the fade only
-  has to finish before it, allowing for output + input latency.
 
 ### T35 — Live waveform drawn to the right of the take during a pre-roll recording
 
@@ -380,6 +355,11 @@ skill). Fix or ticket what fails, then delete the line.
 - Speaker mode (T21, iPhone dev build): clap test of a cleaned take (does it still line up?), cleaning time
   on a 2–3 minute take, Light vs Strong on guitar; recording with headphones connected keeps the take
   untouched (no "Cleaning up take…").
+- Silent recording (T34, iPhone, no headphones): Settings → Silent while recording on. Pre-roll on: the
+  run-up plays, then silence; the take has no backing or click at its start (listen to its first 0.2 s solo).
+  Pre-roll off: nothing plays at all. Record while playing: the punch comes a beat later, take clean. Play
+  after Stop sounds normal; with headphones nothing changes. Bleed at the take's start → raise
+  `SILENT_FADE_LEAD_SECONDS`; a long gap before the punch → lower it (`take-alignment.ts`).
 - App icons: the DEV icon on the iPhone home screen (installed 2026-11-14); the PREVIEW icon after the next
   preview build (`npm run build:preview`, iOS only while Android is paused).
 - Android: the old "Idea 1" clip drew without a waveform on the emulator (missing take file or peaks?).
@@ -443,6 +423,12 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T34 — Silent recording — 2026-11-14 — Settings → Silent recording (off by default, speaker only like
+  Speaker mode): the run-up plays as usual, then the whole output fades out on the master gain 100–70 ms
+  before the punch (`silenceOutput` in `audio-engine.ts`, `silentFade` / `punchLead` in `take-alignment.ts`;
+  on-the-fly punches come ~0.1 s later so the fade fits); pre-roll off = backing runs muted from the start;
+  beat display shows while recording silently even for Sound-only metronomes; Speaker mode skips cleaning
+  silent takes. Simulator + unit tests only; device check pending
 - T33 — Visual metronome — 2026-11-14 — beat display under the strip while the metronome is on (one block per
   beat, 6/8 and 12/8 grouped, current beat lit with a flash, green downbeat token), driven on the UI thread by
   the transport's unclamped `beatClock` (counts in before 0:00) with `beatAt` in `metronome.ts`; per-idea
@@ -465,7 +451,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - T10 — Ideas library basics — 2026-11-14 — "+" menu (New Idea without recording), swipe/long-press Rename,
   Duplicate (copies take files), Delete with confirmation, also in the idea's "⋯"; date under each idea, sort
   (Recent/Name/Date created, remembered), header search, recordings storage in Settings
-- T5 — Clip editing — 2026-11-14 — tap selects (handles + Split/Duplicate/Delete bar), drag moves across tracks
-  and trims (back out to the take), long-press picks up, snaps to clip edges/playhead/0:00, drops replace what's
-  under them, one undo step each; edits while playing restart playback; tap no longer fires on swipes (T30);
-  `/wrap` now publishes a preview OTA (`scripts/ota-check.mjs`)

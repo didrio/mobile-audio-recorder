@@ -11,6 +11,7 @@ import {
   playbackAnchor,
   playbackPosition,
   setMetronome,
+  silenceOutput,
   setTrackGain,
   startRecording,
   stopPlayback,
@@ -27,7 +28,9 @@ import {
   displayPosition,
   fileStartPosition,
   placeTake,
+  punchLead,
   runUpStart,
+  silentFade,
 } from '@/features/audio/take-alignment';
 import {
   cacheFilePath,
@@ -64,8 +67,6 @@ export type LiveTake = {
 };
 
 const TICK_MS = 100;
-/** How far ahead of the current playback position a punch has to be, so the cut can be scheduled. */
-const PUNCH_LEAD_SECONDS = 0.03;
 
 /**
  * Record / play state for the open project, and the playhead.
@@ -89,7 +90,11 @@ const PUNCH_LEAD_SECONDS = 0.03;
  *   playhead waits), the recorder starts with it, and at the punch point the armed track is cut and
  *   the take begins. Record while playing does the same with the playback already running, punching
  *   in as soon as the recorder has audio. Stop before the punch point saves nothing.
- * - Speaker mode (T21): with `speakerMode` (no headphones), Stop removes what the speaker played from
+ * - Silent recording (T34): with `silent` (no headphones), everything plays up to the punch, then
+ *   the whole output fades out just before it (`silentFade`), so nothing from the speaker reaches
+ *   the take. Without a punch-in (pre-roll off) the backing runs muted from the start. Playback
+ *   after Stop is normal again (a new engine playback).
+ * - Speaker mode (T21): with `clean` (no headphones, not silent), Stop removes what the speaker played from
  *   the new take (`echo-reference.ts`, `@/lib/echo-canceller`) before saving it; the raw recording is
  *   kept next to it.
  * - Metronome (T17): the engine clicks along with playback and recording while the idea's toggle is
@@ -97,7 +102,10 @@ const PUNCH_LEAD_SECONDS = 0.03;
  *   it is the count-in; with the metronome on it is always whole bars, so the punch lands on a beat
  *   as counted. With the idea's output set to Visual it runs silently (`clickVolume`).
  */
-export function useTransport(project: Project | null | undefined, speakerMode = false) {
+export function useTransport(
+  project: Project | null | undefined,
+  { clean = false, silent = false }: { clean?: boolean; silent?: boolean } = {},
+) {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<TransportStatus>('idle');
   const [position, setPosition] = useState(0);
@@ -105,6 +113,8 @@ export function useTransport(project: Project | null | undefined, speakerMode = 
   /** Recording, but still in the run-up before the punch point (judged before clamping at 0:00). */
   const [preRolling, setPreRolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The recording in progress is silent (T34): nothing plays out loud during the take. */
+  const [silentTake, setSilentTake] = useState(false);
   /** After Stop in Speaker mode: removing the backing from the new take. */
   const [cleaning, setCleaning] = useState(false);
   const [liveTake, setLiveTake] = useState<{
@@ -329,7 +339,12 @@ export function useTransport(project: Project | null | undefined, speakerMode = 
         ? { continueFrom: requested }
         : preRoll
           ? { clips: playableClips(project), from: runUpStart(requested, runUp) }
-          : { clips: playableClips(project, (other) => other.id !== track.id), from: requested };
+          : {
+              clips: playableClips(project, (other) => other.id !== track.id),
+              from: requested,
+              // No run-up to hear: silent from the first moment.
+              ...(silent && { silent: true }),
+            };
       const peaks = createLivePeaks(LIVE_PEAKS_PER_SECOND);
       let loudest = 0;
       livePeaks.set([]);
@@ -356,13 +371,18 @@ export function useTransport(project: Project | null | undefined, speakerMode = 
       let peaksStart = requested;
       if (punchIn) {
         // Punch where requested, unless the file doesn't reach back that far (a recorder that
-        // started late, or on the fly); the armed track goes silent exactly there.
+        // started late, or on the fly); the armed track goes silent exactly there. Silent
+        // recording fades everything out just before it.
         const { latencyOffsetMs } = useRecordingSettingsStore.getState();
         const alignment = await recording.whenStarted();
         peaksStart = fileStartPosition(playbackFrom, alignment, latencyOffsetMs / 1000);
         const now = playbackPosition() ?? anchorPosition(recording.anchor);
-        punch = choosePunch(requested, peaksStart, now, PUNCH_LEAD_SECONDS);
+        punch = choosePunch(requested, peaksStart, now, punchLead(silent));
         cutTrackAt(track.id, punch);
+        if (silent) {
+          const fade = silentFade(punch);
+          silenceOutput(fade.start, fade.end);
+        }
       }
       recordingRef.current = {
         recording,
@@ -372,7 +392,7 @@ export function useTransport(project: Project | null | undefined, speakerMode = 
         playbackFrom,
         floor: punchIn ? punch : 0,
         punch,
-        clean: speakerMode,
+        clean,
       };
       if (!onTheFly) {
         playhead.set(displayPosition(playbackFrom));
@@ -381,6 +401,7 @@ export function useTransport(project: Project | null | undefined, speakerMode = 
       anchor.set(toUiClock(recording.anchor));
       setPreRolling(anchorPosition(recording.anchor) < punch);
       setLiveTake({ start: punch, peaksStart, trackId: track.id });
+      setSilentTake(silent);
       setStatus('recording');
     } catch (cause) {
       setError(messageOf(cause, 'Recording could not start.'));
@@ -400,6 +421,7 @@ export function useTransport(project: Project | null | undefined, speakerMode = 
     // Back to the punch point, so Play plays the new take with the others.
     moveTo(from);
     setLiveTake(null);
+    setSilentTake(false);
     setPreRolling(false);
     livePeaks.set([]);
     setLevel(0);
@@ -478,6 +500,8 @@ export function useTransport(project: Project | null | undefined, speakerMode = 
     isCleaning: cleaning,
     /** While recording: the take hasn't started yet (the run-up before the punch point). */
     isPreRolling: isRecording && preRolling,
+    /** Recording silently (T34), run-up included: the visual beat should show. */
+    isSilentRecording: isRecording && silentTake,
     level,
     error,
     playhead,

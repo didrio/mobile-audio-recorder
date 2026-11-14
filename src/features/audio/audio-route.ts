@@ -36,7 +36,10 @@ export function headphonesConnected(
   return outputs.some((device) => HEADPHONE_CATEGORIES.has(device.category));
 }
 
-/** Speaker mode only cleans takes recorded without headphones (with them nothing leaks into the mic). */
+/**
+ * Speaker mode (cleaning) and silent recording only apply without headphones: with them nothing leaks
+ * into the mic.
+ */
 export function speakerModeApplies(speakerMode: boolean, headphones: boolean): boolean {
   return speakerMode && !headphones;
 }

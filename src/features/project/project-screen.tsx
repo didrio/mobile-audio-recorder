@@ -41,7 +41,7 @@ import {
 import { IDEA_MENU_ITEMS, type IdeaMenuItemId } from './idea-menu-items';
 import { hasSolo, trackOutputGain } from './mixer';
 import { useInputMeter } from './use-input-meter';
-import { useSpeakerMode } from './use-speaker-mode';
+import { useSpeakerRecording } from './use-speaker-mode';
 import { useTransport } from './use-transport';
 
 /**
@@ -73,8 +73,8 @@ export function ProjectScreen() {
   const metronome = useEditorStore((state) => state.metronome);
   const canUndo = useEditorStore(selectCanUndo);
   const canRedo = useEditorStore(selectCanRedo);
-  const speakerMode = useSpeakerMode();
-  const transport = useTransport(project, speakerMode);
+  const speakerRecording = useSpeakerRecording();
+  const transport = useTransport(project, speakerRecording);
   const tracks = project?.tracks ?? [];
 
   const isRecording = transport.status === 'recording';
@@ -181,16 +181,18 @@ export function ProjectScreen() {
     </View>
   );
 
-  // The visual metronome, under the strip. In Speaker mode (no headphones) a clicking metronome
-  // bleeds into the take, so suggest Visual before recording; dismissed until the screen is left.
+  // The visual metronome, under the strip; also while recording in silence (T34), where it's the only
+  // way to keep time. In Speaker mode (no headphones) a clicking metronome bleeds into the take, so
+  // suggest Visual before recording; dismissed until the screen is left. Not needed when the take is
+  // recorded in silence.
   const beatDisplay =
-    project && metronome && showsBeats(project.metronomeOutput) ? (
+    project && metronome && (showsBeats(project.metronomeOutput) || transport.isSilentRecording) ? (
       <BeatDisplay clock={transport.beatClock} meter={project} />
     ) : null;
   const [visualHintDismissed, setVisualHintDismissed] = useState(false);
   const visualHint =
     project &&
-    speakerMode &&
+    speakerRecording.clean &&
     metronome &&
     project.metronomeOutput !== 'visual' &&
     armedTrack &&

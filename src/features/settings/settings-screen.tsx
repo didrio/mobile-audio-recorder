@@ -61,6 +61,8 @@ export function SettingsScreen() {
   const setLatencyOffsetMs = useRecordingSettingsStore((state) => state.setLatencyOffsetMs);
   const speakerMode = useRecordingSettingsStore((state) => state.speakerMode);
   const setSpeakerMode = useRecordingSettingsStore((state) => state.setSpeakerMode);
+  const silentRecording = useRecordingSettingsStore((state) => state.silentRecording);
+  const setSilentRecording = useRecordingSettingsStore((state) => state.setSilentRecording);
   const cleanupStrength = useRecordingSettingsStore((state) => state.cleanupStrength);
   const setCleanupStrength = useRecordingSettingsStore((state) => state.setCleanupStrength);
   const theme = useTheme();
@@ -104,6 +106,22 @@ export function SettingsScreen() {
           name="Latency offset"
           value={latencyOffsetMs}
           onChange={setLatencyOffsetMs}
+        />
+      </ListSection>
+
+      <ListSection
+        title="Silent recording"
+        footer="Without headphones: everything plays up to where the take starts, then goes quiet, so nothing from the speaker gets into it. With the metronome on, the beat display keeps time.">
+        <ListRow
+          title="Silent while recording"
+          accessory={
+            <Switch
+              accessibilityLabel="Silent while recording"
+              value={silentRecording}
+              onValueChange={setSilentRecording}
+              trackColor={{ true: theme.colors.primary }}
+            />
+          }
         />
       </ListSection>
 

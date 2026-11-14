@@ -33,6 +33,12 @@ type RecordingSettingsState = {
    * kept next to the cleaned one.
    */
   speakerMode: boolean;
+  /**
+   * Silent recording (T34): without headphones, everything plays up to the punch, then the output
+   * fades out just before it and the take is recorded in silence (nothing bleeds into it).
+   */
+  silentRecording: boolean;
+  setSilentRecording: (value: boolean) => void;
   setSpeakerMode: (value: boolean) => void;
   /** Speaker mode: `strong` also turns down what's left of the backing per frequency (can dull a take). */
   cleanupStrength: CleanupStrength;
@@ -51,6 +57,8 @@ export const useRecordingSettingsStore = create<RecordingSettingsState>()(
       latencyOffsetMs: 0,
       setLatencyOffsetMs: (value) => set({ latencyOffsetMs: clampLatencyOffset(value) }),
       speakerMode: false,
+      silentRecording: false,
+      setSilentRecording: (value) => set({ silentRecording: value }),
       setSpeakerMode: (value) => set({ speakerMode: value }),
       cleanupStrength: 'light',
       setCleanupStrength: (value) => set({ cleanupStrength: value }),
@@ -67,6 +75,7 @@ export const useRecordingSettingsStore = create<RecordingSettingsState>()(
       partialize: (state) => ({
         latencyOffsetMs: state.latencyOffsetMs,
         speakerMode: state.speakerMode,
+        silentRecording: state.silentRecording,
         cleanupStrength: state.cleanupStrength,
         preRollSeconds: state.preRollSeconds,
         preRollBars: state.preRollBars,

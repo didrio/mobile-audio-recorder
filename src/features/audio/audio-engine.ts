@@ -28,6 +28,12 @@
  *   Clicks skip the track gains (mute, solo and volume never touch them).
  *   Recording keeps its playback running until Stop (`endless`), so the click doesn't stop after the
  *   last clip, and with the metronome on there is a playback even when no clip is audible.
+ * - Silent recording (T34): `silenceOutput` fades the whole output (master gain: clips and clicks)
+ *   to silence between two timeline positions, sample-accurate on the context clock, so nothing from
+ *   the speaker reaches a take that starts after it. A recording playback can also start `silent`
+ *   (master at 0): it still runs, so alignment and the playhead work as usual. Gain and metronome
+ *   changes don't touch the master, and the next `play()` builds a new one, so playback after Stop is
+ *   normal again.
  * - Speaker mode (T21): `stop()` also says what the backing played (`BackingPlayed`: the clips at
  *   their track gains, where a track was cut, the metronome), so the take can be cleaned of it
  *   afterwards (`echo-reference.ts`, `@/lib/echo-canceller`).
@@ -102,7 +108,14 @@ export type ActiveRecording = {
 };
 
 /** What plays while recording: clips from a timeline position, or the playback already running. */
-export type RecordingPlayback = { clips: PlayableClip[]; from: number } | { continueFrom: number };
+export type RecordingPlayback =
+  | {
+      clips: PlayableClip[];
+      from: number;
+      /** Runs muted from the start (silent recording without a run-up). */
+      silent?: boolean;
+    }
+  | { continueFrom: number };
 
 export type PlayableClip = {
   /** Take path relative to the document directory (as stored in the database). */
@@ -264,7 +277,7 @@ export async function startRecording(options: {
   let from: number;
   if ('clips' in options.playback) {
     from = options.playback.from;
-    await play(options.playback.clips, { from, endless: true });
+    await play(options.playback.clips, { from, endless: true, silent: options.playback.silent });
   } else {
     from = playback?.from ?? options.playback.continueFrom;
     // The take (and the click) keeps going past the last clip.
@@ -415,11 +428,11 @@ export function forgetTakes(takePaths: string[]) {
  * Plays the clips from timeline position `from` (seconds). Resolves once playback has started.
  * `onEnded` fires when the last clip finishes (not when `stopPlayback` is called). An `endless`
  * playback (recording) runs until `stopPlayback`, and exists without audible clips when the
- * metronome is on.
+ * metronome is on. A `silent` one plays nothing out loud (silent recording).
  */
 export async function play(
   clips: PlayableClip[],
-  options: { from?: number; onEnded?: () => void; endless?: boolean } = {},
+  options: { from?: number; onEnded?: () => void; endless?: boolean; silent?: boolean } = {},
 ): Promise<void> {
   stopPlayback();
   const generation = playGeneration;
@@ -439,6 +452,7 @@ export async function play(
   if (generation !== playGeneration) return;
 
   const master = ctx.createGain();
+  if (options.silent) master.gain.value = 0;
   master.connect(ctx.destination);
   const startedAt = ctx.currentTime + SCHEDULE_AHEAD_SECONDS;
   const startedAtMs = performance.now() + (SCHEDULE_AHEAD_SECONDS + outputLatency(ctx)) * 1000;
@@ -608,6 +622,23 @@ export function cutTrackAt(trackId: string, position: number) {
   node.gain.cancelScheduledValues(now);
   node.gain.setValueAtTime(node.gain.value, Math.max(now, at - CUT_FADE_SECONDS));
   node.gain.linearRampToValueAtTime(0, at);
+}
+
+/**
+ * Fades the whole output (clips and clicks) to silence from timeline position `from` to `to` (moved
+ * to now if they have passed). It stays silent for the rest of this playback.
+ */
+export function silenceOutput(from: number, to: number) {
+  const current = playback;
+  if (!current || !context) return;
+  const master = current.output.gain;
+  const now = context.currentTime;
+  const toContext = (position: number) =>
+    Math.max(now, current.startedAt + (position - current.from));
+  const end = toContext(to);
+  master.cancelScheduledValues(now);
+  master.setValueAtTime(master.value, Math.min(end, toContext(from)));
+  master.linearRampToValueAtTime(0, end);
 }
 
 /**

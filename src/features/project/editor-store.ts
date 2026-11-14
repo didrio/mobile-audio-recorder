@@ -22,6 +22,7 @@ import {
   getProject,
   saveChanges,
   setArmedTrack,
+  setPreRoll,
   type Project,
   type Take,
 } from '@/features/projects/projects-repo';
@@ -47,6 +48,8 @@ export type EditorState = {
   history: History;
   /** The track Record records onto; `null` = nothing armed. Saved per idea, but not an undo step. */
   armedTrackId: string | null;
+  /** Record starts with a run-up (T25). Saved per idea, but not an undo step. */
+  preRoll: boolean;
   /** Set when a change couldn't be saved (the idea was reloaded). */
   saveError: string | null;
 };
@@ -57,6 +60,7 @@ const closedState: EditorState = {
   status: 'closed',
   history: emptyHistory,
   armedTrackId: null,
+  preRoll: false,
   saveError: null,
 };
 
@@ -101,6 +105,7 @@ async function reload(projectId: string) {
     status: project ? 'ready' : 'error',
     history: emptyHistory,
     armedTrackId: project ? project.armedTrackId : state.armedTrackId,
+    preRoll: project ? project.preRoll : state.preRoll,
     saveError: SAVE_ERROR,
   });
 }
@@ -129,7 +134,12 @@ export function openIdea(projectId: string, options: { onSaved?: () => void } = 
     if (opened !== session) return;
     useEditorStore.setState(
       project
-        ? { project, armedTrackId: project.armedTrackId, status: 'ready' }
+        ? {
+            project,
+            armedTrackId: project.armedTrackId,
+            preRoll: project.preRoll,
+            status: 'ready',
+          }
         : { status: 'error' },
     );
   });
@@ -234,6 +244,14 @@ export function armTrack(trackId: string | null): Promise<void> {
   if (!projectId) return Promise.resolve();
   // Through the queue so a track added just before is written first. A failure only loses the arming.
   return enqueue(() => setArmedTrack(projectId, trackId));
+}
+
+/** The pre-roll toggle in the status strip. Saved, not undoable. */
+export function togglePreRoll(): Promise<void> {
+  const { projectId, preRoll } = useEditorStore.getState();
+  useEditorStore.setState({ preRoll: !preRoll });
+  if (!projectId) return Promise.resolve();
+  return enqueue(() => setPreRoll(projectId, !preRoll));
 }
 
 /** Tapping a track's name: arms it, or disarms it when it is the armed one. */

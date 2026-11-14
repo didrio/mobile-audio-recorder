@@ -72,6 +72,8 @@ const CLIP_INSET = 3;
 const CLIP_RADIUS = 6;
 const PLAYHEAD_WIDTH = 2;
 const PLAYHEAD_HANDLE = 7;
+/** Half-width of the punch point's notch on the ruler during a run-up. */
+const PUNCH_NOTCH = 5;
 /** Offset and blur of the shadow under a lane being dragged (at full lift). */
 const LIFT_SHADOW_Y = 4;
 const LIFT_SHADOW_BLUR = 8;
@@ -80,9 +82,11 @@ const FONT_FAMILY = Platform.select({ ios: 'Helvetica', default: 'sans-serif' })
 
 /** The take being recorded, drawn live on its track's lane. */
 export type LiveTake = {
-  /** Timeline position where recording started. */
+  /** Timeline position where the take starts (the punch point); before it the run-up plays. */
   start: number;
   trackId: string;
+  /** Timeline position of the first of `peaks` (earlier than `start` after a run-up). */
+  peaksStart: number;
   /** Interleaved `[min, max]` pairs at `peaksPerSecond`, appended as audio arrives. */
   peaks: SharedValue<number[]>;
   /** Loudest absolute sample so far (0…1), so all waveforms share one scale while recording. */
@@ -463,7 +467,7 @@ export function Timeline({
         drawLivePeaks(canvas, {
           data: liveTake.peaks.get(),
           perSecond: liveTake.peaksPerSecond,
-          start: liveTake.start,
+          start: liveTake.peaksStart,
           from: Math.max(liveTake.start, visibleStart),
           to: Math.min(visibleEnd, position),
           originX: x0,
@@ -497,9 +501,22 @@ export function Timeline({
         canvas.drawText(formatRulerTime(index * steps.label), x + 4, labelY, paints.label, font);
       }
 
+      const playheadEnd = Math.min(viewHeight, RULER_SIZE + trackCount * lane - ls);
+
+      // The punch point during the run-up: a dashed line down the lanes, a notch on the ruler.
+      if (liveTake && position < liveTake.start) {
+        const px = toX(liveTake.start);
+        canvas.drawLine(px, RULER_SIZE, px, Math.max(RULER_SIZE, playheadEnd), paints.punch);
+        const notch = Skia.PathBuilder.Make();
+        notch.moveTo(px - PUNCH_NOTCH, RULER_SIZE - PUNCH_NOTCH);
+        notch.lineTo(px + PUNCH_NOTCH, RULER_SIZE - PUNCH_NOTCH);
+        notch.lineTo(px, RULER_SIZE);
+        notch.close();
+        canvas.drawPath(notch.detach(), paints.playheadHandle);
+      }
+
       // Playhead, on top of everything, with a handle on the ruler to show it can be dragged.
       const x = toX(position);
-      const playheadEnd = Math.min(viewHeight, RULER_SIZE + trackCount * lane - ls);
       canvas.drawLine(x, 0, x, Math.max(RULER_SIZE, playheadEnd), paints.playhead);
       const handle = Skia.PathBuilder.Make();
       handle.moveTo(x - PLAYHEAD_HANDLE, 0);
@@ -699,6 +716,11 @@ function makePaints(colors: ThemeColors) {
     label: fill(colors.textSecondary),
     playhead: stroke(colors.primary, PLAYHEAD_WIDTH),
     playheadHandle: fill(colors.primary),
+    punch: (() => {
+      const paint = stroke(colors.primary, 1.5);
+      paint.setPathEffect(Skia.PathEffect.MakeDash([4, 4], 0));
+      return paint;
+    })(),
     /** The soft shadow under a lane being dragged (alpha set per frame). */
     liftShadow: (() => {
       const paint = Skia.Paint();

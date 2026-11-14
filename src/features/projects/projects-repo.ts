@@ -52,6 +52,8 @@ export type Clip = {
 export type Project = ProjectSummary & {
   /** The track Record records onto; `null` when nothing is armed. */
   armedTrackId: string | null;
+  /** Record starts with a run-up: playback begins the pre-roll length before the playhead. */
+  preRoll: boolean;
   tracks: (Track & { clips: Clip[] })[];
   takes: Record<string, Take>;
 };
@@ -62,6 +64,7 @@ type ProjectRow = {
   created_at: number;
   updated_at: number;
   armed_track_id: string | null;
+  pre_roll: number;
   duration: number;
 };
 type TrackRow = {
@@ -92,7 +95,7 @@ type ClipRow = {
 };
 
 const PROJECT_COLUMNS = `
-  p.id, p.name, p.created_at, p.updated_at, p.armed_track_id,
+  p.id, p.name, p.created_at, p.updated_at, p.armed_track_id, p.pre_roll,
   COALESCE((
     SELECT MAX(c.start + c.duration) FROM clips c JOIN tracks t ON t.id = c.track_id
     WHERE t.project_id = p.id
@@ -167,13 +170,25 @@ export async function getProject(id: string): Promise<Project | null> {
       })),
   }));
 
-  return { ...toSummary(row), armedTrackId: row.armed_track_id, tracks, takes };
+  return {
+    ...toSummary(row),
+    armedTrackId: row.armed_track_id,
+    preRoll: row.pre_roll === 1,
+    tracks,
+    takes,
+  };
 }
 
 /** Remembers which track is armed (`null`: none). Not an edit: it leaves `updated_at` alone. */
 export async function setArmedTrack(projectId: string, trackId: string | null): Promise<void> {
   const db = await getDb();
   await db.runAsync('UPDATE projects SET armed_track_id = ? WHERE id = ?', trackId, projectId);
+}
+
+/** Remembers whether pre-roll is on. Not an edit: it leaves `updated_at` alone. */
+export async function setPreRoll(projectId: string, on: boolean): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('UPDATE projects SET pre_roll = ? WHERE id = ?', on ? 1 : 0, projectId);
 }
 
 /** Creates a project with one empty track, armed. Without a name it's called "Idea N". */

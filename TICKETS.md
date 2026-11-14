@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T25 — Pre-roll (punch in at the playhead) · Opus · high effort · plan mode on
+**Next:** T5 — Clip editing · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -50,39 +50,6 @@ releases, native dependency changes). See the `wrap` skill.
   record the same audio onto each track). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
-
-### T25 — Pre-roll (punch in at the playhead)
-
-- **Status:** ready (T17 builds its count-in on it)
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Record into an exact spot with a run-up: playback starts a little before the playhead, including
-  the armed track's own audio, and recording kicks in exactly at the playhead ("so you can anticipate what's
-  coming", the user's request).
-- **Done when:**
-  - [ ] A pre-roll toggle in the status strip (SF `arrow.right.to.line`, Material `start`), saved per idea
-        (migration). Its length lives in Settings → Recording: 1 s / 2 s / 4 s while the grid is off, 1 or 2 bars
-        while the grid is on (T9). Defaults: 2 s and 1 bar.
-  - [ ] Pre-roll on + Record: playback of **every** track, the armed one included, starts at playhead − pre-roll
-        (clamped at 0, padded with silence before 0:00). At the playhead the armed track's existing audio goes
-        silent and the new take starts there, replacing what's under it as recording does now (`clearRange`).
-        After Stop the playhead returns to the punch point, as today.
-  - [ ] Punch accuracy: the take's first sample is at the playhead after latency compensation. Preferred: start
-        the recorder at the start of the pre-roll and place the clip with `offset` = pre-roll length. That avoids
-        recorder start-up delay at the punch point, and T5's trim can later extend back into the run-up. Check
-        that this is right in `take-alignment.ts` and test it with a clap on a device.
-  - [ ] The status strip clock and the playhead show the run-up (moving toward the punch point), plus a
-        visible marker at the punch point while pre-rolling. Stop during the run-up cancels without saving a
-        take.
-  - [ ] Pre-roll off → recording behaves exactly as today.
-  - [ ] Record while playing punches in on the fly at the current position, as in most DAWs (Record is
-        disabled during playback today). The armed track's own audio is cut at the punch point, with no gap
-        while the recorder restarts: the same machinery as the pre-roll's punch, with the run-up already playing.
-  - [ ] Unit tests for the timing math (run-up start, clamping at 0, clip offset).
-- **Context:** Recording start, playback during overdub and latency compensation are in
-  `src/features/project/use-transport.ts` (`record`) and `src/features/audio/take-alignment.ts`; scheduling is
-  in `audio-engine.ts` (`play()`). The armed track has to play during the run-up and be cut at the punch point:
-  schedule its clips to end there, or ramp its track gain to 0 (`setTrackGain`). T17's count-in becomes this
-  pre-roll plus clicks. A punch-out end point belongs to the loop-recording rethink (Backlog).
 
 ### T5 — Clip editing
 
@@ -194,6 +161,10 @@ releases, native dependency changes). See the `wrap` skill.
         ruler instead of mm:ss, snap to grid while editing clips (extends T5's snapping). The clock in the
         status strip stays in time.
   - [ ] Settings changes are editor-store commands (undoable).
+  - [ ] Pre-roll length (from T25): with the grid on, Settings offers 1 or 2 bars (default 1 bar) instead of
+        1/2/4 s; `recording-settings-store.ts` (`PRE_ROLL_SECONDS_OPTIONS`, `preRollSeconds`) and the Pre-roll
+        section of `settings-screen.tsx`. The run-up length in seconds comes from the bars × tempo
+        (`runUpStart` in `take-alignment.ts` takes seconds).
 - **Context:** Grid lines go in the timeline picture next to the ruler ticks (`rulerSteps` in
   `timeline-math.ts`). Compound meters (6/8, 12/8): beats are eighths, grouped in threes. T17 adds the
   metronome section to this sheet. Quantize stays in Backlog.
@@ -215,6 +186,10 @@ releases, native dependency changes). See the `wrap` skill.
         before.
 - **Context:** Scheduling and playback helpers live in `audio-engine.ts`. Recording start and latency
   compensation: `take-alignment.ts` and `use-transport.ts`. Turning the metronome on also turns the grid on.
+  The pre-roll (T25): `record()` in `use-transport.ts` starts playback at `runUpStart(punch, length)` (can be
+  negative: silence before 0:00) via `startRecording({ playback })`, and the run-up is visible as
+  `isPreRolling`. Clicks are scheduled on the same context clock (`playback.startedAt` / `from` in the engine),
+  so they line up with the backing and the punch.
 
 ### T20 — Pitch reference keyboard
 
@@ -376,6 +351,11 @@ skill). Fix or ticket what fails, then delete the line.
   Record right after arming starts fine and lines up. If the meter stays empty, the library can't open the mic
   without a file (`setMetering` in `audio-engine.ts`). Bluetooth headphones may drop to "call" audio while the
   mic is open; if that's bad, meter only while recording when Bluetooth output is active.
+- Pre-roll & punch-in (T25): with headphones, record a clap, then arm another track, turn pre-roll on, put
+  the playhead just before the clap and clap along; both claps line up and the armed track's old audio stops
+  cleanly (no click) at the punch. Record during playback: the armed track plays until the punch with no gap.
+  Off by more than a few ms → `fileStartPosition` / `choosePunch` in `take-alignment.ts`, `cutTrackAt` in
+  `audio-engine.ts`.
 - Mixer: drag a volume while playing (smooth, no clicks), mute/solo during playback and during an overdub
   (backing changes, the take doesn't).
 - Reorder: grip lights up at once, haptic after the hold, other lanes glide, auto-scroll near the edges with
@@ -441,6 +421,11 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   passed pills, or draw the lifted pill above; only if it bothers on a device.
 
 ## Done
+
+- T25 — Pre-roll (punch in at the playhead) — 2026-11-13 — pre-roll toggle per idea (migration v3), 1/2/4 s
+  length in Settings, run-up plays every track and cuts the armed one at the punch (`cutTrackAt`), dashed punch
+  marker, stop in the run-up saves nothing, Record while playing punches in on the fly; clap test is in Device
+  checks
 
 - Reorder stripes (no ticket) — 2026-11-13 — during a track drag, lanes and column cells take the stripe of
   the slot they're heading to (`laneSlotDuringDrag`, `drag.target`), so rows keep alternating; fresh preview

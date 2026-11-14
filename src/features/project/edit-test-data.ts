@@ -29,6 +29,7 @@ export function testProject(tracks: ProjectTrack[]): Project {
     updatedAt: 0,
     duration,
     armedTrackId: tracks[0]?.id ?? null,
+    preRoll: false,
     takes: {},
     tracks,
   };

@@ -43,6 +43,14 @@ export function storeRecordedTake(recordedPath: string, projectId: string, takeI
   return relativePath;
 }
 
+/** Deletes a freshly recorded file that won't be kept (stopped before the punch point). */
+export function discardRecordedFile(recordedPath: string): void {
+  const file = new File(
+    recordedPath.startsWith('file://') ? recordedPath : `file://${encodeURI(recordedPath)}`,
+  );
+  if (file.exists) file.delete();
+}
+
 /** Deletes a take's audio and waveform files. Safe to call when they don't exist. */
 export function deleteTakeFiles(relativePath: string): void {
   for (const file of [new File(Paths.document, relativePath), peaksFile(relativePath)]) {

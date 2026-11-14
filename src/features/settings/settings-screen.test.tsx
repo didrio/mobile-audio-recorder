@@ -10,7 +10,7 @@ import { SettingsScreen } from './settings-screen';
 describe('SettingsScreen', () => {
   beforeEach(() => {
     useAppearanceStore.setState({ preference: 'system' });
-    useRecordingSettingsStore.setState({ latencyOffsetMs: 0 });
+    useRecordingSettingsStore.setState({ latencyOffsetMs: 0, preRollSeconds: 2 });
   });
 
   it('shows the current appearance preference', async () => {
@@ -51,6 +51,17 @@ describe('SettingsScreen', () => {
 
     expect(screen.getByRole('button', { name: 'Decrease latency offset' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Increase latency offset' })).toBeEnabled();
+  });
+
+  it('changes and persists the pre-roll length (2 s by default)', async () => {
+    await render(<SettingsScreen />);
+    expect(screen.getByRole('radio', { name: '2 s' })).toBeChecked();
+
+    await fireEvent.press(screen.getByRole('radio', { name: '4 s' }));
+
+    expect(screen.getByRole('radio', { name: '4 s' })).toBeChecked();
+    expect(useRecordingSettingsStore.getState().preRollSeconds).toBe(4);
+    expect(storage.getString('settings.recording')).toContain('"preRollSeconds":4');
   });
 
   it('shows app version info', async () => {

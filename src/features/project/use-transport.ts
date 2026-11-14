@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
 
 import {
+  cutTrackAt,
   ensureRecordPermission,
   peakLevel,
   play,
@@ -15,15 +16,22 @@ import {
   type ActiveRecording,
   type PlaybackAnchor,
   type PlayableClip,
+  type RecordingPlayback,
 } from '@/features/audio/audio-engine';
-import { placeTake } from '@/features/audio/take-alignment';
-import { storeRecordedTake } from '@/features/audio/take-files';
+import {
+  choosePunch,
+  displayPosition,
+  fileStartPosition,
+  placeTake,
+  runUpStart,
+} from '@/features/audio/take-alignment';
+import { discardRecordedFile, storeRecordedTake } from '@/features/audio/take-files';
 import type { Project } from '@/features/projects/projects-repo';
 import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
 import { prefetchTakePeaks } from '@/features/timeline/use-take-peaks';
 import { createLivePeaks, LIVE_PEAKS_PER_SECOND } from '@/features/timeline/waveform-peaks';
 
-import { recordTake } from './editor-store';
+import { recordTake, useEditorStore } from './editor-store';
 import { hasSolo, trackOutputGain } from './mixer';
 import { toUiClock } from './ui-clock';
 
@@ -31,9 +39,11 @@ export type TransportStatus = 'idle' | 'starting' | 'recording' | 'stopping' | '
 
 /** The take being recorded, for drawing it live on the timeline. */
 export type LiveTake = {
-  /** Timeline position where recording started. */
+  /** Timeline position where the take starts (the punch point); drawn from there on. */
   start: number;
   trackId: string;
+  /** Timeline position of the first of `peaks` (before `start` when the recorder ran in the run-up). */
+  peaksStart: number;
   /** Interleaved `[min, max]` pairs at `peaksPerSecond`, appended as audio arrives. */
   peaks: SharedValue<number[]>;
   /** Loudest absolute sample so far (0…1). */
@@ -42,6 +52,8 @@ export type LiveTake = {
 };
 
 const TICK_MS = 100;
+/** How far ahead of the current playback position a punch has to be, so the cut can be scheduled. */
+const PUNCH_LEAD_SECONDS = 0.03;
 
 /**
  * Record / play state for the open project, and the playhead.
@@ -58,14 +70,25 @@ const TICK_MS = 100;
  *   saved clip is lined up with them (`take-alignment.ts`, plus the manual offset from Settings).
  *   Stop returns the playhead to where recording started. Leaving the screen while recording stops
  *   and saves the take.
+ * - Punch in (`take-alignment.ts`): with the idea's pre-roll on, playback of every track (the armed
+ *   one included) starts the pre-roll length before the playhead (silence before 0:00, where the
+ *   playhead waits), the recorder starts with it, and at the punch point the armed track is cut and
+ *   the take begins. Record while playing does the same with the playback already running, punching
+ *   in as soon as the recorder has audio. Stop before the punch point saves nothing.
  */
 export function useTransport(project: Project | null | undefined) {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<TransportStatus>('idle');
   const [position, setPosition] = useState(0);
   const [level, setLevel] = useState(0);
+  /** Recording, but still in the run-up before the punch point (judged before clamping at 0:00). */
+  const [preRolling, setPreRolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [liveTake, setLiveTake] = useState<{ start: number; trackId: string } | null>(null);
+  const [liveTake, setLiveTake] = useState<{
+    start: number;
+    peaksStart: number;
+    trackId: string;
+  } | null>(null);
   const playhead = useSharedValue(0);
   const anchor = useSharedValue<PlaybackAnchor | null>(null);
   const livePeaks = useSharedValue<number[]>([]);
@@ -77,21 +100,30 @@ export function useTransport(project: Project | null | undefined) {
     takeId: string;
     projectId: string;
     trackId: string;
-    from: number;
+    /** Where playback started (the run-up start with pre-roll); the file is lined up from it. */
+    playbackFrom: number;
+    /** The take starts no earlier than this: the punch point, or 0 without punch-in. */
+    floor: number;
+    /** Where the take starts on screen and the playhead returns to after Stop. */
+    punch: number;
   } | null>(null);
 
   const isRecording = status === 'recording';
   const isPlaying = status === 'playing';
+  const isIdle = status === 'idle';
 
-  // Playhead: advanced on the UI thread from the anchor, without React renders.
+  // Playhead: advanced on the UI thread from the anchor, without React renders. It waits at 0:00
+  // through a run-up that starts before it. Running whenever the transport isn't idle, so it keeps
+  // moving while Record starts during playback.
   const frameCallback = useFrameCallback(() => {
     const current = anchor.get();
     if (!current) return;
-    playhead.set(current.from + Math.max(0, performance.now() - current.startedAtMs) / 1000);
+    const time = current.from + Math.max(0, performance.now() - current.startedAtMs) / 1000;
+    playhead.set(Math.max(0, time));
   }, false);
   useEffect(() => {
-    frameCallback.setActive(isPlaying || isRecording);
-  }, [frameCallback, isPlaying, isRecording]);
+    frameCallback.setActive(!isIdle);
+  }, [frameCallback, isIdle]);
 
   // Clock text: the timeline position while playing or recording (like the playhead).
   useEffect(() => {
@@ -101,9 +133,11 @@ export function useTransport(project: Project | null | undefined) {
         setPosition(playbackPosition() ?? 0);
         return;
       }
-      const started = recordingRef.current?.recording.anchor;
-      if (started) {
-        setPosition(started.from + Math.max(0, performance.now() - started.startedAtMs) / 1000);
+      const active = recordingRef.current;
+      if (active) {
+        const time = anchorPosition(active.recording.anchor);
+        setPosition(displayPosition(time));
+        setPreRolling(time < active.punch);
       }
     }, TICK_MS);
     return () => clearInterval(timer);
@@ -129,9 +163,18 @@ export function useTransport(project: Project | null | undefined) {
     recordingRef.current = null;
     const recorded = await active.recording.stop();
     anchor.set(null);
-    const path = storeRecordedTake(recorded.path, active.projectId, active.takeId);
     const { latencyOffsetMs } = useRecordingSettingsStore.getState();
-    const placement = placeTake(active.from, recorded.alignment, latencyOffsetMs / 1000);
+    const placement = placeTake({
+      fileStart: fileStartPosition(active.playbackFrom, recorded.alignment, latencyOffsetMs / 1000),
+      floor: active.floor,
+      takeDuration: recorded.duration,
+    });
+    // Stopped before the punch point: no take.
+    if (!placement) {
+      discardRecordedFile(recorded.path);
+      return;
+    }
+    const path = storeRecordedTake(recorded.path, active.projectId, active.takeId);
     await recordTake({
       projectId: active.projectId,
       trackId: active.trackId,
@@ -162,30 +205,42 @@ export function useTransport(project: Project | null | undefined) {
     [],
   );
 
-  /** Records onto `trackId` from the playhead while the other tracks play. */
+  /**
+   * Records onto `trackId` from the playhead while the other tracks play; with pre-roll on, after a
+   * run-up. While playing, punches in on the fly.
+   */
   const record = async (trackId: string) => {
-    if (!project || status !== 'idle') return;
+    if (!project || (status !== 'idle' && status !== 'playing')) return;
     const track = project.tracks.find((candidate) => candidate.id === trackId);
     if (!track) return;
+    const onTheFly = status === 'playing';
+    const preRoll = useEditorStore.getState().preRoll;
+    const punchIn = onTheFly || preRoll;
     setError(null);
     setStatus('starting');
     try {
       if (!(await ensureRecordPermission())) {
         setError('Microphone access is off. Allow it in the Settings app to record.');
-        setStatus('idle');
+        setStatus(onTheFly ? 'playing' : 'idle');
         return;
       }
       const takeId = randomUUID();
-      const from = Math.max(0, playhead.get());
-      const backing = playableClips(project, (other) => other.id !== track.id);
+      const requested = onTheFly
+        ? (playbackPosition() ?? playhead.get())
+        : Math.max(0, playhead.get());
+      const { preRollSeconds } = useRecordingSettingsStore.getState();
+      const playback: RecordingPlayback = onTheFly
+        ? { continueFrom: requested }
+        : preRoll
+          ? { clips: playableClips(project), from: runUpStart(requested, preRollSeconds) }
+          : { clips: playableClips(project, (other) => other.id !== track.id), from: requested };
       const peaks = createLivePeaks(LIVE_PEAKS_PER_SECOND);
       let loudest = 0;
       livePeaks.set([]);
       livePeak.set(0);
       const recording = await startRecording({
         fileName: takeId,
-        from,
-        backing,
+        playback,
         onBuffer: (samples, sampleRate) => {
           setLevel(peakLevel(samples));
           const pairs = peaks.push(samples, sampleRate);
@@ -200,29 +255,55 @@ export function useTransport(project: Project | null | undefined) {
           });
         },
       });
-      recordingRef.current = { recording, takeId, projectId: project.id, trackId: track.id, from };
-      playhead.set(from);
+      const playbackFrom = recording.anchor.from;
+      let punch = requested;
+      let peaksStart = requested;
+      if (punchIn) {
+        // Punch where requested, unless the file doesn't reach back that far (a recorder that
+        // started late, or on the fly); the armed track goes silent exactly there.
+        const { latencyOffsetMs } = useRecordingSettingsStore.getState();
+        const alignment = await recording.whenStarted();
+        peaksStart = fileStartPosition(playbackFrom, alignment, latencyOffsetMs / 1000);
+        const now = playbackPosition() ?? anchorPosition(recording.anchor);
+        punch = choosePunch(requested, peaksStart, now, PUNCH_LEAD_SECONDS);
+        cutTrackAt(track.id, punch);
+      }
+      recordingRef.current = {
+        recording,
+        takeId,
+        projectId: project.id,
+        trackId: track.id,
+        playbackFrom,
+        floor: punchIn ? punch : 0,
+        punch,
+      };
+      if (!onTheFly) {
+        playhead.set(displayPosition(playbackFrom));
+        setPosition(displayPosition(playbackFrom));
+      }
       anchor.set(toUiClock(recording.anchor));
-      setLiveTake({ start: from, trackId: track.id });
-      setPosition(from);
+      setPreRolling(anchorPosition(recording.anchor) < punch);
+      setLiveTake({ start: punch, peaksStart, trackId: track.id });
       setStatus('recording');
     } catch (cause) {
       setError(messageOf(cause, 'Recording could not start.'));
+      if (onTheFly) stopPlaying();
       setStatus('idle');
     }
   };
 
   const stopRecording = async () => {
-    const from = recordingRef.current?.from ?? 0;
+    const from = recordingRef.current?.punch ?? 0;
     setStatus('stopping');
     try {
       await finishRecording();
     } catch (cause) {
       setError(messageOf(cause, 'The recording could not be saved.'));
     }
-    // Back to where recording started, so Play plays the new take with the others.
+    // Back to the punch point, so Play plays the new take with the others.
     moveTo(from);
     setLiveTake(null);
+    setPreRolling(false);
     livePeaks.set([]);
     setLevel(0);
     setStatus('idle');
@@ -285,6 +366,8 @@ export function useTransport(project: Project | null | undefined) {
   return {
     status,
     position,
+    /** While recording: the take hasn't started yet (the run-up before the punch point). */
+    isPreRolling: isRecording && preRolling,
     level,
     error,
     playhead,
@@ -322,6 +405,11 @@ function playableClips(
         : [];
     }),
   );
+}
+
+/** The timeline position an anchor's playback has reached now. */
+function anchorPosition(anchor: PlaybackAnchor): number {
+  return anchor.from + Math.max(0, performance.now() - anchor.startedAtMs) / 1000;
 }
 
 function messageOf(cause: unknown, fallback: string): string {

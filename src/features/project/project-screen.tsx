@@ -22,6 +22,7 @@ import {
   setTrackVolume,
   toggleMute,
   toggleArm,
+  togglePreRoll,
   toggleSolo,
   undo,
   useEditorStore,
@@ -33,8 +34,9 @@ import { useInputMeter } from './use-input-meter';
 import { useTransport } from './use-transport';
 
 /**
- * The project editor: a thin status strip (clock, room for T17's metronome toggle, meter), the
- * timeline, then a compact transport row (Back to start · Play · Record). The app is portrait-only
+ * The project editor: a thin status strip (clock, pre-roll toggle, room for T17's metronome toggle,
+ * meter), the timeline, then a compact transport row (Back to start · Play · Record). Record while
+ * playing punches in on the fly; with pre-roll on, Record starts with a run-up (`use-transport.ts`). The app is portrait-only
  * (`orientation` in app.json), so there is no landscape layout. One track is
  * armed: Record records onto it while the others play. Tracks are added from the timeline's
  * "+ New Track" row. The header has Undo, Redo (enabled only while idle) and "⋯" (placeholders until
@@ -56,6 +58,7 @@ export function ProjectScreen() {
   const loadFailed = useEditorStore((state) => isOpen && state.status === 'error');
   const saveError = useEditorStore((state) => state.saveError);
   const armedTrack = useEditorStore(selectArmedTrack);
+  const preRoll = useEditorStore((state) => state.preRoll);
   const canUndo = useEditorStore(selectCanUndo);
   const canRedo = useEditorStore(selectCanRedo);
   const transport = useTransport(project);
@@ -108,16 +111,42 @@ export function ProjectScreen() {
   const editTrack = (trackId: string) =>
     router.push({ pathname: '/track/[id]', params: { id: trackId, projectId: params.id } });
 
-  // Time on the left, the meter on the right; the gap between is where T17's metronome toggle goes.
+  // Time on the left, the meter on the right, toggles before it (T17's metronome goes next to
+  // pre-roll). The clock turns red once the take has started (not during the run-up).
+  const taking = isRecording && !transport.isPreRolling;
   const statusStrip = (
     <View style={styles.strip}>
       <Text
         variant="timecode"
-        color={isRecording ? 'primary' : 'text'}
-        accessibilityLabel={isRecording ? 'Recording time' : 'Time'}>
+        color={taking ? 'primary' : 'text'}
+        accessibilityLabel={
+          transport.isPreRolling ? 'Pre-roll time' : isRecording ? 'Recording time' : 'Time'
+        }>
         {formatTimecode(transport.position)}
       </Text>
       <View style={styles.stripSpacer} />
+      <Pressable
+        accessibilityRole="switch"
+        accessibilityLabel="Pre-roll"
+        accessibilityState={{ checked: preRoll, disabled: isRecording || isBusy }}
+        disabled={isRecording || isBusy}
+        hitSlop={8}
+        onPress={() => {
+          void Haptics.selectionAsync();
+          void togglePreRoll();
+        }}
+        style={({ pressed }) => [
+          styles.stripToggle,
+          preRoll && styles.stripToggleOn,
+          (isRecording || isBusy) && styles.disabled,
+          pressed && styles.pressed,
+        ]}>
+        <Icon
+          name={{ ios: 'arrow.right.to.line', android: 'start' }}
+          size={16}
+          color={preRoll ? 'background' : 'textSecondary'}
+        />
+      </Pressable>
       <View style={styles.meter} accessibilityElementsHidden importantForAccessibility="no">
         <View style={[styles.meterFill, { width: `${Math.round(meterLevel * 100)}%` }]} />
       </View>
@@ -159,7 +188,7 @@ export function ProjectScreen() {
       size={SIDE_BUTTON_SIZE}
       kind="record"
       busy={isBusy}
-      disabled={isBusy || isPlaying || !armedTrack}
+      disabled={isBusy || !armedTrack}
       onPress={isRecording ? () => void transport.stopRecording() : recordArmed}
     />
   );
@@ -375,6 +404,12 @@ const useStyles = makeStyles((t) => ({
     borderBottomColor: t.colors.border,
   },
   stripSpacer: { flex: 1 },
+  stripToggle: {
+    paddingHorizontal: t.spacing.sm,
+    paddingVertical: t.spacing.xxs,
+    borderRadius: t.radius.full,
+  },
+  stripToggleOn: { backgroundColor: t.colors.text },
   meter: {
     width: 96,
     height: t.spacing.xs,

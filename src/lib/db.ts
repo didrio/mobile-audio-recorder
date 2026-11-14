@@ -19,7 +19,7 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 
 const DATABASE_NAME = 'audio-recorder.db';
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 let database: Promise<SQLiteDatabase> | null = null;
 
@@ -96,6 +96,10 @@ async function migrate(db: SQLiteDatabase) {
           SELECT t.id FROM tracks t WHERE t.project_id = projects.id ORDER BY t.position LIMIT 1
         );
       `);
+    }
+    if (version < 3) {
+      // Pre-roll on/off per idea (T25): Record starts playback a little before the playhead.
+      await tx.execAsync('ALTER TABLE projects ADD COLUMN pre_roll INTEGER NOT NULL DEFAULT 0;');
     }
     await tx.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   });

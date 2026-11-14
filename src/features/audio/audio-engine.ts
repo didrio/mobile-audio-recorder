@@ -6,11 +6,16 @@
  *   project (see `take-files.ts`). `onBuffer` gets every input buffer (level meter, live waveform).
  * - Metering: `setMetering` opens the mic without a file while a track is armed (the input meter) and
  *   closes it again; only permission already granted is used, the prompt comes with the first Record.
- * - Overdubs: recording plays the `backing` clips from `from`. The recorder can't be started at a
- *   context time, so playback starts first, then the recorder, and the engine measures where the
- *   file's first sample sits on the context clock (`ctx.currentTime − recorder.getCurrentDuration()`,
- *   sampled for a second, keeping the minimum because the duration lags by up to one callback).
- *   `stop()` returns that measurement with the latencies; `take-alignment.ts` turns it into a clip.
+ * - Overdubs: recording plays clips from a timeline position (or keeps the playback that's already
+ *   running: Record while playing). The recorder can't be started at a context time, so playback
+ *   starts first, then the recorder, and the engine measures where the file's first sample sits on
+ *   the context clock (`ctx.currentTime − recorder.getCurrentDuration()`, sampled for a second,
+ *   keeping the minimum because the duration lags by up to one callback). `whenStarted()` gives the
+ *   first measurement (an upper bound, enough to pick a punch point), `stop()` the final one with the
+ *   latencies; `take-alignment.ts` turns it into a clip.
+ * - Punch in: `cutTrackAt` silences a playing track from a timeline position on (a short fade on its
+ *   gain, sample-accurate on the context clock), so the armed track plays through the run-up and goes
+ *   quiet exactly where the new take starts. Later gain changes leave a cut track silent.
  * - Playback: one shared `AudioContext`. Every clip becomes an `AudioBufferSourceNode` started at
  *   its timeline position: source → track gain → master gain → speakers. Decoded takes are cached.
  * - Mixer: `setTrackGain` keeps each track's gain (track volume; later × mute/solo). Playback builds
@@ -60,10 +65,18 @@ export type FinishedRecording = RecordedTake & {
 };
 
 export type ActiveRecording = {
-  /** Playhead anchor for the take: when timeline position `from` is heard. */
+  /** Playhead anchor: when timeline position `anchor.from` (where playback started) is heard. */
   anchor: PlaybackAnchor;
+  /**
+   * The first measurement of where the file starts (`recorderStartedAt` is an upper bound until
+   * `stop()` refines it); `null` when nothing is playing to measure against.
+   */
+  whenStarted(): Promise<TakeAlignment | null>;
   stop(): Promise<FinishedRecording>;
 };
+
+/** What plays while recording: clips from a timeline position, or the playback already running. */
+export type RecordingPlayback = { clips: PlayableClip[]; from: number } | { continueFrom: number };
 
 export type PlayableClip = {
   /** Take path relative to the document directory (as stored in the database). */
@@ -83,6 +96,8 @@ const decodedTakes = new Map<string, Promise<AudioBuffer>>();
 const trackGains = new Map<string, number>();
 /** Time constant of the ramp when a gain changes while playing (no zipper noise). */
 const GAIN_RAMP_SECONDS = 0.015;
+/** Fade-out length when a track is cut at the punch point (no click). */
+const CUT_FADE_SECONDS = 0.005;
 
 /** Bumped by every `play` and `stopPlayback`, so a `play` still loading audio knows it was superseded. */
 let playGeneration = 0;
@@ -93,7 +108,11 @@ let playback: {
   output: GainNode;
   /** One gain per track that has audible clips. */
   tracks: Map<string, GainNode>;
+  /** Tracks silenced by `cutTrackAt`: gain changes no longer reach them. */
+  cutTracks: Set<string>;
   endTimer: ReturnType<typeof setTimeout>;
+  /** Called when the last clip finishes; recording clears it so the take keeps going. */
+  onEnded: (() => void) | undefined;
   startedAt: number;
   from: number;
   startedAtMs: number;
@@ -186,18 +205,23 @@ async function endMetering() {
 export async function startRecording(options: {
   /** File name without extension; must be unique (an existing file is overwritten). */
   fileName: string;
-  /** Timeline position where the take starts (seconds). */
-  from?: number;
-  /** Clips to play while recording (the other tracks). */
-  backing?: PlayableClip[];
+  /** What plays while recording (see `RecordingPlayback`). */
+  playback: RecordingPlayback;
   /** Every input buffer, mono samples in -1…1. */
   onBuffer?: (samples: Float32Array, sampleRate: number) => void;
 }): Promise<ActiveRecording> {
-  const from = options.from ?? 0;
   // The meter uses the same recorder; close it before anything is scheduled.
   await setMetering(null);
-  await play(options.backing ?? [], { from });
-  // `play` leaves `playback` null when nothing is audible from `from`.
+  let from: number;
+  if ('clips' in options.playback) {
+    from = options.playback.from;
+    await play(options.playback.clips, { from });
+  } else {
+    from = playback?.from ?? options.playback.continueFrom;
+    // The take keeps going past the last clip.
+    if (playback) playback.onEnded = undefined;
+  }
+  // `playback` is null when nothing is audible from `from`.
   const backing = playback
     ? { startedAt: playback.startedAt, startedAtMs: playback.startedAtMs }
     : null;
@@ -238,26 +262,50 @@ export async function startRecording(options: {
   // while recording).
   let recorderStartedAt = Infinity;
   let inputLatency = 0;
+  const alignment = (): TakeAlignment | null =>
+    backing && Number.isFinite(recorderStartedAt)
+      ? {
+          playbackStartedAt: backing.startedAt,
+          recorderStartedAt,
+          outputLatency: playbackOutputLatency,
+          inputLatency,
+        }
+      : null;
+  let resolveStarted: ((value: TakeAlignment | null) => void) | null = null;
+  const firstMeasurement = new Promise<TakeAlignment | null>((resolve) => {
+    resolveStarted = resolve;
+  });
+  const settleStarted = (value: TakeAlignment | null) => {
+    resolveStarted?.(value);
+    resolveStarted = null;
+  };
   const measure = () => {
     if (!ctx) return;
     const written = activeRecorder.getCurrentDuration();
     if (written > 0) recorderStartedAt = Math.min(recorderStartedAt, ctx.currentTime - written);
     const latency = activeRecorder.inputLatency;
     if (Number.isFinite(latency) && latency > 0) inputLatency = latency;
+    if (Number.isFinite(recorderStartedAt)) settleStarted(alignment());
   };
   const measuredUntil = performance.now() + ALIGN_WINDOW_MS;
   const measureTimer = ctx
     ? setInterval(() => {
         measure();
-        if (performance.now() > measuredUntil) clearInterval(measureTimer);
+        if (performance.now() > measuredUntil) {
+          clearInterval(measureTimer);
+          settleStarted(alignment());
+        }
       }, ALIGN_SAMPLE_MS)
     : undefined;
+  if (!ctx) settleStarted(null);
 
   return {
     anchor: { from, startedAtMs: backing?.startedAtMs ?? performance.now() },
+    whenStarted: () => firstMeasurement,
     async stop() {
       clearInterval(measureTimer);
       measure();
+      settleStarted(alignment());
       stopPlayback();
       const result = await activeRecorder.stop();
       activeRecorder.clearOnAudioReady();
@@ -269,15 +317,7 @@ export async function startRecording(options: {
         duration: result.duration,
         sampleRate: RECORDING_PRESET.sampleRate,
         channels: RECORDING_CHANNELS,
-        alignment:
-          backing && Number.isFinite(recorderStartedAt)
-            ? {
-                playbackStartedAt: backing.startedAt,
-                recorderStartedAt,
-                outputLatency: playbackOutputLatency,
-                inputLatency,
-              }
-            : null,
+        alignment: alignment(),
       };
     },
   };
@@ -366,15 +406,41 @@ export async function play(
     return source;
   });
 
-  const endTimer = setTimeout(
-    () => {
-      master.disconnect();
-      playback = null;
-      options.onEnded?.();
-    },
-    (end + SCHEDULE_AHEAD_SECONDS) * 1000,
-  );
-  playback = { sources, output: master, tracks, endTimer, startedAt, from, startedAtMs };
+  const current: NonNullable<typeof playback> = {
+    sources,
+    output: master,
+    tracks,
+    cutTracks: new Set(),
+    endTimer: setTimeout(
+      () => {
+        master.disconnect();
+        if (playback === current) playback = null;
+        current.onEnded?.();
+      },
+      (end + SCHEDULE_AHEAD_SECONDS) * 1000,
+    ),
+    onEnded: options.onEnded,
+    startedAt,
+    from,
+    startedAtMs,
+  };
+  playback = current;
+}
+
+/**
+ * Silences a playing track from timeline position `position` on (or now, if that has passed), with a
+ * short fade. It stays silent for the rest of this playback, whatever `setTrackGain` says.
+ */
+export function cutTrackAt(trackId: string, position: number) {
+  if (!playback || !context) return;
+  playback.cutTracks.add(trackId);
+  const node = playback.tracks.get(trackId);
+  if (!node) return; // Nothing of this track is playing.
+  const now = context.currentTime;
+  const at = Math.max(now, playback.startedAt + (position - playback.from));
+  node.gain.cancelScheduledValues(now);
+  node.gain.setValueAtTime(node.gain.value, Math.max(now, at - CUT_FADE_SECONDS));
+  node.gain.linearRampToValueAtTime(0, at);
 }
 
 /**
@@ -384,6 +450,7 @@ export async function play(
 export function setTrackGain(trackId: string, gain: number) {
   if (!Number.isFinite(gain) || gain < 0) return;
   trackGains.set(trackId, gain);
+  if (playback?.cutTracks.has(trackId)) return;
   const node = playback?.tracks.get(trackId);
   if (node && context) node.gain.setTargetAtTime(gain, context.currentTime, GAIN_RAMP_SECONDS);
 }

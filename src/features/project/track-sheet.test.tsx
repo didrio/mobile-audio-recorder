@@ -50,6 +50,7 @@ const project = (tracks: Project['tracks']): Project => ({
   updatedAt: 0,
   duration: 1,
   armedTrackId: null,
+  preRoll: false,
   takes: {},
   tracks,
 });

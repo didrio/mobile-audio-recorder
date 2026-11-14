@@ -18,7 +18,9 @@ import {
   LATENCY_OFFSET_MAX_MS,
   LATENCY_OFFSET_MIN_MS,
   LATENCY_OFFSET_STEP_MS,
+  PRE_ROLL_SECONDS_OPTIONS,
   useRecordingSettingsStore,
+  type PreRollSeconds,
 } from './recording-settings-store';
 
 const appearanceOptions = [
@@ -27,12 +29,19 @@ const appearanceOptions = [
   { value: 'dark', label: 'Dark' },
 ] as const satisfies readonly { value: AppearancePreference; label: string }[];
 
+const preRollOptions = PRE_ROLL_SECONDS_OPTIONS.map((seconds) => ({
+  value: String(seconds),
+  label: `${seconds} s`,
+}));
+
 export function SettingsScreen() {
   const styles = useStyles();
   const preference = useAppearanceStore((state) => state.preference);
   const setPreference = useAppearanceStore((state) => state.setPreference);
   const latencyOffsetMs = useRecordingSettingsStore((state) => state.latencyOffsetMs);
   const setLatencyOffsetMs = useRecordingSettingsStore((state) => state.setLatencyOffsetMs);
+  const preRollSeconds = useRecordingSettingsStore((state) => state.preRollSeconds);
+  const setPreRollSeconds = useRecordingSettingsStore((state) => state.setPreRollSeconds);
   const { updates } = appInfo;
   // OTA update details only mean something in release builds (dev builds load JS from the bundler).
   const showUpdates = updates.enabled && appInfo.runtime === 'release-build';
@@ -78,6 +87,22 @@ export function SettingsScreen() {
             </View>
           }
         />
+      </ListSection>
+
+      <ListSection
+        title="Pre-roll"
+        footer="With pre-roll on (the button above an idea's timeline), Record starts playback this long before the playhead and recording kicks in at the playhead.">
+        <View style={styles.segmentRow}>
+          <SegmentedControl
+            accessibilityLabel="Pre-roll length"
+            options={preRollOptions}
+            value={String(preRollSeconds)}
+            onChange={(value) => {
+              const seconds = PRE_ROLL_SECONDS_OPTIONS.find((option) => String(option) === value);
+              if (seconds) setPreRollSeconds(seconds as PreRollSeconds);
+            }}
+          />
+        </View>
       </ListSection>
 
       <ListSection title="About">

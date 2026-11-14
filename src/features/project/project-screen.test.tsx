@@ -4,19 +4,24 @@ import type { ReactNode } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import {
+  cutTrackAt,
   ensureRecordPermission,
   play,
+  playbackPosition,
   setMetering,
   setTrackGain,
   startRecording,
 } from '@/features/audio/audio-engine';
+import { discardRecordedFile } from '@/features/audio/take-files';
 import {
   deleteUnusedTakes,
   getProject,
   saveChanges,
   setArmedTrack,
+  setPreRoll,
   type Project,
 } from '@/features/projects/projects-repo';
+import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
 
 import { ProjectScreen } from './project-screen';
 
@@ -86,6 +91,7 @@ jest.mock('@/features/audio/audio-engine', () => ({
   ensureRecordPermission: jest.fn(),
   setMetering: jest.fn(() => Promise.resolve()),
   startRecording: jest.fn(),
+  cutTrackAt: jest.fn(),
   peakLevel: jest.fn(() => 0),
   play: jest.fn(),
   setTrackGain: jest.fn(),
@@ -168,6 +174,7 @@ jest.mock('@/features/timeline/timeline', () => {
 });
 
 jest.mock('@/features/audio/take-files', () => ({
+  discardRecordedFile: jest.fn(),
   storeRecordedTake: jest.fn(
     (_path: string, projectId: string, takeId: string) =>
       `projects/${projectId}/takes/${takeId}.wav`,
@@ -178,6 +185,7 @@ jest.mock('@/features/projects/projects-repo', () => ({
   getProject: jest.fn(),
   saveChanges: jest.fn(),
   setArmedTrack: jest.fn(() => Promise.resolve()),
+  setPreRoll: jest.fn(() => Promise.resolve()),
   deleteUnusedTakes: jest.fn(),
   listProjects: jest.fn(),
   createProject: jest.fn(),
@@ -191,6 +199,7 @@ const project: Project = {
   updatedAt: 0,
   duration: 12,
   armedTrackId: 'track1',
+  preRoll: false,
   takes: {
     t1: {
       id: 't1',
@@ -253,6 +262,8 @@ describe('ProjectScreen', () => {
     jest.mocked(getProject).mockResolvedValue(project);
     jest.mocked(saveChanges).mockResolvedValue();
     jest.mocked(deleteUnusedTakes).mockResolvedValue([]);
+    jest.mocked(playbackPosition).mockReturnValue(0);
+    useRecordingSettingsStore.setState({ latencyOffsetMs: 0, preRollSeconds: 2 });
   });
 
   it('shows the timeline, the playhead time and the transport', async () => {
@@ -264,22 +275,26 @@ describe('ProjectScreen', () => {
     expect(screen.getByRole('button', { name: 'Record' })).toBeOnTheScreen();
   });
 
-  function mockRecording() {
+  // The file starts 0.1 s after playback, minus 0.05 s of latency: 0.05 s after `anchor.from`.
+  const alignment = {
+    playbackStartedAt: 10,
+    recorderStartedAt: 10.1,
+    outputLatency: 0.02,
+    inputLatency: 0.03,
+  };
+  // `startedAtMs` in the future keeps the clock at `from` (still in the run-up).
+  function mockRecording({ from = 5, duration = 3.5, startedAtMs = 0 } = {}) {
     jest.mocked(ensureRecordPermission).mockResolvedValue(true);
     jest.mocked(startRecording).mockResolvedValue({
-      anchor: { from: 5, startedAtMs: 0 },
+      anchor: { from, startedAtMs },
+      whenStarted: () => Promise.resolve(alignment),
       stop: jest.fn(() =>
         Promise.resolve({
           path: '/cache/take.wav',
-          duration: 3.5,
+          duration,
           sampleRate: 48000,
           channels: 1,
-          alignment: {
-            playbackStartedAt: 10,
-            recorderStartedAt: 10.1,
-            outputLatency: 0.02,
-            inputLatency: 0.03,
-          },
+          alignment,
         }),
       ),
     });
@@ -315,10 +330,13 @@ describe('ProjectScreen', () => {
 
     expect(startRecording).toHaveBeenCalledWith(
       expect.objectContaining({
-        from: 5,
-        backing: [expect.objectContaining({ takePath: 'projects/p1/takes/t1.wav', start: 0 })],
+        playback: {
+          from: 5,
+          clips: [expect.objectContaining({ takePath: 'projects/p1/takes/t1.wav', start: 0 })],
+        },
       }),
     );
+    expect(cutTrackAt).not.toHaveBeenCalled();
     // The clock shows the timeline position (like the playhead), not the take's elapsed time.
     expect(await screen.findByLabelText('Recording time')).toHaveTextContent('0:05.0');
     await user.press(await screen.findByRole('button', { name: 'Stop recording' }));
@@ -341,6 +359,100 @@ describe('ProjectScreen', () => {
     );
     // Back to where recording started.
     expect(screen.getByText('0:05.0')).toBeOnTheScreen();
+  });
+
+  it('toggles pre-roll and saves it with the idea', async () => {
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await screen.findByText('Timeline of Chorus riff');
+    expect(screen.getByRole('switch', { name: 'Pre-roll' })).not.toBeChecked();
+    await user.press(screen.getByRole('switch', { name: 'Pre-roll' }));
+
+    expect(screen.getByRole('switch', { name: 'Pre-roll' })).toBeChecked();
+    expect(setPreRoll).toHaveBeenCalledWith('p1', true);
+  });
+
+  it('with pre-roll, plays every track from before the playhead and punches in at it', async () => {
+    jest.mocked(getProject).mockResolvedValue({ ...project, preRoll: true });
+    mockRecording({ from: 3, startedAtMs: performance.now() + 60_000 });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Seek to 0:05' }));
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+
+    // The armed track plays too (its clip is the only one), from 2 s before the playhead.
+    expect(startRecording).toHaveBeenCalledWith(
+      expect.objectContaining({
+        playback: { from: 3, clips: [expect.objectContaining({ trackId: 'track1' })] },
+      }),
+    );
+    expect(cutTrackAt).toHaveBeenCalledWith('track1', 5);
+    expect(await screen.findByLabelText('Pre-roll time')).toHaveTextContent('0:03.0');
+    await user.press(screen.getByRole('button', { name: 'Stop recording' }));
+
+    expect(await screen.findByRole('button', { name: 'Record' })).toBeOnTheScreen();
+    // The take starts at the punch point; its run-up (from 3.05 on the timeline) is skipped.
+    expect(saveChanges).toHaveBeenCalledWith(
+      'p1',
+      expect.arrayContaining([
+        expect.objectContaining({
+          before: null,
+          after: expect.objectContaining({ start: 5, offset: expect.closeTo(1.95) }),
+        }),
+      ]),
+      expect.objectContaining({ duration: 3.5 }),
+    );
+    expect(screen.getByText('0:05.0')).toBeOnTheScreen();
+  });
+
+  it('saves nothing when stopped during the run-up', async () => {
+    jest.mocked(getProject).mockResolvedValue({ ...project, preRoll: true });
+    mockRecording({ from: 3, duration: 1 });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Seek to 0:05' }));
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+    await user.press(await screen.findByRole('button', { name: 'Stop recording' }));
+
+    expect(await screen.findByRole('button', { name: 'Record' })).toBeOnTheScreen();
+    expect(discardRecordedFile).toHaveBeenCalledWith('/cache/take.wav');
+    expect(saveChanges).not.toHaveBeenCalled();
+    expect(screen.getByText('0:05.0')).toBeOnTheScreen();
+  });
+
+  it('punches in on the fly when Record is pressed while playing', async () => {
+    jest.mocked(play).mockResolvedValue();
+    // Playback started at 0:00, so the file (from 0.05 s on) covers the punch at 6.03 s.
+    mockRecording({ from: 0, duration: 8 });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Play' }));
+    expect(await screen.findByRole('button', { name: 'Pause' })).toBeOnTheScreen();
+    jest.mocked(playbackPosition).mockReturnValue(6);
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+
+    // The running playback keeps going; the armed track is cut just ahead of the current position.
+    expect(startRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ playback: { continueFrom: 6 } }),
+    );
+    expect(cutTrackAt).toHaveBeenCalledWith('track1', expect.closeTo(6.03));
+    await user.press(await screen.findByRole('button', { name: 'Stop recording' }));
+    expect(await screen.findByRole('button', { name: 'Record' })).toBeOnTheScreen();
+
+    expect(saveChanges).toHaveBeenCalledWith(
+      'p1',
+      expect.arrayContaining([
+        expect.objectContaining({
+          before: null,
+          after: expect.objectContaining({ start: expect.closeTo(6.03) }),
+        }),
+      ]),
+      expect.anything(),
+    );
   });
 
   it('adds a track and arms it', async () => {

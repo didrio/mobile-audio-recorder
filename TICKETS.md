@@ -504,6 +504,12 @@ dependency changes). See the `wrap` skill.
 
 Ideas that aren't ready to work on yet. Promote them to "Up next" with full detail when they are.
 
+- Track column border weight (open, from T28): vertical edges are 1 pt (3 px on a 3x phone: mixer toggle, each
+  track cell in `track-column.tsx`) while every horizontal divider is a hairline (1 px: lane separators drawn in
+  `timeline.tsx`, the "New Track" row in `lane-overlay.tsx`, the toggle's bottom). The user finds the "New
+  Track" top line thinner/fainter than the vertical border; measured identical to its bottom edge (1 px, same
+  gray). Decide: make all dividers 1 pt, or the verticals hairline. Also not checked: light mode, the open mixer
+  at 38 pt, 8 tracks, Maestro `overdub.yaml` (taps `Arm Track 2` now).
 - Quantize clips to the tempo grid (after T9).
 - Pitch correction for vocal takes (the library's `createBufferSource({ pitchCorrection })` is for playback-rate
   changes, not tuning; would need a native DSP library).

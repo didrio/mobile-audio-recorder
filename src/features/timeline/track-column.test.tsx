@@ -8,10 +8,19 @@ const tracks = [
   { id: 'b', name: 'Vocals', volume: 0.5, muted: true, solo: false },
 ];
 const laneScroll = { get: () => 0, set: () => {}, value: 0 } as never;
+const sharedValue = (value: unknown) => ({ get: () => value, set: () => {}, value }) as never;
+const drag = {
+  id: sharedValue(null),
+  top: sharedValue(0),
+  progress: sharedValue(0),
+  lift: sharedValue(0),
+  dropped: sharedValue(-1),
+};
 
 function renderColumn(overrides: Partial<Parameters<typeof TrackColumn>[0]> = {}) {
   const props = {
     onEdit: jest.fn(),
+    onMoveTrack: jest.fn(),
     onToggleMute: jest.fn(),
     onToggleSolo: jest.fn(),
     onVolumeDrag: jest.fn(),
@@ -27,6 +36,9 @@ function renderColumn(overrides: Partial<Parameters<typeof TrackColumn>[0]> = {}
         expanded
         lane={88}
         laneScroll={laneScroll}
+        viewport={500}
+        maxLaneScroll={0}
+        drag={drag}
         editDisabled={false}
         anySolo={false}
         draft={null}
@@ -45,6 +57,24 @@ describe('TrackColumn', () => {
     expect(screen.queryByRole('button')).not.toBeOnTheScreen();
     expect(screen.queryByRole('button', { name: 'Mute Vocals' })).not.toBeOnTheScreen();
     expect(screen.queryByRole('adjustable', { name: 'Vocals volume' })).not.toBeOnTheScreen();
+  });
+
+  it('moves a track with the screen reader actions on its grab handle', async () => {
+    const { view, onMoveTrack } = renderColumn({ expanded: false });
+    await view;
+
+    const first = screen.getByLabelText('Reorder Track 1');
+    const second = screen.getByLabelText('Reorder Vocals');
+    expect(first.props.accessibilityActions).toEqual([{ name: 'moveDown', label: 'Move down' }]);
+    await fireEvent(second, 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
+
+    expect(onMoveTrack).toHaveBeenCalledWith('b', 0);
+  });
+
+  it('offers no reordering while recording', async () => {
+    await renderColumn({ expanded: false, editDisabled: true }).view;
+
+    expect(screen.getByLabelText('Reorder Vocals').props.accessibilityActions).toEqual([]);
   });
 
   it('opens a track, mutes and solos it', async () => {

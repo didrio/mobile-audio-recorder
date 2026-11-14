@@ -28,6 +28,15 @@ function renderOverlay(overrides: Partial<Parameters<typeof LaneOverlay>[0]> = {
       inset={3}
       footer={44}
       laneScroll={laneScroll}
+      drag={
+        {
+          id: { get: () => null, set: () => {} },
+          top: { get: () => 0, set: () => {} },
+          progress: { get: () => 0, set: () => {} },
+          lift: { get: () => 0, set: () => {} },
+          dropped: { get: () => -1, set: () => {} },
+        } as never
+      }
       draft={null}
       armedTrackId="t0"
       armDisabled={false}

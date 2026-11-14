@@ -2,6 +2,7 @@ import { applyToProject, invertEdit } from './edit-changes';
 import {
   addTrackEdit,
   deleteTrackEdit,
+  moveTrackEdit,
   recordTakeEdit,
   renameTrackEdit,
   setTrackMutedEdit,
@@ -39,6 +40,46 @@ describe('renameTrackEdit', () => {
   it('ignores empty and unchanged names', () => {
     expect(renameTrackEdit(project, 'b', '  ')).toBeNull();
     expect(renameTrackEdit(project, 'b', 'Track 2')).toBeNull();
+  });
+});
+
+describe('moveTrackEdit', () => {
+  const four = testProject([
+    testTrack('a', 0, [testClip('c1', 'a', 0, 10)]),
+    testTrack('b', 1),
+    testTrack('c', 2),
+    testTrack('d', 3),
+  ]);
+  const order = (p: typeof four) => p.tracks.map((track) => track.id).join('');
+
+  it('moves a track down, and undo restores the order', () => {
+    const edit = moveTrackEdit(four, 'a', 2)!;
+    const after = applyToProject(four, edit.changes);
+
+    expect(order(after)).toBe('bcad');
+    expect(after.tracks.map((track) => track.position)).toEqual([0, 1, 2, 3]);
+    expect(after.tracks[2]?.clips).toHaveLength(1);
+    expect(edit.changes.map((change) => change.id)).toEqual(['b', 'c', 'a']);
+    expect(applyToProject(after, invertEdit(edit).changes)).toEqual(four);
+  });
+
+  it('moves a track up', () => {
+    const edit = moveTrackEdit(four, 'd', 0)!;
+    expect(order(applyToProject(four, edit.changes))).toBe('dabc');
+  });
+
+  it('reuses the existing positions when they have gaps', () => {
+    const gaps = testProject([testTrack('a', 0), testTrack('b', 3), testTrack('c', 7)]);
+    const after = applyToProject(gaps, moveTrackEdit(gaps, 'c', 0)!.changes);
+
+    expect(order(after)).toBe('cab');
+    expect(after.tracks.map((track) => track.position)).toEqual([0, 3, 7]);
+  });
+
+  it('clamps the target and ignores no-ops and unknown tracks', () => {
+    expect(order(applyToProject(four, moveTrackEdit(four, 'b', 99)!.changes))).toBe('acdb');
+    expect(moveTrackEdit(four, 'b', 1)).toBeNull();
+    expect(moveTrackEdit(four, 'zz', 0)).toBeNull();
   });
 });
 

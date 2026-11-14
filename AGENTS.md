@@ -164,6 +164,9 @@ TICKETS.md                Ordered, living backlog; one ticket per session (/star
 - **Shared values moved on the UI thread**: don't read-modify-write them from a JS-side `useEffect`
   (`sv.set(clamp(sv.get(), …))`). The JS read can be stale and writes an old value back over what a gesture or
   `useAnimatedReaction` just set. Do the read-modify-write in a worklet: `scheduleOnUI(() => { 'worklet'; … })`.
+- **Worklet functions aren't hoisted**: the worklets Babel plugin turns a `'worklet'` function declaration into
+  a const, so calling one declared further down the file fails with "is not a function" (Jest included).
+  Declare worklet helpers above their callers.
 - **Android headers**: `Stack.Toolbar.Button` renders **nothing** on Android unless `icon` is an image source
   (no SF Symbols, no text; only a dev warning). Give Android a `headerRight` with a Pressable + `Icon` instead.
   And Android's Material header is opaque: content padding for iOS 26's floating header (`useHeaderHeight()`)

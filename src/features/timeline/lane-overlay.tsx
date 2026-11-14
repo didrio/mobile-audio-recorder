@@ -16,6 +16,7 @@ import { makeStyles } from '@/theme';
 import { formatDb } from './fader-math';
 import { hiddenLanes, laneScrollMax, pageScroll } from './timeline-math';
 import type { FaderDraft } from './track-column';
+import { useReorderStyle, type TrackDrag } from './use-reorder-style';
 
 const PAGE_SCROLL_MS = 250;
 /** Extra space above and left of a name pill, on top of the lane inset. */
@@ -25,7 +26,7 @@ const PILL_MARGIN = 4;
  * RN views over the lanes, moved with their vertical scroll: each track's name floating at the
  * top-left of its lane (tap to arm the track for recording; shows the dB while its volume moves, and M / S
  * badges when it's muted or soloed, so that shows with the mixer closed), the
- * "+ New Track" row after the last lane, and "N more" chevrons at the top / bottom edge when lanes
+ * "+ New Track" row after the last lane (it stays put while a track is dragged), and "N more" chevrons at the top / bottom edge when lanes
  * are scrolled out of view (tap: one page).
  */
 export function LaneOverlay({
@@ -37,6 +38,7 @@ export function LaneOverlay({
   inset,
   footer,
   laneScroll,
+  drag,
   draft,
   armedTrackId,
   armDisabled,
@@ -57,6 +59,8 @@ export function LaneOverlay({
   /** Height of the "+ New Track" row. */
   footer: number;
   laneScroll: SharedValue<number>;
+  /** A track being dragged to a new place: its pill moves with it. */
+  drag: TrackDrag;
   draft: FaderDraft | null;
   /** The track Record records onto: its name gets a red outline and dot (every pill has a dot, grey when unarmed). */
   armedTrackId: string | null;
@@ -68,6 +72,7 @@ export function LaneOverlay({
 }) {
   const styles = useStyles();
   const count = tracks.length;
+  const trackIds = tracks.map((track) => track.id);
   const scrolled = useAnimatedStyle(() => ({ transform: [{ translateY: -laneScroll.get() }] }));
 
   const [hidden, setHidden] = useState(() => hiddenLanes(laneScroll.get(), viewport, lane, count));
@@ -91,45 +96,22 @@ export function LaneOverlay({
   return (
     <View pointerEvents="box-none" style={[styles.viewport, { top }]}>
       <Animated.View pointerEvents="box-none" style={[styles.fill, scrolled]}>
-        {tracks.map((track, index) => {
-          const level = draft?.trackId === track.id ? formatDb(draft.gain) : null;
-          const armed = track.id === armedTrackId;
-          return (
-            <Pressable
-              key={track.id}
-              accessibilityRole="button"
-              accessibilityLabel={`Arm ${track.name}`}
-              accessibilityState={{ selected: armed, disabled: armDisabled }}
-              disabled={armDisabled}
-              hitSlop={6}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                onArm(track.id);
-              }}
-              style={({ pressed }) => [
-                styles.name,
-                {
-                  top: index * lane + inset + PILL_MARGIN,
-                  left: left + inset + PILL_MARGIN,
-                  maxWidth: lane * 3,
-                },
-                armed && styles.nameArmed,
-                pressed && styles.pressed,
-              ]}>
-              <View style={[styles.armDot, armed && styles.armDotOn]} />
-              <Text variant="caption" color="textSecondary" numberOfLines={1}>
-                {track.name}
-              </Text>
-              {track.muted ? <Badge letter="M" kind="mute" /> : null}
-              {track.solo ? <Badge letter="S" kind="solo" /> : null}
-              {level ? (
-                <Text variant="caption" color="text" numberOfLines={1}>
-                  {level}
-                </Text>
-              ) : null}
-            </Pressable>
-          );
-        })}
+        {tracks.map((track, index) => (
+          <NamePill
+            key={track.id}
+            track={track}
+            index={index}
+            trackIds={trackIds}
+            drag={drag}
+            lane={lane}
+            top={index * lane + inset + PILL_MARGIN}
+            left={left + inset + PILL_MARGIN}
+            level={draft?.trackId === track.id ? formatDb(draft.gain) : null}
+            armed={track.id === armedTrackId}
+            armDisabled={armDisabled}
+            onArm={onArm}
+          />
+        ))}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="New track"
@@ -169,6 +151,70 @@ export function LaneOverlay({
         />
       ) : null}
     </View>
+  );
+}
+
+/** A track's floating name: tap to arm it. */
+function NamePill({
+  track,
+  index,
+  trackIds,
+  drag,
+  lane,
+  top,
+  left,
+  level,
+  armed,
+  armDisabled,
+  onArm,
+}: {
+  track: Pick<Track, 'id' | 'name' | 'muted' | 'solo'>;
+  index: number;
+  trackIds: string[];
+  drag: TrackDrag;
+  lane: number;
+  top: number;
+  left: number;
+  /** The dB while its volume slider moves. */
+  level: string | null;
+  armed: boolean;
+  armDisabled: boolean;
+  onArm: (trackId: string) => void;
+}) {
+  const styles = useStyles();
+  const reorder = useReorderStyle(index, trackIds, drag, lane);
+  return (
+    <Animated.View
+      pointerEvents="box-none"
+      style={[styles.pillSlot, { top, left, maxWidth: lane * 3 }, reorder]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Arm ${track.name}`}
+        accessibilityState={{ selected: armed, disabled: armDisabled }}
+        disabled={armDisabled}
+        hitSlop={6}
+        onPress={() => {
+          void Haptics.selectionAsync();
+          onArm(track.id);
+        }}
+        style={({ pressed }) => [
+          styles.name,
+          armed && styles.nameArmed,
+          pressed && styles.pressed,
+        ]}>
+        <View style={[styles.armDot, armed && styles.armDotOn]} />
+        <Text variant="caption" color="textSecondary" numberOfLines={1}>
+          {track.name}
+        </Text>
+        {track.muted ? <Badge letter="M" kind="mute" /> : null}
+        {track.solo ? <Badge letter="S" kind="solo" /> : null}
+        {level ? (
+          <Text variant="caption" color="text" numberOfLines={1}>
+            {level}
+          </Text>
+        ) : null}
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -229,8 +275,9 @@ function MoreChip({
 const useStyles = makeStyles((t) => ({
   viewport: { position: 'absolute', left: 0, right: 0, bottom: 0, overflow: 'hidden' },
   fill: { flex: 1 },
+  pillSlot: { position: 'absolute', flexDirection: 'row' },
   name: {
-    position: 'absolute',
+    flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: t.spacing.xs,

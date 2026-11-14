@@ -31,6 +31,7 @@ import { applyToProject, invertEdit, type Change, type Edit } from './edit-chang
 import {
   addTrackEdit,
   recordTakeEdit,
+  moveTrackEdit,
   setTrackMutedEdit,
   setTrackSoloEdit,
   setTrackVolumeEdit,
@@ -217,6 +218,13 @@ export function toggleSolo(trackId: string): Promise<void> {
   const track = project?.tracks.find((candidate) => candidate.id === trackId);
   if (!project || !track) return Promise.resolve();
   return executeEdit(setTrackSoloEdit(project, trackId, !track.solo));
+}
+
+/** Moves a track to index `toIndex` in the track order (one undo step, made when a drag ends). */
+export function moveTrack(trackId: string, toIndex: number): Promise<void> {
+  const { project } = useEditorStore.getState();
+  if (!project) return Promise.resolve();
+  return executeEdit(moveTrackEdit(project, trackId, toIndex));
 }
 
 /** Arms `trackId` (disarming the previous one), or disarms everything with `null`. Saved, not undoable. */

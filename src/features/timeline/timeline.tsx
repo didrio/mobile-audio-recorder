@@ -1,4 +1,5 @@
 import {
+  BlurStyle,
   Canvas,
   ClipOp,
   createPicture,
@@ -34,6 +35,7 @@ import type { Project } from '@/features/projects/projects-repo';
 import { useTheme, type ThemeColors } from '@/theme';
 
 import { LaneOverlay } from './lane-overlay';
+import { laneTopDuringDrag } from './reorder-math';
 import {
   clamp,
   clampScroll,
@@ -55,6 +57,7 @@ import {
   zoomAroundPoint,
 } from './timeline-math';
 import { TrackColumn, type FaderDraft } from './track-column';
+import { LIFT_FADE, LIFT_SCALE, useTrackDrag } from './use-reorder-style';
 import { useTakePeaks } from './use-take-peaks';
 import { waveformPaths } from './waveform-path';
 import { LEVEL_COUNT, LEVEL_FACTOR, maxAmplitude, peaksPerSecond } from './waveform-peaks';
@@ -69,6 +72,9 @@ const CLIP_INSET = 3;
 const CLIP_RADIUS = 6;
 const PLAYHEAD_WIDTH = 2;
 const PLAYHEAD_HANDLE = 7;
+/** Offset and blur of the shadow under a lane being dragged (at full lift). */
+const LIFT_SHADOW_Y = 4;
+const LIFT_SHADOW_BLUR = 8;
 /** Skia resolves fonts through the system font manager, which doesn't know RN's 'System' alias. */
 const FONT_FAMILY = Platform.select({ ios: 'Helvetica', default: 'sans-serif' });
 
@@ -100,7 +106,8 @@ type ClipShape = {
  * rows. Ruler on top, lanes with clips and waveforms, the playhead on top.
  *
  * Lanes have a fixed height (`LANE_HEIGHT`) and scroll vertically when they don't fit. A pinned
- * column on the left (`TrackColumn`) follows that scroll but not time: arm buttons, expanded into a
+ * column on the left (`TrackColumn`) follows that scroll but not time: grab handles (long-press and
+ * drag to reorder; the lane, its clips and its name move along, see `TrackDrag`), expanded into a
  * mixer (mute, solo, volume) by the button in the corner above it. The canvas and its gestures cover
  * only the time area right of the column, so expanding it narrows the time area. Names, "+ New Track" and the
  * "N more" chevrons are RN views over the lanes (`LaneOverlay`).
@@ -120,6 +127,7 @@ export function Timeline({
   onSeek,
   onArm,
   onEditTrack,
+  onMoveTrack,
   onAddTrack,
   onToggleMute,
   onToggleSolo,
@@ -138,6 +146,8 @@ export function Timeline({
   onSeek: (time: number) => void;
   onArm: (trackId: string) => void;
   onEditTrack: (trackId: string) => void;
+  /** A track was dragged to index `toIndex`. */
+  onMoveTrack: (trackId: string, toIndex: number) => void;
   onAddTrack: () => void;
   onToggleMute: (trackId: string) => void;
   onToggleSolo: (trackId: string) => void;
@@ -186,6 +196,8 @@ export function Timeline({
     (loudest, levels) => Math.max(loudest, maxAmplitude(levels[levels.length - 1] ?? levels[0])),
     0,
   );
+  const trackIds = project.tracks.map((track) => track.id);
+  const drag = useTrackDrag(trackIds);
   const liveLane = liveTake
     ? project.tracks.findIndex((track) => track.id === liveTake.trackId)
     : -1;
@@ -338,26 +350,29 @@ export function Timeline({
       const scrubbed = scrubTime.get();
       const position = scrubbed >= 0 ? scrubbed : playhead.get();
       const gain = waveformGain(Math.max(projectPeak, liveTake ? liveTake.peak.get() : 0));
-      const laneTop = (index: number) => RULER_SIZE + index * lane - ls;
+      // A track being dragged: it follows the finger, the lanes it passes slide aside.
+      const dragId = drag.id.get();
+      const lifted = dragId == null ? -1 : trackIds.indexOf(dragId);
+      const dragTop = drag.top.get();
+      const progress = drag.progress.get();
+      const laneTop = (index: number) =>
+        RULER_SIZE + laneTopDuringDrag(index, lane, lifted, dragTop, progress) - ls;
       const visibleStart = s - LEADING_SPACE / z;
       const visibleEnd = s + timeWidth / z;
       const toX = (time: number) => LEADING_SPACE + (time - s) * z;
 
-      // Lanes.
-      for (let index = 0; index < trackCount; index++) {
+      const drawLane = (index: number) => {
         const top = laneTop(index);
         canvas.drawRect(
           Skia.XYWHRect(0, top, viewWidth, lane),
-          index % 2 === 1 ? paints.laneAlt : paints.lane,
+          index === lifted ? paints.laneLifted : index % 2 === 1 ? paints.laneAlt : paints.lane,
         );
         canvas.drawLine(0, top + lane, viewWidth, top + lane, paints.separator);
-      }
-
-      // Clips and their waveforms.
-      for (const clip of clips) {
+      };
+      const drawClip = (clip: ClipShape) => {
         const x0 = toX(clip.start);
         const width = clip.duration * z;
-        if (x0 > viewWidth || x0 + width < 0) continue;
+        if (x0 > viewWidth || x0 + width < 0) return;
         const top = laneTop(clip.lane) + CLIP_INSET;
         const height = lane - CLIP_INSET * 2;
         const rect = Skia.XYWHRect(x0, top, width, height);
@@ -378,6 +393,35 @@ export function Timeline({
           canvas.restore();
         }
         if (clip.silent) canvas.restore();
+      };
+
+      // Lanes, then clips and their waveforms (the lifted lane comes last, on top).
+      for (let index = 0; index < trackCount; index++) if (index !== lifted) drawLane(index);
+      for (const clip of clips) if (clip.lane !== lifted) drawClip(clip);
+
+      // The lifted lane: a bit larger, see-through, with a shadow under it.
+      if (lifted >= 0) {
+        const lift = drag.lift.get();
+        const top = laneTop(lifted);
+        const scale = 1 + LIFT_SCALE * lift;
+        canvas.save();
+        canvas.translate(viewWidth / 2, top + lane / 2);
+        canvas.scale(scale, scale);
+        canvas.translate(-viewWidth / 2, -(top + lane / 2));
+        if (lift > 0) {
+          paints.liftShadow.setAlphaf(0.35 * lift);
+          canvas.drawRect(
+            Skia.XYWHRect(0, top + LIFT_SHADOW_Y * lift, viewWidth, lane),
+            paints.liftShadow,
+          );
+        }
+        paints.liftLayer.setAlphaf(1 - LIFT_FADE * lift);
+        canvas.saveLayer(paints.liftLayer);
+        drawLane(lifted);
+        canvas.drawLine(0, top, viewWidth, top, paints.separator);
+        for (const clip of clips) if (clip.lane === lifted) drawClip(clip);
+        canvas.restore();
+        canvas.restore();
       }
 
       // The take being recorded, on its track's lane, with the waveform received so far.
@@ -502,9 +546,13 @@ export function Timeline({
             onToggleSolo={onToggleSolo}
             lane={lane}
             laneScroll={laneScroll}
+            viewport={lanesViewport}
+            maxLaneScroll={maxLaneScroll}
+            drag={drag}
             editDisabled={isRecording}
             draft={draft}
             onEdit={onEditTrack}
+            onMoveTrack={onMoveTrack}
             onVolumeDrag={(trackId, gain) => {
               setDraft({ trackId, gain });
               onVolumeLive(trackId, gain);
@@ -523,6 +571,7 @@ export function Timeline({
             inset={CLIP_INSET}
             footer={NEW_TRACK_ROW_HEIGHT}
             laneScroll={laneScroll}
+            drag={drag}
             draft={draft}
             armedTrackId={armedTrackId}
             armDisabled={isRecording}
@@ -607,6 +656,7 @@ function makePaints(colors: ThemeColors) {
   return {
     lane: fill(colors.background),
     laneAlt: fill(colors.laneAlt),
+    laneLifted: fill(colors.laneLifted),
     separator: stroke(colors.border, StyleSheet.hairlineWidth),
     clip: fill(colors.clip),
     clipBorder: (() => {
@@ -623,6 +673,15 @@ function makePaints(colors: ThemeColors) {
     label: fill(colors.textSecondary),
     playhead: stroke(colors.primary, PLAYHEAD_WIDTH),
     playheadHandle: fill(colors.primary),
+    /** The soft shadow under a lane being dragged (alpha set per frame). */
+    liftShadow: (() => {
+      const paint = Skia.Paint();
+      paint.setColor(Skia.Color('black'));
+      paint.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, LIFT_SHADOW_BLUR, true));
+      return paint;
+    })(),
+    /** Layer paint for a lane being dragged (its alpha makes it a bit see-through). */
+    liftLayer: Skia.Paint(),
     /** Layer paint for clips of silent (muted / not soloed) tracks. */
     silent: (() => {
       const paint = Skia.Paint();

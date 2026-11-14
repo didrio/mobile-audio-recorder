@@ -37,6 +37,8 @@ export const lightColors = {
   warning: '#C77700',
   /** Timeline: every other track lane. */
   laneAlt: '#F7F7FA',
+  /** Timeline: a track picked up to be moved (its lane and column cell), raised above the others. */
+  laneLifted: '#FFFFFF',
   /** Timeline: clip (region) fill and its waveform. */
   clip: '#DCE7FB',
   waveform: '#2F5FBF',
@@ -68,6 +70,7 @@ export const darkColors: ThemeColors = {
   success: '#3DD16B',
   warning: '#FFB340',
   laneAlt: '#0E0E10',
+  laneLifted: '#2C2C2E',
   clip: '#1C2940',
   waveform: '#82A9F2',
   trackHeader: '#1C1C1EEB',

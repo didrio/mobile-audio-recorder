@@ -6,6 +6,7 @@ import { randomUUID } from 'expo-crypto';
 
 import { clearRange } from '@/features/projects/clip-overlap';
 import type { Clip, Project, Take, Track } from '@/features/projects/projects-repo';
+import { moveIndex } from '@/features/timeline/reorder-math';
 
 import { trackRow, type Change, type Edit } from './edit-changes';
 
@@ -47,6 +48,27 @@ export function renameTrackEdit(project: Project, trackId: string, name: string)
     label: 'Rename track',
     changes: [{ table: 'tracks', id: trackId, before, after: { ...before, name: trimmed } }],
   };
+}
+
+/**
+ * Moves a track to index `toIndex` in the track order (the others close up behind it). The tracks keep
+ * the position values they already have, handed out again in the new order, so the highest position
+ * (and `addTrackEdit`'s "Track N" naming) doesn't change. Only tracks whose position changes are in
+ * the edit. `null` for a missing track or when it's already at `toIndex`.
+ */
+export function moveTrackEdit(project: Project, trackId: string, toIndex: number): Edit | null {
+  const from = project.tracks.findIndex((track) => track.id === trackId);
+  const to = Math.min(Math.max(0, Math.round(toIndex)), project.tracks.length - 1);
+  if (from < 0 || from === to) return null;
+  const positions = project.tracks.map((track) => track.position).sort((a, b) => a - b);
+  const changes: Change[] = [];
+  moveIndex(project.tracks, from, to).forEach((track, index) => {
+    const position = positions[index] as number;
+    if (track.position === position) return;
+    const before = trackRow(track);
+    changes.push({ table: 'tracks', id: track.id, before, after: { ...before, position } });
+  });
+  return { label: 'Move track', changes };
 }
 
 /** Sets a track's volume (linear gain, 1 = 0 dB); an unchanged or invalid volume does nothing. */

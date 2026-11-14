@@ -14,6 +14,7 @@ import { makeStyles, useTheme } from '@/theme';
 import { AndroidIdeaMenu } from './android-idea-menu';
 import {
   addTrack,
+  moveTrack,
   redo,
   selectArmedTrack,
   selectCanRedo,
@@ -190,6 +191,7 @@ export function ProjectScreen() {
       onSeek={transport.seek}
       onArm={(trackId) => void toggleArm(trackId)}
       onEditTrack={editTrack}
+      onMoveTrack={(trackId, toIndex) => void moveTrack(trackId, toIndex)}
       onAddTrack={() => void addTrack()}
       onToggleMute={(trackId) => void toggleMute(trackId)}
       onToggleSolo={(trackId) => void toggleSolo(trackId)}

@@ -4,8 +4,8 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T23 — Reorder tracks · Opus · high effort · plan mode on, then T25 (T12, which now also holds T15's mic
-checks, can be run any time the Android build is done)
+**Next:** T25 — Pre-roll (punch in at the playhead) · Opus · high effort · plan mode on (T12, which also holds
+T15's mic checks and T23's reorder feel, can be run any time the Android build is done)
 
 ## In progress
 
@@ -90,30 +90,11 @@ dependency changes). See the `wrap` skill.
     file (`setMetering` in `audio-engine.ts`), the meter just stays empty; fix it there.
   - Mixer (T14): drag a track's volume while playing (smooth, no clicks?), mute/solo during playback and while
     recording an overdub (backing changes, the take doesn't).
+  - Reorder (T23): touch a grip (it lights up at once), hold ~0.2 s until the haptic and lift, drag, drop. Check
+    the haptic, the glide of the other lanes, auto-scroll near the top/bottom edge with many tracks, and that
+    the dropped track settles without a jump. Moving before the pickup cancels it (by design).
   - OTA note: an iOS-only preview update (`01a1d6bf`, T14) is already published; Android still needs an update
     published after its build finished (`npm run update:preview` covers both).
-
-### T23 — Reorder tracks
-
-- **Status:** ready (T28 added the grab handles; T15 didn't touch `track-column.tsx`)
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Move tracks up and down without adding any buttons: long-press a track's grab handle (its cell in
-  the collapsed column, T28), drag it, let go.
-- **Done when:**
-  - [ ] Long-pressing a track's grab handle (mixer closed) picks the track up. With the mixer open there's no
-        handle (the info button sits there), so reordering needs the mixer closed. A haptic plays, and the cell and its lane lift slightly
-        (scale about 1.03, shadow, a bit of transparency). This is the standard "lift and drag" pattern; a wiggle
-        means edit mode on iOS, so we don't use one. The track follows the finger vertically, the other tracks
-        slide aside with animation, and releasing drops it. There's no cancel button.
-  - [ ] The column auto-scrolls when the track is dragged near the top or bottom edge (with many tracks).
-  - [ ] A reorder is one undoable T13 command (`moveTrackEdit` in `edit-commands.ts`) that rewrites
-        `tracks.position`. No migration: `position` already exists in `src/lib/db.ts`.
-  - [ ] A plain tap on a grab handle does nothing.
-  - [ ] Unit tests for the position math. The feel is checked on a device.
-- **Context:** The column is `src/features/timeline/track-column.tsx`. Lanes are drawn in `timeline.tsx` (Skia)
-  in track order. The floating track names are in `lane-overlay.tsx`. Live drag offsets go through shared values,
-  committed once at the end of the gesture (the T13 rule). See the "Shared values moved on the UI thread"
-  gotcha in AGENTS.md.
 
 ### T25 — Pre-roll (punch in at the playhead)
 
@@ -222,7 +203,9 @@ dependency changes). See the `wrap` skill.
   drawn in the per-frame picture, driven by shared values. Moving a clip between tracks only changes its
   `trackId`. Edits: builders in `edit-commands.ts` (see `recordTakeEdit` for `clearRange` → changes) and
   `executeEdit`; history and write-through come for free. T18 reuses this selection and drag code for section
-  labels, so keep it generic (an item with start/duration on a row).
+  labels, so keep it generic (an item with start/duration on a row). Long-press pickup: reuse T23's pattern
+  (`track-column.tsx`: pan with `activateAfterLongPress`, an immediate press highlight that fills over the hold,
+  medium haptic + lift on activate; lift look and order-safe drag state in `use-reorder-style.ts`).
 
 ### T10 — Ideas library basics
 
@@ -523,8 +506,16 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - Clock text runs ~0.1–0.3 s ahead of the playhead (the playhead includes output latency). Show the clock from
   the playhead instead once a cheap way to do it without per-frame React renders exists.
 
+- Reorder drag: while a lifted lane passes over a track whose name pill hasn't slid away yet, that pill draws
+  on top of the lifted lane for a moment (pills are RN views above the Skia canvas). Could hide or fade the
+  passed pills, or draw the lifted pill above; only if it bothers on a device.
+
 ## Done
 
+- T23 — Reorder tracks — 2026-11-13 — touch a grip (it lights up at once and fills over a 175 ms hold, then
+  haptic + lift: scale 1.03, raised `laneLifted` colour, shadow, a bit see-through), drag, drop; other lanes glide
+  aside, auto-scroll near the edges; `moveTrackEdit` (reuses existing positions) = one undo step; screen-reader
+  Move up / Move down on each grip; checked on the iOS simulator (dark); feel, haptic and light mode not on device
 - T15 — Arming & input meter — 2026-11-13 — tapping a name pill toggles arming (tap the armed one to disarm,
   nothing armed → Record grayed out), saved per idea (`projects.armed_track_id`, migration v2, new ideas arm Track 1,
   deleting the armed track disarms it, not an undo step); every pill always shows its dot, grey when unarmed (user
@@ -538,31 +529,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - T22 — Transport & playhead polish — 2026-11-13 — Back to start stops playback; no stop squares (Play ↔ Pause,
   Record shows Pause while recording); playhead ends at the last lane; `stopPlaying(at?)` avoids a stale-status
   restart; checked on the iOS simulator
-
-- Backlog planning 3 — 2026-11-13 — new T28 (track column v2: arm button only in the mixer, narrow grab-handle
-  column, armed track marked on its name label); T15 and T23 rewired onto it, T23's grab target is now the handle
-
-- Backlog planning 2 — 2026-11-13 — new T22 (transport & playhead polish), T23 (reorder tracks), T24 (idea
-  notes), T25 (pre-roll), T26 (loop region), T27 (loop recording & takes); T17's count-in now builds on T25,
-  T18 gets per-section notes; chord progressions, comping and four pitched ideas added to Backlog
-
-- T14 — Editor layout v2 — 2026-11-13 — fixed 88 pt lanes with "N more" chips, arm-only column that expands
-  into a mixer (mute, solo, relative-drag volume; mute/solo pulled in from T6; per-track `GainNode`s applied
-  live), "+ New Track" row, status strip + compact transport (landscape: button column), header Undo · Redo ·
-  ⋯ placeholders (Android: `@expo/ui` dropdown); iOS preview OTA `01a1d6bf` published; checked on the iOS
-  simulator (both orientations, light/dark, 1 and 8 tracks) and the Android header; e2e skipped
-
-- T13 — Editor store & undo/redo — 2026-11-13 — the open idea lives in a zustand editor store (`editor-store.ts`):
-  edits are before/after row snapshots applied in memory and written through to SQLite in a serial queue,
-  100-step undo/redo per open idea with header buttons (idle only), record / add / rename / delete track
-  undoable, armed track in the store, unused takes (rows + files) deleted when an idea opens; checked on the iOS
-  simulator (record over a take → Undo restores it whole; reopen cleans up the undone take)
-
-- Backlog planning — 2026-11-13 — 17 user ideas turned into tickets: new T13–T21 (undo, layout v2, arming/meter,
-  folders, tempo/metronome split, sections, clip options, pitch keyboard, speaker mode); T5/T6/T9/T10 rewritten;
-  editor design decisions recorded at the top of Up next
-
-- T4 — First preview build — 2026-11-13 — EAS project `@ididrio/audio-recorder` linked with OTA updates, iOS preview
-  built and working on the iPhone, Android preview rebuilt arm64-only after an out-of-memory failure (install +
-  OTA check moved to T12); fixed on Android: missing Add track button (`Stack.Toolbar.Button` needs an image icon
-  there) and a blank band under the header; e2e green on both platforms

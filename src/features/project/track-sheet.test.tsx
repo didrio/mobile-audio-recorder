@@ -51,6 +51,7 @@ const project = (tracks: Project['tracks']): Project => ({
   duration: 1,
   armedTrackId: null,
   preRoll: false,
+  snap: true,
   bpm: 120,
   beatsPerBar: 4,
   beatUnit: 4,

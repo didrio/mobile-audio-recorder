@@ -51,12 +51,30 @@ export function gridSnapStep(meter: Meter, zoom: number): number {
   return steps.beatAlpha > 0 ? beatSeconds(meter) : barSeconds(meter) * steps.lineEvery;
 }
 
+/**
+ * What clip drags and the playhead snap to: the grid's lines while it shows and Snap is on, else
+ * nothing (0, so only other clips' edges and the playhead attract).
+ */
+export function activeSnapStep(grid: boolean, snap: boolean, meter: Meter, zoom: number): number {
+  'worklet';
+  return grid && snap ? gridSnapStep(meter, zoom) : 0;
+}
+
 /** The grid line (multiple of `step`, at or after 0:00) within `threshold` of `time`, or `null`. */
 export function nearestGridLine(time: number, step: number, threshold: number): number | null {
   'worklet';
   if (step <= 0) return null;
   const line = Math.max(0, Math.round(time / step) * step);
   return Math.abs(line - time) <= threshold ? line : null;
+}
+
+/**
+ * The playhead's magnetic pull (T31): `time` moved onto the nearest grid line within `threshold`
+ * seconds, else left alone. `step` 0 (grid hidden or snap off) never pulls.
+ */
+export function stickyTime(time: number, step: number, threshold: number): number {
+  'worklet';
+  return nearestGridLine(time, step, threshold) ?? time;
 }
 
 /** What a grid line at beat index `beat` (0 = start of the song) is: a bar line, a group, or a beat. */

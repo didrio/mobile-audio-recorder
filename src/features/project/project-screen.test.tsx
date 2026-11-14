@@ -25,6 +25,7 @@ import {
   setArmedTrack,
   setMetronome as saveMetronome,
   setPreRoll,
+  setSnap,
   type Project,
 } from '@/features/projects/projects-repo';
 import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
@@ -206,6 +207,7 @@ jest.mock('@/features/projects/projects-repo', () => ({
   saveChanges: jest.fn(),
   setArmedTrack: jest.fn(() => Promise.resolve()),
   setPreRoll: jest.fn(() => Promise.resolve()),
+  setSnap: jest.fn(() => Promise.resolve()),
   setMetronome: jest.fn(() => Promise.resolve()),
   deleteUnusedTakes: jest.fn(),
   listProjects: jest.fn(),
@@ -221,6 +223,7 @@ const project: Project = {
   duration: 12,
   armedTrackId: 'track1',
   preRoll: false,
+  snap: true,
   bpm: 120,
   beatsPerBar: 4,
   beatUnit: 4,
@@ -493,6 +496,28 @@ describe('ProjectScreen', () => {
 
     expect(screen.getByRole('switch', { name: 'Pre-roll' })).toBeChecked();
     expect(setPreRoll).toHaveBeenCalledWith('p1', true);
+  });
+
+  it('toggles Snap when the grid shows, saving it with the idea (not an undo step)', async () => {
+    jest.mocked(getProject).mockResolvedValue({ ...project, grid: true });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await screen.findByText('Timeline of Chorus riff');
+    expect(screen.getByRole('switch', { name: 'Snap to grid' })).toBeChecked();
+    await user.press(screen.getByRole('switch', { name: 'Snap to grid' }));
+
+    expect(screen.getByRole('switch', { name: 'Snap to grid' })).not.toBeChecked();
+    expect(setSnap).toHaveBeenCalledWith('p1', false);
+    expect(saveChanges).not.toHaveBeenCalled();
+  });
+
+  it('disables Snap while the grid is hidden (nothing to snap to)', async () => {
+    await renderScreen(); // the default idea has the grid off
+
+    await screen.findByText('Timeline of Chorus riff');
+    expect(screen.getByRole('switch', { name: 'Snap to grid' })).toBeDisabled();
+    expect(screen.getByRole('switch', { name: 'Snap to grid' })).not.toBeChecked();
   });
 
   it('toggles the metronome: saved with the idea, turns the grid on, and drives the engine', async () => {

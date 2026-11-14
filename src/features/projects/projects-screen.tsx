@@ -39,12 +39,14 @@ export function ProjectsScreen() {
 
   const recordNewIdea = async () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const project = await createProject.mutateAsync(undefined);
+    // Quick capture: no grid until the idea asks for one.
+    const project = await createProject.mutateAsync({ grid: false });
     router.push({ pathname: '/project/[id]', params: { id: project.id, record: '1' } });
   };
 
   const newIdea = async () => {
-    const project = await createProject.mutateAsync(undefined);
+    // A blank idea made on purpose starts with the grid on.
+    const project = await createProject.mutateAsync({ grid: true });
     router.push({ pathname: '/project/[id]', params: { id: project.id } });
   };
 

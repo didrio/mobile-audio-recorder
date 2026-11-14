@@ -19,7 +19,7 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 
 const DATABASE_NAME = 'audio-recorder.db';
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 let database: Promise<SQLiteDatabase> | null = null;
 
@@ -122,6 +122,10 @@ async function migrate(db: SQLiteDatabase) {
       await tx.execAsync(
         "ALTER TABLE projects ADD COLUMN metronome_output TEXT NOT NULL DEFAULT 'both';",
       );
+    }
+    if (version < 7) {
+      // Snap on/off per idea (T31): clips and the playhead snap to the grid lines when it's on.
+      await tx.execAsync('ALTER TABLE projects ADD COLUMN snap INTEGER NOT NULL DEFAULT 1;');
     }
     await tx.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   });

@@ -27,7 +27,7 @@ export function useProjects() {
 export function useCreateProject() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (name?: string) => createProject(name),
+    mutationFn: (options?: { name?: string; grid?: boolean }) => createProject(options),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: projectKeys.list() }),
   });
 }

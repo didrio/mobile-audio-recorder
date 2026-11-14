@@ -33,6 +33,7 @@ import {
   toggleArm,
   toggleMetronome,
   togglePreRoll,
+  toggleSnap,
   toggleSolo,
   undo,
   useEditorStore,
@@ -45,8 +46,8 @@ import { useSpeakerRecording } from './use-speaker-mode';
 import { useTransport } from './use-transport';
 
 /**
- * The project editor: a thin status strip (clock, pre-roll and metronome toggles, meter), the beat
- * display while the metronome is on and shown (Visual / Both, `beat-display.tsx`), the timeline, then a compact transport row (Back to start · Play · Record). Record while
+ * The project editor: a thin status strip (clock, metronome and snap toggles, meter), the beat
+ * display while the metronome is on and shown (Visual / Both, `beat-display.tsx`), the timeline, then a compact transport row (Back to start · Play · Record, pre-roll toggle on the right). Record while
  * playing punches in on the fly; with pre-roll on, Record starts with a run-up (`use-transport.ts`). The app is portrait-only
  * (`orientation` in app.json), so there is no landscape layout. One track is
  * armed: Record records onto it while the others play. Tracks are added from the timeline's
@@ -70,6 +71,7 @@ export function ProjectScreen() {
   const saveError = useEditorStore((state) => state.saveError);
   const armedTrack = useEditorStore(selectArmedTrack);
   const preRoll = useEditorStore((state) => state.preRoll);
+  const snap = useEditorStore((state) => state.snap);
   const metronome = useEditorStore((state) => state.metronome);
   const canUndo = useEditorStore(selectCanUndo);
   const canRedo = useEditorStore(selectCanRedo);
@@ -169,11 +171,11 @@ export function ProjectScreen() {
         onPress={() => void toggleMetronome()}
       />
       <StripToggle
-        label="Pre-roll"
-        icon={{ ios: 'arrow.right.to.line', android: 'start' }}
-        on={preRoll}
-        disabled={isRecording || isBusy}
-        onPress={() => void togglePreRoll()}
+        label="Snap to grid"
+        icon={{ ios: 'square.grid.3x3', android: 'grid_on' }}
+        on={snap && !!project?.grid}
+        disabled={!project?.grid}
+        onPress={() => void toggleSnap()}
       />
       <View style={styles.meter} accessibilityElementsHidden importantForAccessibility="no">
         <View style={[styles.meterFill, { width: `${Math.round(meterLevel * 100)}%` }]} />
@@ -249,6 +251,17 @@ export function ProjectScreen() {
       onPress={isPlaying ? () => transport.stopPlaying() : () => void transport.startPlayback()}
     />
   );
+  // Pre-roll (T25) sits right of Record as a plain icon; an empty slot of the same width on the left
+  // keeps Back to start, Play and Record where they were.
+  const preRollToggle = (
+    <StripToggle
+      label="Pre-roll"
+      icon={{ ios: 'arrow.right.to.line', android: 'start' }}
+      on={preRoll}
+      disabled={isRecording || isBusy}
+      onPress={() => void togglePreRoll()}
+    />
+  );
   const recordButton = (
     <TransportButton
       label={isRecording ? 'Stop recording' : 'Record'}
@@ -310,6 +323,7 @@ export function ProjectScreen() {
       revealPlayhead={transport.revealPlayhead}
       following={isPlaying || isRecording}
       liveTake={transport.liveTake}
+      snap={snap}
       armedTrackId={armedTrack?.id ?? null}
       addTrackDisabled={addTrackDisabled}
       clipEditing={isRecording || isBusy ? null : clipEditing}
@@ -410,9 +424,11 @@ export function ProjectScreen() {
         ]}>
         {/* The outer two share a size, so Play stays centered. */}
         <View style={styles.buttons}>
+          <View style={styles.sideSlot} />
           {backToStart}
           {playButton}
           {recordButton}
+          <View style={styles.sideSlot}>{preRollToggle}</View>
         </View>
       </View>
     </View>
@@ -537,6 +553,8 @@ function TransportButton({
 
 const PLAY_BUTTON_SIZE = 60;
 const SIDE_BUTTON_SIZE = 44;
+/** The two slots flanking the transport buttons (the pre-roll toggle and an empty twin). */
+const SIDE_SLOT_WIDTH = 36;
 
 const useStyles = makeStyles((t) => ({
   root: { flex: 1, backgroundColor: t.colors.background },
@@ -588,6 +606,7 @@ const useStyles = makeStyles((t) => ({
     justifyContent: 'center',
     gap: t.spacing.xl,
   },
+  sideSlot: { width: SIDE_SLOT_WIDTH, alignItems: 'center', justifyContent: 'center' },
   transportButton: {
     borderRadius: t.radius.full,
     alignItems: 'center',

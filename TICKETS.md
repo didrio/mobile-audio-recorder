@@ -4,8 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T35 + T31 in one session (both Sonnet, both in `timeline.tsx`): `/start T35`, then T31 · Sonnet · high
-effort · plan mode off
+**Next:** T26 — Loop region · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -54,69 +53,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   record the same audio onto each track). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
-
-### T35 — Live waveform drawn to the right of the take during a pre-roll recording
-
-- **Status:** ready
-- **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** While recording with pre-roll, the waveform draws inside the red recording clip, in step with the
-  playhead. Today it draws to the right of the clip, past the playhead, and only lands in the right place when
-  you press Stop. Recording itself is fine; this is only the live drawing.
-- **Done when:**
-  - [ ] The live waveform starts at the punch and ends at the playhead: with pre-roll, without it, and when
-        recording while playing.
-  - [ ] A unit test for the x math (pull it into a pure helper if needed) + a screenshot while recording with
-        pre-roll.
-- **Context:** Reported by the user on 2026-11-14. Likely cause: peak `i` in `drawLivePeaks` (`timeline.tsx`
-  ~line 1189) covers `peaksStart + i / perSecond`, and `peaksStart` is where the take file begins, which with
-  pre-roll is the run-up start, before the punch (`use-transport.ts` ~lines 356–383). But each bar is placed
-  at `originX + (peak / perSecond) * zoom` with `originX = toX(liveTake.start)`, the punch (call ~line 955), so
-  the whole waveform is shifted right by the run-up length. Fix: place bars at
-  `toX(peaksStart + peak / perSecond)` (or pass `originX = toX(peaksStart)`), so only the part after the punch
-  shows. Without pre-roll `peaksStart === start`, which is why that case looks right.
-
-### T31 — Grid visibility & snap; pre-roll button in the transport
-
-- **Status:** ready
-- **Session:** Sonnet · high effort · plan mode off
-- **Goal:** Separate seeing the grid from snapping to it, so people with a set tempo can still place clips
-  freely, and quick-capture ideas aren't cluttered with bars nobody played to. Free the status strip by
-  moving the pre-roll (lead-in) toggle down to the transport.
-- **Done when:**
-  - [ ] Pre-roll toggle moves to the transport row, right of Record, as a plain icon (same look as today's
-        strip toggle, no circle). Back to start, Play and Record keep their exact positions (balance the row,
-        e.g. an equal-width empty slot on the left). Still disabled while recording.
-  - [ ] Every idea has a tempo and time signature (already true: 120, 4/4 by default). **Show grid** stays a
-        per-idea setting in Idea settings (`grid` column). **Record new idea** creates the idea with the grid
-        off; a blank idea from "+" creates it with the grid on (`createProject` option, both call sites in
-        `projects-screen.tsx`).
-  - [ ] New per-idea **Snap** toggle (migration: `projects.snap INTEGER NOT NULL DEFAULT 1`), in the status
-        strip where pre-roll was (SF `square.grid.3x3`-like / Material `grid_on`, pick something clear).
-        Saved, not an undo step (like pre-roll). With the grid hidden, Snap is disabled (nothing to snap to).
-  - [ ] Snap off: clip drags/trims don't snap to grid lines (other clips' edges: decide, probably still snap),
-        and the lane grid lines are drawn dotted/fainter (Ableton-style). Snap on: solid lines as today.
-  - [ ] Duplicate copies `snap`. Unit tests (snap off passes `gridStep` 0) + screenshots of both line styles.
-  - [ ] **Sticky playhead:** with Snap on, dragging the playhead on the ruler (and tapping to seek) pulls it to
-        the nearest grid line within a small distance, like a DAW's magnetic snap: the same `SNAP_POINTS`
-        (~10 pt) threshold as clips, in points so it doesn't depend on zoom. Outside that distance it moves
-        freely between lines. A light haptic on snapping, like clip drags. Snap off or grid hidden: no pull.
-        The point: put the playhead exactly on a beat before recording.
-  - [ ] **Easier-to-see beat lines:** the lines between the bar lines (the beats in 4/4) are too faint today
-        (hairline at `GRID_BEAT_ALPHA` 0.22, vs. bar lines 1 pt at 0.5). Make them clearly visible but still
-        lighter than the bar lines, so bars and beats stay easy to tell apart. Screenshots in light and dark
-        mode. Snap off still uses the dotted/fainter style above.
-- **Context:** Discussed with the user at the end of T17: the app is a sketchpad, not a DAW, so the grid is
-  off for quick capture but on for deliberately created ideas; a second strip button for show/hide was
-  rejected because the strip is filling up (metronome T17, notes T24, keyboard T20) — show/hide stays in Idea
-  settings. Metronome on still turns the grid on (`toggleMetronome` in `editor-store.ts`); it leaves Snap
-  alone. Grid drawing and snapping are in `src/features/timeline/timeline.tsx` (`gridSnapStep` passed to
-  `snapDrag` ~line 476; grid paths ~line 777, Skia paints) and `grid-math.ts` / `clip-edit-math.ts`. Strip
-  and transport layout: `project-screen.tsx` (`StripToggle`, `TransportButton`, `styles.buttons`). Pre-roll
-  wiring stays as is (`togglePreRoll`); with the metronome or grid on the run-up is whole bars
-  (`use-transport.ts`). Sticky playhead and beat-line visibility were added by the user on 2026-11-14: the
-  ruler scrub sets `scrubTime` / calls `onSeek` in `timeline.tsx` (~lines 618 and 659) and doesn't snap yet;
-  reuse `nearestGridLine(time, gridSnapStep(meter, zoom), SNAP_POINTS / z)` from `grid-math.ts`. Grid paints:
-  `gridBar` / `gridGroup` / `gridBeat` in the paints block (~line 1277).
 
 ### T26 — Loop region
 
@@ -360,6 +296,12 @@ skill). Fix or ticket what fails, then delete the line.
   Pre-roll off: nothing plays at all. Record while playing: the punch comes a beat later, take clean. Play
   after Stop sounds normal; with headphones nothing changes. Bleed at the take's start → raise
   `SILENT_FADE_LEAD_SECONDS`; a long gap before the punch → lower it (`take-alignment.ts`).
+- Snap & grid (T31, iPhone): drag the playhead on the ruler with Snap on: it clings to beat lines with a light
+  haptic and moves freely between them (10 pt reach; too sticky or too weak → `SNAP_POINTS` in `grid-math.ts`);
+  tap near a beat line lands exactly on it. Snap off: dotted fainter lines, clips drag freely. Beat lines
+  readable in light mode outdoors but still lighter than bar lines (`GRID_BEAT_ALPHA`, `GRID_LOOSE_FADE` in
+  `timeline.tsx`). Pre-roll icon right of Record is easy to hit; Record new idea has no grid, "+" has one.
+  Live waveform while recording with pre-roll (T35) sits inside the red clip. Android: the Snap and pre-roll icons.
 - App icons: the DEV icon on the iPhone home screen (installed 2026-11-14); the PREVIEW icon after the next
   preview build (`npm run build:preview`, iOS only while Android is paused).
 - Android: the old "Idea 1" clip drew without a waveform on the emulator (missing take file or peaks?).
@@ -423,6 +365,16 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T35 — Live waveform in step with the take during pre-roll — 2026-11-14 — `drawLivePeaks` anchors bars at the
+  take file's start (`peaksStart`, before the punch with pre-roll) instead of the punch; the index/x math is in
+  `livePeakRange` / `livePeakPoint` (`timeline-math.ts`, unit tests). Seen on the simulator
+- T31 — Grid visibility & snap; pre-roll button in the transport — 2026-11-14 — pre-roll toggle is a plain icon
+  right of Record (empty slot on the left keeps Back/Play/Record in place); per-idea Snap toggle in the strip
+  (`projects.snap`, migration v7, saved not undoable, copied by Duplicate, disabled with the grid hidden); Snap
+  off = no grid snapping for clips (clip edges still snap) and dotted fainter grid lines; sticky playhead on
+  ruler scrub/tap with a haptic (`activeSnapStep`, `stickyTime` in `grid-math.ts`); beat lines stronger
+  (`GRID_BEAT_ALPHA` 0.32, bar 1.5 pt); "Record new idea" starts with the grid off, "+" with it on
+  (`createProject({ grid })`). Simulator light + dark; device check pending
 - T34 — Silent recording — 2026-11-14 — Settings → Silent recording (off by default, speaker only like
   Speaker mode): the run-up plays as usual, then the whole output fades out on the master gain 100–70 ms
   before the punch (`silenceOutput` in `audio-engine.ts`, `silentFade` / `punchLead` in `take-alignment.ts`;

@@ -62,7 +62,7 @@ export type IdeaSettings = {
   bpm: number;
   beatsPerBar: number;
   beatUnit: number;
-  /** Show the bar/beat grid on the timeline and snap to it. */
+  /** Show the bar/beat grid on the timeline. */
   grid: boolean;
   /** Metronome click volume (linear gain, 1 = 0 dB). */
   metronomeVolume: number;
@@ -76,6 +76,8 @@ export type Project = ProjectSummary &
     armedTrackId: string | null;
     /** Record starts with a run-up: playback begins the pre-roll length before the playhead. */
     preRoll: boolean;
+    /** Clips and the playhead snap to the grid lines (T31). Only does anything while the grid shows. */
+    snap: boolean;
     /** The metronome clicks during playback and recording (and the pre-roll counts in). */
     metronome: boolean;
     tracks: (Track & { clips: Clip[] })[];
@@ -89,6 +91,7 @@ type ProjectRow = {
   updated_at: number;
   armed_track_id: string | null;
   pre_roll: number;
+  snap: number;
   bpm: number;
   beats_per_bar: number;
   beat_unit: number;
@@ -126,7 +129,7 @@ type ClipRow = {
 };
 
 const PROJECT_COLUMNS = `
-  p.id, p.name, p.created_at, p.updated_at, p.armed_track_id, p.pre_roll,
+  p.id, p.name, p.created_at, p.updated_at, p.armed_track_id, p.pre_roll, p.snap,
   p.bpm, p.beats_per_bar, p.beat_unit, p.grid, p.metronome, p.metronome_volume,
   p.metronome_output,
   COALESCE((
@@ -207,6 +210,7 @@ export async function getProject(id: string): Promise<Project | null> {
     ...toSummary(row),
     armedTrackId: row.armed_track_id,
     preRoll: row.pre_roll === 1,
+    snap: row.snap === 1,
     bpm: row.bpm,
     beatsPerBar: row.beats_per_bar,
     beatUnit: row.beat_unit,
@@ -231,14 +235,26 @@ export async function setPreRoll(projectId: string, on: boolean): Promise<void> 
   await db.runAsync('UPDATE projects SET pre_roll = ? WHERE id = ?', on ? 1 : 0, projectId);
 }
 
+/** Remembers whether snapping to the grid is on. Not an edit: it leaves `updated_at` alone. */
+export async function setSnap(projectId: string, on: boolean): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('UPDATE projects SET snap = ? WHERE id = ?', on ? 1 : 0, projectId);
+}
+
 /** Remembers whether the metronome is on. Not an edit: it leaves `updated_at` alone. */
 export async function setMetronome(projectId: string, on: boolean): Promise<void> {
   const db = await getDb();
   await db.runAsync('UPDATE projects SET metronome = ? WHERE id = ?', on ? 1 : 0, projectId);
 }
 
-/** Creates a project with one empty track, armed. Without a name it's called "Idea N". */
-export async function createProject(name?: string): Promise<ProjectSummary> {
+/**
+ * Creates a project with one empty track, armed. Without a name it's called "Idea N". `grid` is
+ * whether the bar/beat grid shows from the start: off for quick capture, on for a deliberate blank idea.
+ */
+export async function createProject(
+  options: { name?: string; grid?: boolean } = {},
+): Promise<ProjectSummary> {
+  const { name, grid = false } = options;
   const db = await getDb();
   const now = Date.now();
   const id = randomUUID();
@@ -251,11 +267,12 @@ export async function createProject(name?: string): Promise<ProjectSummary> {
 
   await db.withExclusiveTransactionAsync(async (tx) => {
     await tx.runAsync(
-      'INSERT INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)',
+      'INSERT INTO projects (id, name, created_at, updated_at, grid) VALUES (?, ?, ?, ?, ?)',
       id,
       projectName,
       now,
       now,
+      grid ? 1 : 0,
     );
     await tx.runAsync(
       'INSERT INTO tracks (id, project_id, position, name) VALUES (?, ?, 0, ?)',
@@ -309,14 +326,15 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
     }
     await db.withExclusiveTransactionAsync(async (tx) => {
       await tx.runAsync(
-        `INSERT INTO projects (id, name, created_at, updated_at, pre_roll, bpm, beats_per_bar, beat_unit, grid,
+        `INSERT INTO projects (id, name, created_at, updated_at, pre_roll, snap, bpm, beats_per_bar, beat_unit, grid,
            metronome, metronome_volume, metronome_output)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         newId,
         name,
         now,
         now,
         source.preRoll ? 1 : 0,
+        source.snap ? 1 : 0,
         source.bpm,
         source.beatsPerBar,
         source.beatUnit,

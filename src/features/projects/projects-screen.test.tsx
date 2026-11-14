@@ -161,6 +161,8 @@ describe('ProjectsScreen', () => {
     await user.press(screen.getByRole('menuitem', { name: 'New Idea' }));
 
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/project/[id]', params: { id: 'new' } });
+    // A blank idea made on purpose starts with the grid on.
+    expect(createProject).toHaveBeenCalledWith({ grid: true });
   });
 
   it('duplicates and renames from the row actions', async () => {

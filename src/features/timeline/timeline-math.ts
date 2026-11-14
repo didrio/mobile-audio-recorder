@@ -74,6 +74,42 @@ export function pointToTime(point: number, scroll: number, zoom: number): number
   return scroll + point / zoom;
 }
 
+/**
+ * Which live-waveform peaks to draw while recording, and how wide a bar is. Peak `i` covers
+ * `peaksStart + i / perSecond` (the take file's start, which with pre-roll is the run-up, before
+ * the punch); only `from`…`to` (timeline seconds) is drawn. `step` merges peaks so there's about
+ * one bar per point. Returns `null` when nothing falls in range.
+ */
+export function livePeakRange(live: {
+  count: number;
+  perSecond: number;
+  peaksStart: number;
+  from: number;
+  to: number;
+  zoom: number;
+}): { first: number; last: number; step: number; width: number } | null {
+  'worklet';
+  const step = Math.max(1, Math.floor(live.perSecond / live.zoom));
+  const first = Math.max(
+    0,
+    Math.floor(((live.from - live.peaksStart) * live.perSecond) / step) * step,
+  );
+  const last = Math.min(live.count, Math.ceil((live.to - live.peaksStart) * live.perSecond));
+  if (last <= first) return null;
+  return { first, last, step, width: Math.max(1, (step / live.perSecond) * live.zoom) };
+}
+
+/** Point where live peak `peak` is drawn, given the point of the take file's start (`peaksStart`). */
+export function livePeakPoint(
+  peaksStartPoint: number,
+  peak: number,
+  perSecond: number,
+  zoom: number,
+): number {
+  'worklet';
+  return peaksStartPoint + (peak / perSecond) * zoom;
+}
+
 /** New scroll after zooming so that the time under `focalPoint` stays under it. */
 export function zoomAroundPoint(
   scroll: number,

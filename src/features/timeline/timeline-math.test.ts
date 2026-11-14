@@ -7,6 +7,8 @@ import {
   formatRulerTime,
   hiddenLanes,
   laneScrollMax,
+  livePeakPoint,
+  livePeakRange,
   MAX_ZOOM,
   maxScroll,
   minZoom,
@@ -118,5 +120,37 @@ describe('waveformGain', () => {
     expect(waveformGain(0.001)).toBe(20);
     expect(waveformGain(0)).toBe(20);
     expect(waveformGain(1)).toBe(1);
+  });
+});
+
+describe('live waveform while recording', () => {
+  // Pre-roll: the file starts at 2 s (run-up), the punch is at 4 s, the playhead at 6 s.
+  const live = { count: 400, perSecond: 100, peaksStart: 2, zoom: 100 };
+
+  it('starts at the punch and ends at the playhead, not past it', () => {
+    const range = livePeakRange({ ...live, from: 4, to: 6 });
+    expect(range).toEqual({ first: 200, last: 400, step: 1, width: 1 });
+    // Peak 200 is at 4 s and the last bar ends at 6 s: with the view scrolled to 0 s at 100 pt/s
+    // that's 400…600 pt, in step with the red clip (punch 400 pt, playhead 600 pt).
+    const originX = timeToPoint(live.peaksStart, 0, live.zoom);
+    expect(livePeakPoint(originX, range!.first, live.perSecond, live.zoom)).toBeCloseTo(400);
+    expect(livePeakPoint(originX, range!.last, live.perSecond, live.zoom)).toBeCloseTo(600);
+  });
+
+  it('draws from the first peak without pre-roll or when recording while playing', () => {
+    const range = livePeakRange({ ...live, peaksStart: 4, count: 200, from: 4, to: 6 });
+    expect(range?.first).toBe(0);
+    expect(range?.last).toBe(200);
+    expect(livePeakPoint(timeToPoint(4, 0, 100), 0, 100, 100)).toBeCloseTo(400);
+  });
+
+  it('only draws what has arrived, merges peaks when zoomed out, and clips to the view', () => {
+    expect(livePeakRange({ ...live, from: 4, to: 6, count: 250 })?.last).toBe(250);
+    expect(livePeakRange({ ...live, from: 4, to: 6, zoom: 10 })).toMatchObject({
+      step: 10,
+      width: 1,
+    });
+    expect(livePeakRange({ ...live, from: 5, to: 6 })?.first).toBe(300);
+    expect(livePeakRange({ ...live, from: 6, to: 4 })).toBeNull();
   });
 });

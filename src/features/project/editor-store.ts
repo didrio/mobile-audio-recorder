@@ -24,6 +24,7 @@ import {
   setArmedTrack,
   setMetronome,
   setPreRoll,
+  setSnap,
   type IdeaSettings,
   type Project,
   type Take,
@@ -58,6 +59,8 @@ export type EditorState = {
   armedTrackId: string | null;
   /** Record starts with a run-up (T25). Saved per idea, but not an undo step. */
   preRoll: boolean;
+  /** Snap clips and the playhead to the grid (T31). Saved per idea, but not an undo step. */
+  snap: boolean;
   /** The metronome toggle (T17). Saved per idea, but not an undo step. */
   metronome: boolean;
   /** Set when a change couldn't be saved (the idea was reloaded). */
@@ -71,6 +74,7 @@ const closedState: EditorState = {
   history: emptyHistory,
   armedTrackId: null,
   preRoll: false,
+  snap: true,
   metronome: false,
   saveError: null,
 };
@@ -117,6 +121,7 @@ async function reload(projectId: string) {
     history: emptyHistory,
     armedTrackId: project ? project.armedTrackId : state.armedTrackId,
     preRoll: project ? project.preRoll : state.preRoll,
+    snap: project ? project.snap : state.snap,
     metronome: project ? project.metronome : state.metronome,
     saveError: SAVE_ERROR,
   });
@@ -150,6 +155,7 @@ export function openIdea(projectId: string, options: { onSaved?: () => void } = 
             project,
             armedTrackId: project.armedTrackId,
             preRoll: project.preRoll,
+            snap: project.snap,
             metronome: project.metronome,
             status: 'ready',
           }
@@ -303,6 +309,14 @@ export function togglePreRoll(): Promise<void> {
   useEditorStore.setState({ preRoll: !preRoll });
   if (!projectId) return Promise.resolve();
   return enqueue(() => setPreRoll(projectId, !preRoll));
+}
+
+/** The Snap toggle in the status strip. Saved, not undoable. */
+export function toggleSnap(): Promise<void> {
+  const { projectId, snap } = useEditorStore.getState();
+  useEditorStore.setState({ snap: !snap });
+  if (!projectId) return Promise.resolve();
+  return enqueue(() => setSnap(projectId, !snap));
 }
 
 /**

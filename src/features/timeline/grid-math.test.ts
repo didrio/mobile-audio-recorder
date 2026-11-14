@@ -1,4 +1,5 @@
 import {
+  activeSnapStep,
   gridSnapStep,
   gridSteps,
   LINE_BAR,
@@ -6,6 +7,7 @@ import {
   LINE_GROUP,
   lineKind,
   nearestGridLine,
+  stickyTime,
 } from './grid-math';
 
 const meter = { bpm: 120, beatsPerBar: 4, beatUnit: 4 }; // bar = 2 s, beat = 0.5 s
@@ -80,5 +82,44 @@ describe('lineKind', () => {
       LINE_BEAT,
       LINE_BAR,
     ]);
+  });
+});
+
+describe('activeSnapStep', () => {
+  it('is the grid step only while the grid shows and Snap is on', () => {
+    expect(activeSnapStep(true, true, meter, 100)).toBe(0.5); // beats at 100 pt/s
+    expect(activeSnapStep(true, false, meter, 100)).toBe(0); // Snap off: nothing to snap to
+    expect(activeSnapStep(false, true, meter, 100)).toBe(0); // grid hidden
+    expect(activeSnapStep(false, false, meter, 100)).toBe(0);
+  });
+});
+
+describe('stickyTime (the playhead pulled onto a grid line)', () => {
+  // 100 pt/s: beats every 0.5 s; the ~10 pt reach is 0.1 s.
+  const reach = 10 / 100;
+
+  it('pulls to the nearest line within reach, on either side', () => {
+    expect(stickyTime(1.46, 0.5, reach)).toBe(1.5);
+    expect(stickyTime(1.54, 0.5, reach)).toBe(1.5);
+    expect(stickyTime(1.5, 0.5, reach)).toBe(1.5);
+  });
+
+  it('moves freely between lines', () => {
+    expect(stickyTime(1.3, 0.5, reach)).toBe(1.3);
+    expect(stickyTime(1.74, 0.5, reach)).toBe(1.74);
+  });
+
+  it('keeps the same reach in points at any zoom', () => {
+    // 10 pt at 20 pt/s is 0.5 s: the bar-wide step 2 s still only grabs within 0.5 s.
+    expect(stickyTime(1.7, 2, 10 / 20)).toBe(2);
+    expect(stickyTime(1.4, 2, 10 / 20)).toBe(1.4);
+  });
+
+  it('never pulls without a grid step (grid hidden or Snap off)', () => {
+    expect(stickyTime(1.49, 0, reach)).toBe(1.49);
+  });
+
+  it('stays at or after 0:00', () => {
+    expect(stickyTime(0.04, 0.5, reach)).toBe(0);
   });
 });

@@ -51,7 +51,7 @@ import {
   type DragPart,
   type ItemWindow,
 } from './clip-edit-math';
-import { gridSnapStep, gridSteps, LINE_BAR, LINE_GROUP, lineKind } from './grid-math';
+import { activeSnapStep, gridSteps, LINE_BAR, LINE_GROUP, lineKind, stickyTime } from './grid-math';
 import { LaneOverlay } from './lane-overlay';
 import { autoScrollSpeed, laneSlotDuringDrag, laneTopDuringDrag } from './reorder-math';
 import {
@@ -65,6 +65,8 @@ import {
   formatRulerTime,
   LANE_HEIGHT,
   laneScrollMax,
+  livePeakPoint,
+  livePeakRange,
   maxScroll,
   MIXER_WIDTH,
   NEW_TRACK_ROW_HEIGHT,
@@ -117,7 +119,10 @@ const CLIP_LIFT_SCALE = 0.04;
 const AUTO_SCROLL_EDGE = 40;
 const AUTO_SCROLL_SPEED = 600;
 /** Opacity of the beat lines at full strength (they fade out when zoomed far out). */
-const GRID_BEAT_ALPHA = 0.22;
+const GRID_BEAT_ALPHA = 0.32;
+/** With Snap off the lines are dotted and this much fainter (Ableton-style: still there to read). */
+const GRID_LOOSE_FADE = 0.65;
+const GRID_DASH = [2, 3];
 /** Skia resolves fonts through the system font manager, which doesn't know RN's 'System' alias. */
 const FONT_FAMILY = Platform.select({ ios: 'Helvetica', default: 'sans-serif' });
 
@@ -193,6 +198,7 @@ export function Timeline({
   revealPlayhead,
   following,
   liveTake,
+  snap,
   armedTrackId,
   addTrackDisabled,
   clipEditing,
@@ -215,6 +221,8 @@ export function Timeline({
   following: boolean;
   /** The take being recorded, or null. */
   liveTake: LiveTake | null;
+  /** Snap clips and the playhead to the grid lines (only while the grid shows). */
+  snap: boolean;
   armedTrackId: string | null;
   addTrackDisabled: boolean;
   clipEditing: ClipEditing | null;
@@ -251,6 +259,8 @@ export function Timeline({
   const isRecording = liveTake != null;
   // The bar/beat grid (T9): lines in the lanes, bar numbers on the ruler, and a snap target for drags.
   const grid = project.grid;
+  /** Dragged clips and the playhead are pulled to grid lines (T31). */
+  const snapToGrid = grid && snap;
   const meter = { bpm: project.bpm, beatsPerBar: project.beatsPerBar, beatUnit: project.beatUnit };
 
   const editable = clipEditing != null && !isRecording;
@@ -322,6 +332,8 @@ export function Timeline({
   const scrubbing = useSharedValue(false);
   /** Where the playhead is being dragged to, or -1. */
   const scrubTime = useSharedValue(-1);
+  /** The grid line the scrubbed playhead is stuck to, or -1 (for the haptic). */
+  const scrubSnap = useSharedValue(-1);
 
   // Fit the zoom and scroll to the view: on first layout, rotation and when the idea grows. Runs on
   // the UI thread: scroll is moved there (gestures, following), so a JS-side read could be stale and
@@ -387,10 +399,24 @@ export function Timeline({
     },
   );
 
-  const seekable = (x: number) => {
+  const freeSeekable = (x: number) => {
     'worklet';
     return clamp(
       pointToTime(x - LEADING_SPACE, scroll.get(), zoom.get()),
+      0,
+      contentDuration(duration),
+    );
+  };
+
+  // Where a touch on the ruler or lanes puts the playhead: the touch's time, pulled onto a grid line
+  // within SNAP_POINTS (so it doesn't depend on the zoom) while Snap is on.
+  const seekable = (x: number) => {
+    'worklet';
+    const time = freeSeekable(x);
+    if (!snapToGrid) return time;
+    const z = zoom.get();
+    return clamp(
+      stickyTime(time, activeSnapStep(grid, snap, meter, z), SNAP_POINTS / z),
       0,
       contentDuration(duration),
     );
@@ -473,16 +499,16 @@ export function Timeline({
       timeAt(fingerX.get()) - grabTime.get(),
       candidates,
       SNAP_POINTS / z,
-      grid ? gridSnapStep(meter, z) : 0,
+      activeSnapStep(grid, snap, meter, z),
     );
     const next = dragWindow(part, origin, snapped.delta, clip.takeDuration, MIN_CLIP_SECONDS);
     // A limit (0:00, the take's bounds) can stop the edge short of the snap point: no guide then.
-    const snap = snapped.snapTime;
+    const guide = snapped.snapTime;
     const landed =
-      snap >= 0 &&
-      (Math.abs(next.start - snap) < 1e-6 || Math.abs(next.start + next.duration - snap) < 1e-6);
+      guide >= 0 &&
+      (Math.abs(next.start - guide) < 1e-6 || Math.abs(next.start + next.duration - guide) < 1e-6);
     dragWin.set(next);
-    snapTime.set(landed ? snap : -1);
+    snapTime.set(landed ? guide : -1);
     if (part === DRAG_MOVE) {
       dragRow.set(rowAt(fingerY.get() - RULER_SIZE, laneScroll.get(), lane, trackCount));
     }
@@ -582,6 +608,14 @@ export function Timeline({
     },
   );
 
+  // The playhead clicking onto a grid line as it's dragged along the ruler.
+  useAnimatedReaction(
+    () => scrubSnap.get(),
+    (now, before) => {
+      if (now >= 0 && now !== before) scheduleOnRN(snapped);
+    },
+  );
+
   const pan = usePanGesture({
     onBegin: (event) => {
       'worklet';
@@ -616,6 +650,7 @@ export function Timeline({
       if (scrubbing.get()) {
         const time = seekable(event.x);
         scrubTime.set(time);
+        scrubSnap.set(snapToGrid && time !== freeSeekable(event.x) ? time : -1);
         // Idle: the playhead (and clock) follow the finger. Playing: seek once, on release.
         if (!following) scheduleOnRN(onSeek, time);
         return;
@@ -657,6 +692,7 @@ export function Timeline({
       'worklet';
       scrubbing.set(false);
       scrubTime.set(-1);
+      scrubSnap.set(-1);
       if (owner.get() === 1) finishDrag();
     },
   });
@@ -809,8 +845,12 @@ export function Timeline({
             line(bars, bar * barLength);
           }
         }
-        paints.gridBeat.setAlphaf(GRID_BEAT_ALPHA * gridLevels.beatAlpha);
-        return { bars: bars.detach(), groups: groups.detach(), beats: beats.detach() };
+        // Snap on: solid lines. Snap off: the same lines dotted and fainter.
+        const style = snapToGrid ? paints.grid : paints.gridLoose;
+        style.beat.setAlphaf(
+          GRID_BEAT_ALPHA * gridLevels.beatAlpha * (snapToGrid ? 1 : GRID_LOOSE_FADE),
+        );
+        return { style, bars: bars.detach(), groups: groups.detach(), beats: beats.detach() };
       })();
 
       const drawLane = (index: number) => {
@@ -822,9 +862,9 @@ export function Timeline({
         if (gridPaths) {
           canvas.save();
           canvas.translate(0, top);
-          canvas.drawPath(gridPaths.beats, paints.gridBeat);
-          canvas.drawPath(gridPaths.groups, paints.gridGroup);
-          canvas.drawPath(gridPaths.bars, paints.gridBar);
+          canvas.drawPath(gridPaths.beats, gridPaths.style.beat);
+          canvas.drawPath(gridPaths.groups, gridPaths.style.group);
+          canvas.drawPath(gridPaths.bars, gridPaths.style.bar);
           canvas.restore();
         }
         canvas.drawLine(0, top + lane, viewWidth, top + lane, paints.separator);
@@ -958,7 +998,7 @@ export function Timeline({
           start: liveTake.peaksStart,
           from: Math.max(liveTake.start, visibleStart),
           to: Math.min(visibleEnd, position),
-          originX: x0,
+          originX: toX(liveTake.peaksStart),
           zoom: z,
           middle: top + height / 2,
           amplitude: (height / 2 - CLIP_INSET) * gain,
@@ -1195,7 +1235,7 @@ function drawLivePeaks(
     /** Visible time range to draw (seconds on the timeline). */
     from: number;
     to: number;
-    /** x of the take's start. */
+    /** x of `start`, the take file's start (before the punch with pre-roll). */
     originX: number;
     zoom: number;
     middle: number;
@@ -1207,12 +1247,16 @@ function drawLivePeaks(
   },
 ) {
   'worklet';
-  const count = live.data.length / 2;
-  const step = Math.max(1, Math.floor(live.perSecond / live.zoom));
-  const first = Math.max(0, Math.floor(((live.from - live.start) * live.perSecond) / step) * step);
-  const last = Math.min(count, Math.ceil((live.to - live.start) * live.perSecond));
-  if (last <= first) return;
-  const width = Math.max(1, (step / live.perSecond) * live.zoom);
+  const range = livePeakRange({
+    count: live.data.length / 2,
+    perSecond: live.perSecond,
+    peaksStart: live.start,
+    from: live.from,
+    to: live.to,
+    zoom: live.zoom,
+  });
+  if (!range) return;
+  const { first, last, step, width } = range;
   const builder = Skia.PathBuilder.Make();
   for (let peak = first; peak < last; peak += step) {
     let min = 0;
@@ -1222,7 +1266,7 @@ function drawLivePeaks(
       min = Math.min(min, live.data[i * 2] ?? 0);
       max = Math.max(max, live.data[i * 2 + 1] ?? 0);
     }
-    const point = live.originX + (peak / live.perSecond) * live.zoom;
+    const point = livePeakPoint(live.originX, peak, live.perSecond, live.zoom);
     const up = Math.min(live.limit, max * live.amplitude);
     const down = Math.min(live.limit, -min * live.amplitude);
     builder.addRect(Skia.XYWHRect(point, live.middle - up, width, Math.max(1, up + down)));
@@ -1243,6 +1287,16 @@ function makePaints(colors: ThemeColors) {
     paint.setAlphaf(alpha);
     paint.setAntiAlias(true);
     return paint;
+  };
+  const gridPaints = (loose: boolean) => {
+    const line = (width: number, alpha: number) => {
+      const paint = stroke(colors.textTertiary, width);
+      paint.setAlphaf(alpha * (loose ? GRID_LOOSE_FADE : 1));
+      if (loose) paint.setPathEffect(Skia.PathEffect.MakeDash(GRID_DASH, 0));
+      return paint;
+    };
+    // The beat paint's alpha is set per frame (the beat lines fade with the zoom).
+    return { bar: line(1.5, 0.6), group: line(1, 0.4), beat: line(1, GRID_BEAT_ALPHA) };
   };
   const stroke = (color: string, width: number) => {
     const paint = fill(color);
@@ -1274,18 +1328,10 @@ function makePaints(colors: ThemeColors) {
     ruler: fill(colors.surfaceMuted),
     tick: stroke(colors.textTertiary, 1),
     tickBeat: stroke(colors.textTertiary, 1),
-    gridBar: (() => {
-      const paint = stroke(colors.textTertiary, 1);
-      paint.setAlphaf(0.5);
-      return paint;
-    })(),
-    gridGroup: (() => {
-      const paint = stroke(colors.textTertiary, StyleSheet.hairlineWidth);
-      paint.setAlphaf(0.35);
-      return paint;
-    })(),
-    /** Alpha set per frame (the beat lines fade with the zoom). */
-    gridBeat: stroke(colors.textTertiary, StyleSheet.hairlineWidth),
+    /** Grid lines with Snap on: solid, bars strongest, beats clearly lighter. */
+    grid: gridPaints(false),
+    /** The same lines with Snap off: dotted and fainter. */
+    gridLoose: gridPaints(true),
     label: fill(colors.textSecondary),
     playhead: stroke(colors.primary, PLAYHEAD_WIDTH),
     playheadHandle: fill(colors.primary),

@@ -30,6 +30,7 @@ export function testProject(tracks: ProjectTrack[]): Project {
     duration,
     armedTrackId: tracks[0]?.id ?? null,
     preRoll: false,
+    snap: true,
     bpm: 120,
     beatsPerBar: 4,
     beatUnit: 4,

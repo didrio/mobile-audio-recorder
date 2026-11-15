@@ -1,10 +1,10 @@
 import type { IconName } from '@/components/ui';
 
 /**
- * The idea's "⋯" header menu. Idea settings (T9), Duplicate and Delete (T10) are live; Favorite is a
- * placeholder (shown disabled) until T19.
+ * The idea's "⋯" header menu. Idea settings (T9), Notes (T24), Duplicate and Delete (T10) are live;
+ * Favorite is a placeholder (shown disabled) until T19.
  */
-export type IdeaMenuItemId = 'settings' | 'duplicate' | 'favorite' | 'delete';
+export type IdeaMenuItemId = 'settings' | 'notes' | 'duplicate' | 'favorite' | 'delete';
 
 export const IDEA_MENU_ITEMS: {
   id: IdeaMenuItemId;
@@ -13,6 +13,7 @@ export const IDEA_MENU_ITEMS: {
   destructive?: boolean;
 }[] = [
   { id: 'settings', label: 'Idea settings', icon: { ios: 'slider.horizontal.3', android: 'tune' } },
+  { id: 'notes', label: 'Notes', icon: { ios: 'note.text', android: 'notes' } },
   {
     id: 'duplicate',
     label: 'Duplicate',

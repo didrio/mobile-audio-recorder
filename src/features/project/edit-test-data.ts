@@ -4,7 +4,17 @@ import type { Clip, Project, Section } from '@/features/projects/projects-repo';
 import type { ProjectTrack } from './edit-changes';
 
 export function testClip(id: string, trackId: string, start: number, duration: number): Clip {
-  return { id, trackId, takeId: 'take1', start, offset: 0, duration };
+  return {
+    id,
+    trackId,
+    takeId: 'take1',
+    start,
+    offset: 0,
+    duration,
+    gain: 1,
+    fadeIn: 0,
+    fadeOut: 0,
+  };
 }
 
 export function testSection(id: string, name: string, start: number, duration: number): Section {
@@ -45,6 +55,7 @@ export function testProject(tracks: ProjectTrack[], sections: Section[] = []): P
     loopOn: false,
     loopRegion: null,
     sections,
+    notes: '',
     takes: {},
     tracks,
   };

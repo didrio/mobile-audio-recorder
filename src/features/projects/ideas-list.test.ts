@@ -1,12 +1,19 @@
-import { filterIdeas, formatBytes, formatIdeaDate, sortIdeas } from './ideas-list';
+import { filterIdeas, formatBytes, formatIdeaDate, notesMatch, sortIdeas } from './ideas-list';
 import type { ProjectSummary } from './projects-repo';
 
-const idea = (id: string, name: string, createdAt: number, updatedAt: number): ProjectSummary => ({
+const idea = (
+  id: string,
+  name: string,
+  createdAt: number,
+  updatedAt: number,
+  notes = '',
+): ProjectSummary => ({
   id,
   name,
   createdAt,
   updatedAt,
   duration: 0,
+  notes,
 });
 
 const ideas = [
@@ -41,6 +48,29 @@ describe('filterIdeas', () => {
   });
   it('keeps everything for a blank query', () => {
     expect(filterIdeas(ideas, '  ')).toHaveLength(3);
+  });
+  it('also looks in the notes', () => {
+    const withNotes = [...ideas, idea('d', 'Idea 4', 0, 0, 'Capo 2, DADGAD tuning')];
+    expect(filterIdeas(withNotes, 'dadgad').map((i) => i.id)).toEqual(['d']);
+  });
+});
+
+describe('notesMatch', () => {
+  const long = idea(
+    'd',
+    'Idea 4',
+    0,
+    0,
+    'Verse picking pattern, thumb on the low string.\n[0:45] chorus in DADGAD, capo 2, let it ring out',
+  );
+
+  it('shows the matching bit of the notes on one line, with some context', () => {
+    expect(notesMatch(long, 'dadgad')).toBe('…[0:45] chorus in DADGAD, capo 2, let it ring…');
+  });
+  it('is null when the name matches, nothing matches, or the query is blank', () => {
+    expect(notesMatch(idea('e', 'DADGAD jam', 0, 0, 'DADGAD'), 'dadgad')).toBeNull();
+    expect(notesMatch(long, 'banjo')).toBeNull();
+    expect(notesMatch(long, ' ')).toBeNull();
   });
 });
 

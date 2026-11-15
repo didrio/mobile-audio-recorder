@@ -29,11 +29,43 @@ export function sortIdeas(ideas: readonly ProjectSummary[], order: SortOrder): P
   return sorted;
 }
 
-/** Ideas whose name contains the query (case-insensitive); a blank query keeps everything. */
+/**
+ * Ideas whose name or notes (T24) contain the query (case-insensitive); a blank query keeps
+ * everything.
+ */
 export function filterIdeas(ideas: readonly ProjectSummary[], query: string): ProjectSummary[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [...ideas];
-  return ideas.filter((idea) => idea.name.toLowerCase().includes(needle));
+  return ideas.filter(
+    (idea) => idea.name.toLowerCase().includes(needle) || idea.notes.toLowerCase().includes(needle),
+  );
+}
+
+/** Characters of context kept on each side of a match in `notesMatch`. */
+const MATCH_CONTEXT = 24;
+
+/**
+ * When a search finds an idea by its notes but not its name: the matching bit of the notes, on one
+ * line with a little context ("…Capo 2, DADGAD tuning…"), to show why it's listed. Otherwise `null`.
+ */
+export function notesMatch(idea: ProjectSummary, query: string): string | null {
+  const needle = query.trim().toLowerCase();
+  if (!needle || idea.name.toLowerCase().includes(needle)) return null;
+  const notes = idea.notes.replace(/\s+/g, ' ').trim();
+  const at = notes.toLowerCase().indexOf(needle);
+  if (at < 0) return null;
+  let from = Math.max(0, at - MATCH_CONTEXT);
+  let to = Math.min(notes.length, at + needle.length + MATCH_CONTEXT);
+  // Cut at word boundaries rather than mid-word.
+  if (from > 0) {
+    const space = notes.indexOf(' ', from);
+    if (space >= 0 && space < at) from = space + 1;
+  }
+  if (to < notes.length) {
+    const space = notes.lastIndexOf(' ', to);
+    if (space > at + needle.length) to = space;
+  }
+  return `${from > 0 ? '…' : ''}${notes.slice(from, to).trim()}${to < notes.length ? '…' : ''}`;
 }
 
 /** "Today", "Yesterday", "Mar 5", or "Mar 5, 2025" for another year. */

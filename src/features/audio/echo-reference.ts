@@ -27,14 +27,17 @@ export function echoPlan(options: {
 
   const clips: EchoPlan['clips'] = [];
   for (const clip of backing.clips) {
-    if (clip.gain <= 0) continue;
+    // Clip gain (T16) × track gain; fades and declicks aren't modelled (the canceller adapts to small
+    // differences).
+    const gain = clip.gain * clip.trackGain;
+    if (gain <= 0) continue;
     // Heard from where the playback started, until the clip ends or its track was cut.
     const start = Math.max(clip.start, backing.from);
     const end = Math.min(clip.start + clip.duration, cutAt.get(clip.trackId) ?? Infinity, fileEnd);
     if (end <= start || end <= fileStart) continue;
     clips.push({
       path: options.takeFile(clip.takePath),
-      gain: clip.gain,
+      gain,
       fileStart: start - fileStart,
       offset: clip.offset + (start - clip.start),
       duration: end - start,

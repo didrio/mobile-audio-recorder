@@ -56,6 +56,32 @@ export default function RootLayout() {
             sheetGrabberVisible: true,
           }}
         />
+        <Stack.Screen
+          name="clip-options/[id]"
+          options={{
+            presentation: 'formSheet',
+            // Low enough that the clip being edited stays in view above it.
+            sheetAllowedDetents: [0.55, 0.9],
+            sheetGrabberVisible: true,
+          }}
+        />
+        <Stack.Screen
+          name="idea-notes/[id]"
+          options={{
+            presentation: 'formSheet',
+            sheetAllowedDetents: [0.6, 0.9],
+            sheetGrabberVisible: true,
+          }}
+        />
+        <Stack.Screen
+          name="pitch-keyboard"
+          options={{
+            presentation: 'formSheet',
+            // Short, so the timeline stays in view to play along with playback.
+            sheetAllowedDetents: [0.45],
+            sheetGrabberVisible: true,
+          }}
+        />
         <Stack.Screen name="+not-found" options={{ headerShown: true, title: 'Not found' }} />
       </Stack>
     </AppProviders>

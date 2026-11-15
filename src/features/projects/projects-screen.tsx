@@ -10,7 +10,7 @@ import { makeStyles } from '@/theme';
 
 import { confirmDeleteIdea, showIdeaMenu, type IdeaAction } from './idea-actions';
 import { IdeaRow } from './idea-row';
-import { filterIdeas, SORT_ORDERS, sortIdeas } from './ideas-list';
+import { filterIdeas, notesMatch, SORT_ORDERS, sortIdeas } from './ideas-list';
 import { useIdeasSortStore } from './ideas-sort-store';
 import {
   useCreateProject,
@@ -147,6 +147,7 @@ export function ProjectsScreen() {
               key={project.id}
               idea={project}
               dateKind={order === 'created' ? 'created' : 'updated'}
+              match={notesMatch(project, query)}
               onOpen={() => openProject(project.id)}
               onAction={(action) => runAction(action, project.id, project.name)}
               onLongPress={() => {

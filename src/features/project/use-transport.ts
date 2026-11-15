@@ -559,6 +559,9 @@ function playableClips(
               start: clip.start,
               offset: clip.offset,
               duration: clip.duration,
+              gain: clip.gain,
+              fadeIn: clip.fadeIn,
+              fadeOut: clip.fadeOut,
             },
           ]
         : [];

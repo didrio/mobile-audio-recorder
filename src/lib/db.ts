@@ -9,8 +9,11 @@
  *   absolute container path changes between installs/updates on iOS.
  * - `clips` are windows onto a take placed on a track: `start` (timeline position), `offset` (where in
  *   the take playback begins) and `duration`, all in seconds. Trim/move/split only change these numbers.
+ *   Each clip also has a `gain` (linear, 1 = 0 dB) and `fade_in` / `fade_out` lengths in seconds (T16).
  * - `sections` (T18) label spans of the timeline (Intro, Verse…): `start`/`duration` in seconds, a palette
  *   `color` key (`@/features/project/sections`) and a free-text `notes`. They never overlap.
+ * - `projects.notes` (T24) is the idea's free-text notes. Saved on its own (`setProjectNotes`), not an undo
+ *   step: the text field has its own undo.
  * - The open idea is edited through the editor store (`@/features/project/editor-store`): edits are
  *   snapshots of the track/clip/section rows they touch, applied in memory and written with `saveChanges`
  *   (`projects-repo.ts`). Undo history lives only while the idea is open, so takes no clip uses are
@@ -21,7 +24,7 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 
 const DATABASE_NAME = 'audio-recorder.db';
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 11;
 
 let database: Promise<SQLiteDatabase> | null = null;
 
@@ -150,6 +153,18 @@ async function migrate(db: SQLiteDatabase) {
           notes TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX sections_project ON sections(project_id, start);
+      `);
+    }
+    if (version < 10) {
+      // Idea notes (T24): free text, with `[1:23]` time stamps that seek.
+      await tx.execAsync("ALTER TABLE projects ADD COLUMN notes TEXT NOT NULL DEFAULT '';");
+    }
+    if (version < 11) {
+      // Clip options (T16): gain (linear) and fade lengths (seconds).
+      await tx.execAsync(`
+        ALTER TABLE clips ADD COLUMN gain REAL NOT NULL DEFAULT 1;
+        ALTER TABLE clips ADD COLUMN fade_in REAL NOT NULL DEFAULT 0;
+        ALTER TABLE clips ADD COLUMN fade_out REAL NOT NULL DEFAULT 0;
       `);
     }
     await tx.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);

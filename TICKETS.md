@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T24 — Idea notes · Sonnet · medium effort · plan mode off
+**Next:** T19 — Folders & favorites · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -38,9 +38,11 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   Solo · horizontal volume), pushing the timeline right. Tapping a track's floating name pill arms it (red
   outline and dot on the pill), and the mixer's info button opens the track's sheet (Rename, Delete; no
   Duplicate). Mute/solo also show as M/S badges on the pills, and silent tracks' clips are drawn faded. The
-  section-label rail sits above the ruler. Thin status strip (time · metronome toggle (T17) · meter). Compact
-  transport. "+ New Track" is a row after the last lane, not a header button.
-- **Header of an idea**: Undo · Redo · "⋯" (Idea settings, Duplicate, Delete, Favorite). The menu has disabled
+  section-label rail sits above the ruler. Thin status strip (time · Notes (T24) · Keyboard (T20) · Metronome
+  (T17) · Snap (T31) · meter). Compact transport. "+ New Track" is a row after the last lane, not a header
+  button. Sheets over the idea that need the playhead (notes, clip options) reach the transport through
+  `src/features/project/transport-link.ts`.
+- **Header of an idea**: Undo · Redo · "⋯" (Idea settings, Notes, Duplicate, Delete, Favorite). The menu has disabled
   placeholders: items in `src/features/project/idea-menu-items.ts`, iOS `Stack.Toolbar.Menu` in
   `project-screen.tsx`, Android `@expo/ui` Compose dropdown via `src/components/android-header-menu.android.tsx`. Enable an item
   by giving it an action in `project-screen.tsx` (`menuActions`; Duplicate and Delete are live from T10).
@@ -53,63 +55,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   record the same audio onto each track). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
-
-### T24 — Idea notes
-
-- **Status:** ready (independent of the editor tickets)
-- **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** Jot down what you played (unusual chords, tuning, capo, lyric ideas), so you can rebuild the song in
-  a DAW weeks later. The user is a songwriter and this is a real, repeated pain for them.
-- **Done when:**
-  - [ ] A notes button in the status strip (SF `note.text`, Material `notes`) opens a sheet with a multiline
-        text field. A dot on the button shows when the idea has notes. "Notes" is also in the "⋯" menu.
-  - [ ] **Insert time** button: inserts the playhead time as `[1:23]` at the cursor. Outside editing, time stamps
-        are tappable and seek to that time. This gives time-specific notes ("[0:45] chorus: Fmaj7 – Em7 –
-        A7sus4") without needing section labels.
-  - [ ] Migration: `projects.notes` (TEXT, default ''). Saved debounced and on close. Not an undo step (the text
-        field has its own undo).
-  - [ ] Duplicate (`duplicateProject` in `projects-repo.ts`, T10) copies the notes: add the column to its INSERT.
-  - [ ] Unit tests for finding and inserting time stamps.
-- **Context:** Decided with the user: idea-wide notes first, because they work without sections and add almost
-  no UI. Per-section notes are part of T18, and first-class chord progressions are in Backlog. The status strip
-  and menu items are in `project-screen.tsx` and `src/features/project/idea-menu-items.ts`. Time formatting is
-  in `src/features/audio/format-time.ts`. A later Search (T10/T19) could match notes too.
-
-### T20 — Pitch reference keyboard
-
-- **Status:** ready
-- **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** A quick piano to find and hear any note (starting note for a melody, checking a key) without
-  leaving the idea.
-- **Done when:**
-  - [ ] A keyboard button in the status strip (SF `pianokeys`, Material `piano`) opens a short sheet. The
-        timeline stays visible, so you can play along with playback.
-  - [ ] Two octaves on screen (one in a narrow portrait sheet if two get too small), octave down/up buttons,
-        multi-touch, note name shown while held (C4, F♯3…). The note sounds while held and releases smoothly.
-  - [ ] The sound is synthesized in code (`createOscillator`, triangle or a few mixed partials with an
-        attack/release envelope), so no sample files ship with the app. Latency feels instant on a device.
-  - [ ] It is a reference tool only: never recorded into takes (other than what the mic hears), not on the
-        timeline. Volume follows a "Keyboard volume" setting.
-  - [ ] Unit tests for note ↔ frequency and note names.
-- **Context:** `react-native-audio-api` has `createOscillator` (see `lib/typescript/module/jsi-interfaces.d.ts`).
-  Play it through the same `AudioContext` as playback in `audio-engine.ts` so it works during playback.
-  Product rule: no software instruments. This stays a pitch reference, so don't grow it into a recordable
-  instrument. A mic tuner is the natural companion (Backlog).
-
-### T16 — Clip options
-
-- **Status:** ready
-- **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** Per-clip adjustments from the clip action bar's "Options…".
-- **Done when:**
-  - [ ] Options… opens a sheet for that clip: Gain (dB slider, double-tap to reset), Fade in and Fade out
-        (length), Restore full take (reset the trim to the whole take, where it fits), Delete.
-  - [ ] Migration: `clips.gain` (1), `fade_in` (0), `fade_out` (0). The engine applies gain and fades with
-        gain ramps, plus a few-millisecond automatic declick fade on every clip edge.
-  - [ ] Waveform drawing reflects clip gain. Changes are undoable (editor store).
-- **Context:** Add "Options…" to `clip-action-bar.tsx` (and an `onOptions` to `ClipEditing` in `timeline.tsx`,
-  wired in `project-screen.tsx`). Clips play through one `GainNode` per track (`play()` in `audio-engine.ts`), so clip gain and
-  fades need a per-clip `GainNode` between the source and its track gain (add `gain`/fades to `PlayableClip`).
 
 ### T19 — Folders & favorites
 
@@ -133,7 +78,10 @@ Android builds, and leave Android checks in the tickets / Device checks for late
         subfolder of itself). Select mode (Edit) for moving or deleting several at once.
   - [ ] Search spans every folder and shows each result's folder path.
   - [ ] Unit tests for the tree logic (descendants, move validation, delete counts).
-- **Context:** The Ideas stack is `src/app/(tabs)/(home)/`. `deleteProject` deletes rows + files; T10's list code (`ideas-list.ts` sort/filter, `idea-row.tsx`, `idea-actions.ts`, `rename-idea-dialog.tsx`) is meant to be reused for a folder's contents; deleting a
+- **Context:** The Ideas search already matches idea notes too (T24: `filterIdeas`, `notesMatch` in
+  `ideas-list.ts`, shown as a snippet after the date in `idea-row.tsx`); keep that working in folders and
+  Favorites. The idea's "⋯" Favorite placeholder is in `idea-menu-items.ts` / `menuActions` in
+  `project-screen.tsx`. The Ideas stack is `src/app/(tabs)/(home)/`. `deleteProject` deletes rows + files; T10's list code (`ideas-list.ts` sort/filter, `idea-row.tsx`, `idea-actions.ts`, `rename-idea-dialog.tsx`) is meant to be reused for a folder's contents; deleting a
   folder must do that for every idea under it. A "Recently Deleted" safety net is in Backlog.
 
 ### T7 — Background recording & interruptions
@@ -258,6 +206,22 @@ skill). Fix or ticket what fails, then delete the line.
   the playhead), long-press pickup of an unselected section, a section stopping at its neighbor; the note glyph
   and right handle on a section whose end is on screen; the 4-button bar fits; light mode label contrast.
   Hit-test feel → `HANDLE_REACH`, `RAIL_TAP_REACH`, `RAIL_SIZE` in `timeline.tsx`.
+- Idea notes (T24, iPhone): the Notes sheet over a playing idea: Insert time drops the playhead time where
+  the cursor is (also while playing and recording), tapping a `[1:23]` link jumps the playhead there (while
+  playing, playback continues from there), the keyboard doesn't hide the text being typed (sheet at 0.6 / 0.9),
+  the dot on the Notes button, closing the sheet mid-typing keeps the text. Ideas search finds an idea by a word
+  in its notes and shows the snippet after the date (not seen: the simulator tool couldn't focus the native
+  search bar).
+- Clip options (T16, iPhone, never heard): fades in/out sound smooth; no click at trimmed clip edges (3 ms
+  declick, `DECLICK_SECONDS` in `clip-envelope.ts`); a clip split in two still plays seamlessly through the
+  split; clip gain −∞…+6 dB, applied on slider release (playing: a short restart); Restore full take; all of it
+  with Undo. The fade corners and waveform scaling on the timeline in light and dark mode.
+- Pitch keyboard (T20, iPhone, never heard: the simulator has no sound): latency feels instant; chords with
+  several fingers; sliding across keys plays each one; sliding on the keys doesn't drag the sheet down (if it
+  does, the manual gesture's `GestureStateManager.activate` isn't claiming the touch); the tone and its release
+  (`NOTE_*` constants in `audio-engine.ts`); playing along with playback; Settings → Pitch keyboard volume;
+  octave buttons; a key tapped with VoiceOver sounds briefly. With the mic armed or recording, only what the
+  mic hears ends up in a take.
 - App icons: the DEV icon on the iPhone home screen (installed 2026-11-14); the PREVIEW icon after the next
   preview build (`npm run build:preview`, iOS only while Android is paused).
 - Android: the old "Idea 1" clip drew without a waveform on the emulator (missing take file or peaks?).
@@ -270,13 +234,21 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   a full lane it's barely visible (tint over the clips, or dim outside the region instead?); the start handle
   covers the playhead's ruler handle when both sit at the region start (handles win; the default region starts
   at the playhead). Drawing and hit-testing are in `timeline.tsx` (`loopEdgeAt`, `LOOP_REACH_*`).
+- Clip options polish (from T16, decide after hearing it): clip gain applies on slider release (a live
+  preview while dragging needs an engine hook to reach the playing clip's `GainNode`); fades are presets
+  (Off…4 s), not dragged on the clip; Speaker mode's echo reference uses clip gain but ignores fades
+  (`echo-reference.ts`), fine unless cleaning of faded clips gets worse.
+- `settings-screen.test.tsx` keeps Jest from exiting on its own (a timer or handle from the storage or
+  appearance code; pre-existing, seen with T20): `npm run check` passes but Jest force-exits a worker. Find it
+  with `npx jest src/features/settings/settings-screen --detectOpenHandles`.
 - Loop recording & takes, to rethink with the user after the current Up next list: singing over a loop again
   and again, keeping passes as alternate takes (badge + picker), comping one take from several passes, looping
   a clip or section directly, a punch-out end point. Clips are already windows onto immutable takes (`db.ts`),
   so alternates need no new files.
 - Export & share (deferred): mixdown via `OfflineAudioContext` + a JS WAV encoder, shared with `expo-sharing`;
   consider per-track stems from 0:00 for rebuilding in a DAW. Must match playback (track volume/mute/solo via
-  `trackOutputGain` in `mixer.ts`, clip gain/fades from T16) and leave out the metronome and keyboard.
+  `trackOutputGain` in `mixer.ts`, clip gain/fades from T16 via `envelopePoints` in `clip-envelope.ts`) and leave
+  out the metronome and keyboard.
 - Track colors (picked in the track sheet, used for clips and the name pill).
 - Track column border weight (open, from T28): vertical edges are 1 pt (mixer toggle, each track cell in
   `track-column.tsx`), every horizontal divider is a hairline (lane separators in `timeline.tsx`, the "New
@@ -293,10 +265,11 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   `play()` from `audio-engine.ts`; only one idea plays at a time).
 - First-class chord progressions per section (chord picker, chord symbols drawn on the section rail). Revisit
   once T24's idea notes and T18's section notes have been used for a while.
-- Tuner: show the pitch the mic hears (note + cents), next to T20's keyboard.
+- Tuner: show the pitch the mic hears (note + cents), next to T20's keyboard (`nearestNote` in
+  `src/features/audio/pitch.ts` already maps a frequency to note + cents; needs pitch detection on mic buffers).
 - Pitched, not agreed yet (recording-focused tools, not DAW features):
-  - Flag button while playing or recording: drops a `[1:23] ★` time stamp into the idea's notes (T24) to mark
-    "that part was good".
+  - Flag button while playing or recording: drops a `[1:23] ★` time stamp into the idea's notes (T24 is done:
+    `insertTimeStamp` / `setIdeaNotes`) to mark "that part was good".
   - Latency auto-calibration in Settings → Recording: plays clicks from the speaker, hears them with the mic,
     and sets the offset, instead of tuning it by ear.
   - Slow listening (0.5× / 0.75×, pitch kept, via `createBufferSource({ pitchCorrection })`) for working out
@@ -325,6 +298,23 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T20 — Pitch reference keyboard — 2026-11-14 — keyboard button in the strip opens a short sheet
+  (`src/features/keyboard/pitch-keyboard-sheet.tsx`): as many white keys as fit (≥ 40 pt, one octave + on a
+  phone), octave buttons (start remembered), one manual multi-touch gesture follows every finger (chords,
+  glissando), held notes named; tone synthesized in the engine (`startNote` / `stopNote`: sine partials,
+  attack/decay/release, own bus, `prepareKeyboard` on open); note math in `pitch.ts`; Settings → Pitch keyboard
+  volume (`keyboard-settings-store.ts`). Simulator light + dark; never heard
+- T16 — Clip options — 2026-11-14 — "Options" in the clip action bar opens a sheet (gain slider, fade in/out
+  presets, Restore full take where it fits, Delete), each one undo step, playback picks it up
+  (`transport-link.ts` `replay`); `clips.gain/fade_in/fade_out` (migration v11, copied by Duplicate); engine
+  plays every clip through its own envelope `GainNode` (`clip-envelope.ts`: gain, fades, 3 ms declick except at
+  seamless split joints); split/overlap cuts drop fades on new edges; waveform scales with clip gain, fade
+  corners drawn. Simulator light; never heard
+- T24 — Idea notes — 2026-11-14 — Notes button in the strip (dot when there are notes) and in "⋯" open a sheet
+  (`idea-notes-sheet.tsx`): edit with Insert time (`[1:23]` at the cursor), read mode with time stamps as links
+  that seek (also while playing, via `transport-link.ts`); `projects.notes` (migration v10), saved debounced and
+  on close, not undoable, copied by Duplicate; Ideas search also matches notes and shows the snippet. Seen on the
+  simulator (search snippet: unit tests only)
 - T18 — Section labels — 2026-11-14 — colored rail above the ruler (`section-rail.ts`, `section-math.ts`);
   tap empty rail → picker (`new-section.tsx` sheet: 6 presets numbered when repeated, Custom name + palette),
   8 bars / 15 s cut at the next section; tap a section → playhead to its start + action bar (Rename via the
@@ -338,19 +328,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   gapless looped playback: clips rescheduled per pass ~1 s ahead with 5 ms crossfades at cuts, clicks follow
   the wrap (`loop-math.ts`, engine `scheduleLoop`); Record while looping stops the loop and records straight
   through. Simulator light + dark; not heard on a device
-- T35 — Live waveform in step with the take during pre-roll — 2026-11-14 — `drawLivePeaks` anchors bars at the
-  take file's start (`peaksStart`, before the punch with pre-roll) instead of the punch; the index/x math is in
-  `livePeakRange` / `livePeakPoint` (`timeline-math.ts`, unit tests). Seen on the simulator
-- T31 — Grid visibility & snap; pre-roll button in the transport — 2026-11-14 — pre-roll toggle is a plain icon
-  right of Record (empty slot on the left keeps Back/Play/Record in place); per-idea Snap toggle in the strip
-  (`projects.snap`, migration v7, saved not undoable, copied by Duplicate, disabled with the grid hidden); Snap
-  off = no grid snapping for clips (clip edges still snap) and dotted fainter grid lines; sticky playhead on
-  ruler scrub/tap with a haptic (`activeSnapStep`, `stickyTime` in `grid-math.ts`); beat lines stronger
-  (`GRID_BEAT_ALPHA` 0.32, bar 1.5 pt); "Record new idea" starts with the grid off, "+" with it on
-  (`createProject({ grid })`). Simulator light + dark; device check pending
-- T34 — Silent recording — 2026-11-14 — Settings → Silent recording (off by default, speaker only like
-  Speaker mode): the run-up plays as usual, then the whole output fades out on the master gain 100–70 ms
-  before the punch (`silenceOutput` in `audio-engine.ts`, `silentFade` / `punchLead` in `take-alignment.ts`;
-  on-the-fly punches come ~0.1 s later so the fade fits); pre-roll off = backing runs muted from the start;
-  beat display shows while recording silently even for Sound-only metronomes; Speaker mode skips cleaning
-  silent takes. Simulator + unit tests only; device check pending

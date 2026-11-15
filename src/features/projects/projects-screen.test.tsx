@@ -105,6 +105,7 @@ const idea = (overrides: Partial<ProjectSummary>): ProjectSummary => ({
   createdAt: 0,
   updatedAt: 0,
   duration: 0,
+  notes: '',
   ...overrides,
 });
 

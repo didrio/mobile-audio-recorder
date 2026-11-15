@@ -9,6 +9,9 @@ const clip = (overrides: Partial<BackingPlayed['clips'][number]> = {}) => ({
   offset: 0,
   duration: 10,
   gain: 1,
+  fadeIn: 0,
+  fadeOut: 0,
+  trackGain: 1,
   ...overrides,
 });
 
@@ -23,9 +26,12 @@ const plan = (backing: Partial<BackingPlayed>, fileStart = 2, fileDuration = 4) 
 
 describe('echoPlan', () => {
   it('places what played relative to the recorded file', () => {
-    expect(plan({ clips: [clip({ start: 1, offset: 0.5, gain: 0.7 })] })?.clips).toEqual([
+    expect(
+      plan({ clips: [clip({ start: 1, offset: 0.5, trackGain: 0.7, gain: 0.5 })] })?.clips,
+    ).toEqual([
       // Plays from 1 on the timeline; the file starts at 2, so the window starts 1 s before it.
-      { path: '/abs/takes/a.wav', gain: 0.7, fileStart: -1, offset: 0.5, duration: 5 },
+      // Gain is the clip gain times the track gain.
+      { path: '/abs/takes/a.wav', gain: 0.35, fileStart: -1, offset: 0.5, duration: 5 },
     ]);
   });
 
@@ -52,6 +58,7 @@ describe('echoPlan', () => {
     expect(
       plan({
         clips: [
+          clip({ trackGain: 0 }),
           clip({ gain: 0 }),
           clip({ start: 0, duration: 1 }), // ends before the file starts
           clip({ start: 7, duration: 2 }), // starts after it ends

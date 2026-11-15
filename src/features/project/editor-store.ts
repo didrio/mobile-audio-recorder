@@ -26,12 +26,14 @@ import {
   setMetronome,
   setLoop,
   setPreRoll,
+  setProjectNotes,
   setSnap,
   type IdeaSettings,
   type Project,
   type Take,
 } from '@/features/projects/projects-repo';
 import { projectKeys } from '@/features/projects/queries';
+import { dbToGain, MAX_DB } from '@/features/timeline/fader-math';
 
 import { applyToProject, invertEdit, type Change, type Edit } from './edit-changes';
 import {
@@ -47,7 +49,10 @@ import {
   duplicateClipEdit,
   placeClipEdit,
   recordTakeEdit,
+  restoreClipEdit,
+  setClipOptionsEdit,
   setIdeaSettingsEdit,
+  type ClipOptions,
   splitClipEdit,
   type ClipPlacement,
   moveTrackEdit,
@@ -97,6 +102,7 @@ const closedState: EditorState = {
 export const useEditorStore = create<EditorState>()(() => closedState);
 
 const SAVE_ERROR = 'A change could not be saved, so the idea was reloaded.';
+const NOTES_SAVE_ERROR = 'The notes could not be saved.';
 
 /** Bumped by every open and close, so a slow load can't fill in an idea that is no longer open. */
 let session = 0;
@@ -308,6 +314,31 @@ export function duplicateClip(clipId: string): string | null {
   return result?.copyId ?? null;
 }
 
+/**
+ * Changes a clip's gain and/or fades (T16) as one undo step. Gain is capped at the fader's top
+ * (`MAX_DB`). Returns whether anything changed.
+ */
+export function setClipOptions(
+  clipId: string,
+  patch: Partial<ClipOptions>,
+  label?: string,
+): boolean {
+  const { project } = useEditorStore.getState();
+  const edit = project
+    ? setClipOptionsEdit(project, clipId, patch, { label, maxGain: dbToGain(MAX_DB) })
+    : null;
+  void executeEdit(edit);
+  return edit != null;
+}
+
+/** "Restore full take" (T16): the clip grows back towards its whole take. Returns whether it changed. */
+export function restoreClip(clipId: string): boolean {
+  const { project } = useEditorStore.getState();
+  const edit = project ? restoreClipEdit(project, clipId) : null;
+  void executeEdit(edit);
+  return edit != null;
+}
+
 export function deleteClip(clipId: string): Promise<void> {
   const { project } = useEditorStore.getState();
   return executeEdit(project ? deleteClipEdit(project, clipId) : null);
@@ -351,6 +382,26 @@ export function setSectionNotes(sectionId: string, notes: string): Promise<void>
 export function deleteSection(sectionId: string): Promise<void> {
   const { project } = useEditorStore.getState();
   return executeEdit(project ? deleteSectionEdit(project, sectionId) : null);
+}
+
+/**
+ * Replaces the idea's notes (T24) in memory and saves them. Not an undo step (the text field has its
+ * own undo), so the notes sheet calls it debounced while typing and once more when it closes.
+ */
+export function setIdeaNotes(notes: string): Promise<void> {
+  const { project, projectId } = useEditorStore.getState();
+  if (!project || !projectId || project.notes === notes) return Promise.resolve();
+  useEditorStore.setState({ project: { ...project, notes } });
+  return enqueue(() =>
+    setProjectNotes(projectId, notes).then(
+      () => onSaved?.(),
+      () => {
+        if (useEditorStore.getState().projectId === projectId) {
+          useEditorStore.setState({ saveError: NOTES_SAVE_ERROR });
+        }
+      },
+    ),
+  );
 }
 
 /** Arms `trackId` (disarming the previous one), or disarms everything with `null`. Saved, not undoable. */

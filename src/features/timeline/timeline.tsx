@@ -189,6 +189,10 @@ type ClipShape = {
   row: number;
   /** Muted, or another track is soloed: drawn faded. */
   silent: boolean;
+  /** Clip gain (linear, T16): scales the waveform. Fades in seconds: drawn over the clip's corners. */
+  gain: number;
+  fadeIn: number;
+  fadeOut: number;
   /** One path per detail level, in clip-local seconds × amplitude (-1…1); null while loading. */
   waveform: SkPath[] | null;
   /** The same for the whole take (only for the selected clip, so a trim can reveal more of it). */
@@ -204,6 +208,8 @@ export type ClipEditing = {
   onSplit: (clipId: string, at: number) => void;
   /** Copy it to right after itself; returns the copy's id (it gets selected). */
   onDuplicate: (clipId: string) => string | null;
+  /** Open the clip's options (gain, fades, restore; T16). The clip stays selected. */
+  onOptions: (clipId: string) => void;
   onDelete: (clipId: string) => void;
 };
 
@@ -378,6 +384,9 @@ export function Timeline({
         takeDuration: take?.duration ?? clip.offset + clip.duration,
         row,
         silent: anySolo ? !track.solo : track.muted,
+        gain: clip.gain,
+        fadeIn: clip.fadeIn,
+        fadeOut: clip.fadeOut,
         waveform: levels ? waveformPaths(levels, clip.offset, clip.duration) : null,
         takeWaveform:
           levels && take && clip.id === selectedId ? waveformPaths(levels, 0, take.duration) : null,
@@ -1257,8 +1266,29 @@ export function Timeline({
           canvas.clipRect(rect, ClipOp.Intersect, true);
           // x of the path's 0: the take's start, or the saved window's start.
           canvas.translate(x0 - (offset - (whole ? 0 : clip.offset)) * z, top + height / 2);
-          canvas.scale(z, (height / 2 - CLIP_INSET) * gain);
+          canvas.scale(z, (height / 2 - CLIP_INSET) * gain * clip.gain);
           canvas.drawPath(path, paints.waveform);
+          canvas.restore();
+        }
+        // Fades (T16): the corner above each fade line is shaded. Fades longer than the clip are
+        // drawn shortened together, as the engine plays them (`effectiveFades`).
+        const fadeTotal = clip.fadeIn + clip.fadeOut;
+        const fadeScale = fadeTotal > length && fadeTotal > 0 ? length / fadeTotal : 1;
+        for (const [fade, edge, toward] of [
+          [clip.fadeIn * fadeScale * z, x0, 1],
+          [clip.fadeOut * fadeScale * z, x0 + width, -1],
+        ] as const) {
+          if (fade < 0.5) continue;
+          const corner = Skia.PathBuilder.Make()
+            .moveTo(edge, top)
+            .lineTo(edge + toward * fade, top)
+            .lineTo(edge, top + height)
+            .close()
+            .detach();
+          canvas.save();
+          canvas.clipRRect(rrect, ClipOp.Intersect, true);
+          canvas.drawPath(corner, paints.fadeShade);
+          canvas.drawLine(edge, top + height, edge + toward * fade, top, paints.fadeLine);
           canvas.restore();
         }
         if (clip.id === pressed) {
@@ -1611,6 +1641,7 @@ export function Timeline({
                   const copyId = clipEditing.onDuplicate(selected.id);
                   if (copyId) selectClip(copyId);
                 }}
+                onOptions={() => clipEditing.onOptions(selected.id)}
                 onDelete={() => {
                   clipEditing.onDelete(selected.id);
                   selectClip(null);
@@ -1745,6 +1776,8 @@ function makePaints(colors: ThemeColors) {
       return paint;
     })(),
     centerLine: stroke(colors.waveform, StyleSheet.hairlineWidth),
+    fadeShade: fill(colors.background, 0.55),
+    fadeLine: stroke(colors.waveform, 1.5),
     waveform: fill(colors.waveform),
     recording: fill(colors.primary, 0.2),
     liveWaveform: fill(colors.primary, 0.8),

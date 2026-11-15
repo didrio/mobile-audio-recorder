@@ -2,10 +2,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render as rntlRender, screen } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
 import { Appearance } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { storage } from '@/lib/storage';
 
 import { useAppearanceStore } from './appearance-store';
+import { useKeyboardSettingsStore } from './keyboard-settings-store';
 import { useRecordingSettingsStore } from './recording-settings-store';
 import { SettingsScreen } from './settings-screen';
 
@@ -14,13 +16,26 @@ jest.mock('@/features/audio/take-files', () => ({ recordingsSizeBytes: () => 5 *
 
 const render = (element: ReactElement) =>
   rntlRender(
-    <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      {element}
-    </QueryClientProvider>,
+    <GestureHandlerRootView>
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        {element}
+      </QueryClientProvider>
+    </GestureHandlerRootView>,
   );
 
 describe('SettingsScreen', () => {
+  it('changes the pitch keyboard volume (saved when the slider is let go)', async () => {
+    useKeyboardSettingsStore.setState({ keyboardVolume: 1 });
+    await render(<SettingsScreen />);
+    const slider = screen.getByRole('adjustable', { name: 'Keyboard volume' });
+
+    await fireEvent(slider, 'accessibilityAction', { nativeEvent: { actionName: 'decrement' } });
+
+    expect(useKeyboardSettingsStore.getState().keyboardVolume).toBeLessThan(1);
+    expect(slider).toHaveAccessibilityValue({ text: '−1.0 dB' });
+  });
+
   it('shows the storage used by recordings', async () => {
     await render(<SettingsScreen />);
 

@@ -18,6 +18,9 @@ import {
   moveTrackEdit,
   recordTakeEdit,
   renameTrackEdit,
+  restoreClipEdit,
+  restoredClipWindow,
+  setClipOptionsEdit,
   setIdeaSettingsEdit,
   setTrackMutedEdit,
   setTrackSoloEdit,
@@ -371,6 +374,87 @@ describe('clip edits', () => {
         { id: copyId, start: 10, offset: 0, duration: 10 },
       ]);
       expect(undoClips(edit)).toEqual(clips);
+    });
+  });
+
+  describe('clip options (T16)', () => {
+    const fadesOf = (p: Project, clipId: string) => {
+      const clip = p.tracks.flatMap((track) => track.clips).find((c) => c.id === clipId)!;
+      return { gain: clip.gain, fadeIn: clip.fadeIn, fadeOut: clip.fadeOut };
+    };
+
+    it('sets gain and fades as one undoable step, clamped', () => {
+      const edit = setClipOptionsEdit(
+        clips,
+        'c1',
+        { gain: 3, fadeIn: -1, fadeOut: 99 },
+        { maxGain: 2 },
+      )!;
+
+      expect(fadesOf(applyToProject(clips, edit.changes), 'c1')).toEqual({
+        gain: 2,
+        fadeIn: 0,
+        fadeOut: 10,
+      });
+      expect(undoClips(edit)).toEqual(clips);
+    });
+
+    it('does nothing when nothing changes or the clip is missing', () => {
+      expect(setClipOptionsEdit(clips, 'c1', { gain: 1, fadeIn: 0 })).toBeNull();
+      expect(setClipOptionsEdit(clips, 'nope', { gain: 0.5 })).toBeNull();
+    });
+
+    it('keeps the fades on the outer edges when splitting, and the gain on both halves', () => {
+      const styled = applyToProject(
+        clips,
+        setClipOptionsEdit(clips, 'c3', { gain: 0.5, fadeIn: 1, fadeOut: 1 })!.changes,
+      );
+      const { edit, tailId } = splitClipEdit(styled, 'c3', 14)!;
+      const split = applyToProject(styled, edit.changes);
+
+      expect(fadesOf(split, 'c3')).toEqual({ gain: 0.5, fadeIn: 1, fadeOut: 0 });
+      expect(fadesOf(split, tailId)).toEqual({ gain: 0.5, fadeIn: 0, fadeOut: 1 });
+    });
+
+    it('drops the fade on an edge that a placed clip cuts', () => {
+      const styled = applyToProject(
+        clips,
+        setClipOptionsEdit(clips, 'c1', { fadeIn: 1, fadeOut: 2 })!.changes,
+      );
+      // c3 moved to 8…12 covers c1's tail (8…10): c1 keeps its head and fade in, loses its fade out.
+      const edit = placeClipEdit(styled, 'c3', {
+        trackId: 'a',
+        start: 8,
+        offset: 12,
+        duration: 4,
+      })!;
+
+      expect(fadesOf(applyToProject(styled, edit.changes), 'c1')).toEqual({
+        gain: 1,
+        fadeIn: 1,
+        fadeOut: 0,
+      });
+    });
+
+    it('restores the full take as far as the neighbors and 0:00 allow, keeping the audio in place', () => {
+      // c3 shows take 12…16 at 12…16; the take (0…20) would span 0…20, but c1 ends at 10.
+      expect(restoredClipWindow(clips, 'c3')).toEqual({ start: 10, offset: 10, duration: 10 });
+      const edit = restoreClipEdit(clips, 'c3')!;
+
+      expect(clipsOf(applyToProject(clips, edit.changes), 'a')[1]).toEqual({
+        id: 'c3',
+        start: 10,
+        offset: 10,
+        duration: 10,
+      });
+      expect(undoClips(edit)).toEqual(clips);
+    });
+
+    it('has nothing to restore for a clip showing its whole take or boxed in', () => {
+      expect(restoredClipWindow(clips, 'c1')).toEqual({ start: 0, offset: 0, duration: 12 });
+      const whole = applyToProject(clips, restoreClipEdit(clips, 'c1')!.changes);
+      expect(restoredClipWindow(whole, 'c1')).toBeNull();
+      expect(restoreClipEdit(clips, 'nope')).toBeNull();
     });
   });
 

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect } from 'expo-router';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { Pressable, Switch, View } from 'react-native';
 
 import {
@@ -15,11 +15,14 @@ import {
 } from '@/components/ui';
 import { recordingsSizeBytes } from '@/features/audio/take-files';
 import { formatBytes } from '@/features/projects/ideas-list';
+import { formatDb } from '@/features/timeline/fader-math';
+import { VolumeSlider } from '@/features/timeline/volume-slider';
 import { appInfo, runtimeLabels } from '@/lib/app-info';
 import { isEchoCancellerAvailable } from '@/lib/echo-canceller';
 import { makeStyles, useTheme } from '@/theme';
 
 import { useAppearanceStore, type AppearancePreference } from './appearance-store';
+import { useKeyboardSettingsStore } from './keyboard-settings-store';
 import {
   LATENCY_OFFSET_MAX_MS,
   LATENCY_OFFSET_MIN_MS,
@@ -70,6 +73,11 @@ export function SettingsScreen() {
   const setPreRollSeconds = useRecordingSettingsStore((state) => state.setPreRollSeconds);
   const preRollBars = useRecordingSettingsStore((state) => state.preRollBars);
   const setPreRollBars = useRecordingSettingsStore((state) => state.setPreRollBars);
+  const keyboardVolume = useKeyboardSettingsStore((state) => state.keyboardVolume);
+  const setKeyboardVolume = useKeyboardSettingsStore((state) => state.setKeyboardVolume);
+  // The volume while its slider is dragged (saved on release).
+  const [draggedKeyboardVolume, setDraggedKeyboardVolume] = useState<number | null>(null);
+  const shownKeyboardVolume = draggedKeyboardVolume ?? keyboardVolume;
   // Recomputed whenever the tab is shown, since ideas change elsewhere.
   const storage = useQuery({
     queryKey: ['storage', 'recordings'],
@@ -189,6 +197,26 @@ export function SettingsScreen() {
         </View>
       </ListSection>
 
+      <ListSection
+        title="Pitch keyboard"
+        footer="The keyboard button above an idea's timeline plays any note, to find a starting note or check a key. It's never recorded, except what the mic hears.">
+        <View style={styles.volumeRow}>
+          <Text>Volume</Text>
+          <VolumeSlider
+            label="Keyboard volume"
+            gain={shownKeyboardVolume}
+            onDrag={setDraggedKeyboardVolume}
+            onRelease={(volume) => {
+              setDraggedKeyboardVolume(null);
+              setKeyboardVolume(volume);
+            }}
+          />
+          <Text variant="footnote" color="textSecondary" style={styles.volumeValue}>
+            {formatDb(shownKeyboardVolume)}
+          </Text>
+        </View>
+      </ListSection>
+
       <ListSection title="Storage" footer="Audio files of all your ideas, on this device.">
         <ListRow
           title="Recordings"
@@ -296,6 +324,14 @@ function StepButton({
 
 const useStyles = makeStyles((t) => ({
   segmentRow: { padding: t.spacing.md, gap: t.spacing.xs },
+  volumeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: t.spacing.md,
+    paddingHorizontal: t.spacing.lg,
+    paddingVertical: t.spacing.sm,
+  },
+  volumeValue: { minWidth: 60, textAlign: 'right', fontVariant: ['tabular-nums'] },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.sm, marginLeft: 'auto' },
   stepperValue: { minWidth: 56, textAlign: 'center', fontVariant: ['tabular-nums'] },
   stepButton: {

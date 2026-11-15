@@ -16,6 +16,8 @@ type Props = {
   idea: ProjectSummary;
   /** Which date to show under the name. */
   dateKind: 'updated' | 'created';
+  /** While searching: the bit of the notes that matched (`notesMatch`), shown after the date. */
+  match?: string | null;
   onOpen: () => void;
   onAction: (action: IdeaAction) => void;
   onLongPress: () => void;
@@ -38,7 +40,7 @@ const ACTIONS: {
 ];
 
 /** One idea in the list: tap to open, swipe left for Rename / Duplicate / Delete, long-press for the same menu. */
-export function IdeaRow({ idea, dateKind, onOpen, onAction, onLongPress }: Props) {
+export function IdeaRow({ idea, dateKind, match, onOpen, onAction, onLongPress }: Props) {
   const styles = useStyles();
   const swipeable = useRef<SwipeableMethods>(null);
   const date = formatIdeaDate(dateKind === 'created' ? idea.createdAt : idea.updatedAt);
@@ -75,7 +77,7 @@ export function IdeaRow({ idea, dateKind, onOpen, onAction, onLongPress }: Props
       )}>
       <ListRow
         title={idea.name}
-        subtitle={date}
+        subtitle={match ? `${date} · ${match}` : date}
         value={formatDuration(idea.duration)}
         onPress={onOpen}
         onLongPress={onLongPress}

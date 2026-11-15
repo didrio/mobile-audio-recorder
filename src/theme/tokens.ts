@@ -68,6 +68,12 @@ export const lightColors = {
   sectionPurple: '#C9B1F0',
   sectionPink: '#F0AED2',
   onSection: '#1C1C1E',
+  /** Pitch reference keyboard (T20): key faces, their outline, a held key, and the note names. */
+  keyWhite: '#FFFFFF',
+  keyBlack: '#1C1C1E',
+  keyBorder: '#C7C7CC',
+  keyHeld: '#A9C2F4',
+  keyLabel: '#8E8E93',
   /** Dimmed backdrop behind dialogs. */
   scrim: '#00000066',
 } as const;
@@ -113,6 +119,12 @@ export const darkColors: ThemeColors = {
   sectionPurple: '#6845A8',
   sectionPink: '#9A3A70',
   onSection: '#FFFFFF',
+  // Dimmer white keys than in light mode, so the keyboard doesn't glare in a dark room.
+  keyWhite: '#D1D1D6',
+  keyBlack: '#000000',
+  keyBorder: '#3A3A3C',
+  keyHeld: '#82A9F2',
+  keyLabel: '#636366',
   /** Dimmed backdrop behind dialogs. */
   scrim: '#00000066',
 };

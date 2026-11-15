@@ -229,6 +229,7 @@ jest.mock('@/features/projects/projects-repo', () => ({
 const project: Project = {
   id: 'p1',
   name: 'Chorus riff',
+  notes: '',
   createdAt: 0,
   updatedAt: 0,
   duration: 12,
@@ -265,7 +266,19 @@ const project: Project = {
       volume: 1,
       muted: false,
       solo: false,
-      clips: [{ id: 'c1', trackId: 'track1', takeId: 't1', start: 0, offset: 0, duration: 12 }],
+      clips: [
+        {
+          id: 'c1',
+          trackId: 'track1',
+          takeId: 't1',
+          start: 0,
+          offset: 0,
+          duration: 12,
+          gain: 1,
+          fadeIn: 0,
+          fadeOut: 0,
+        },
+      ],
     },
   ],
 };
@@ -436,7 +449,10 @@ describe('ProjectScreen', () => {
             start: 0,
             offset: 0,
             duration: 10,
-            gain: 0.8,
+            gain: 1,
+            fadeIn: 0,
+            fadeOut: 0,
+            trackGain: 0.8,
           },
         ],
         cuts: [],
@@ -939,6 +955,33 @@ describe('ProjectScreen', () => {
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/idea-settings/[id]',
       params: { id: 'p1' },
+    });
+  });
+
+  it('opens the notes from the strip and the menu; a dot shows once the idea has notes', async () => {
+    jest.mocked(getProject).mockResolvedValue({ ...project, notes: '[0:45] chorus: Fmaj7' });
+    const user = userEvent.setup();
+    await renderScreen();
+    await screen.findByText('Timeline of Chorus riff');
+
+    const notesButton = screen.getByRole('button', { name: 'Notes' });
+    expect(notesButton).toHaveAccessibilityValue({ text: 'Has content' });
+    await user.press(notesButton);
+    await user.press(screen.getByRole('menuitem', { name: 'Notes' }));
+
+    expect(mockPush).toHaveBeenCalledTimes(2);
+    expect(mockPush).toHaveBeenLastCalledWith({
+      pathname: '/idea-notes/[id]',
+      params: { id: 'p1' },
+    });
+  });
+
+  it('shows no notes dot for an idea without notes', async () => {
+    await renderScreen();
+    await screen.findByText('Timeline of Chorus riff');
+
+    expect(screen.getByRole('button', { name: 'Notes' })).not.toHaveAccessibilityValue({
+      text: 'Has content',
     });
   });
 

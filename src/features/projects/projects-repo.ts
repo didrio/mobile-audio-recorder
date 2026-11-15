@@ -29,6 +29,8 @@ export type ProjectSummary = {
   updatedAt: number;
   /** End of the last clip, in seconds. */
   duration: number;
+  /** The idea's notes (T24); '' when there are none. The Ideas search looks in them too. */
+  notes: string;
 };
 
 export type Track = {
@@ -59,6 +61,11 @@ export type Clip = {
   start: number;
   offset: number;
   duration: number;
+  /** Clip gain (T16), linear: 1 = 0 dB. */
+  gain: number;
+  /** Fade lengths in seconds (0 = none); the engine shortens them to fit the clip. */
+  fadeIn: number;
+  fadeOut: number;
 };
 
 /** A labelled span of the timeline (T18): Intro, Verse… Sections never overlap. */
@@ -126,6 +133,7 @@ type ProjectRow = {
   loop_on: number;
   loop_start: number | null;
   loop_end: number | null;
+  notes: string;
   duration: number;
 };
 type TrackRow = {
@@ -162,12 +170,15 @@ type ClipRow = {
   start: number;
   offset: number;
   duration: number;
+  gain: number;
+  fade_in: number;
+  fade_out: number;
 };
 
 const PROJECT_COLUMNS = `
   p.id, p.name, p.created_at, p.updated_at, p.armed_track_id, p.pre_roll, p.snap,
   p.bpm, p.beats_per_bar, p.beat_unit, p.grid, p.metronome, p.metronome_volume,
-  p.metronome_output, p.loop_on, p.loop_start, p.loop_end,
+  p.metronome_output, p.loop_on, p.loop_start, p.loop_end, p.notes,
   COALESCE((
     SELECT MAX(c.start + c.duration) FROM clips c JOIN tracks t ON t.id = c.track_id
     WHERE t.project_id = p.id
@@ -180,6 +191,7 @@ function toSummary(row: ProjectRow): ProjectSummary {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     duration: row.duration,
+    notes: row.notes,
   };
 }
 
@@ -240,6 +252,9 @@ export async function getProject(id: string): Promise<Project | null> {
         start: clip.start,
         offset: clip.offset,
         duration: clip.duration,
+        gain: clip.gain,
+        fadeIn: clip.fade_in,
+        fadeOut: clip.fade_out,
       })),
   }));
 
@@ -315,6 +330,20 @@ export async function setLoop(
 }
 
 /**
+ * Saves the idea's notes (T24). Not an undo step, but it is a change to the idea, so it moves up in
+ * "Recent".
+ */
+export async function setProjectNotes(projectId: string, notes: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    'UPDATE projects SET notes = ?, updated_at = ? WHERE id = ?',
+    notes,
+    Date.now(),
+    projectId,
+  );
+}
+
+/**
  * Creates a project with one empty track, armed. Without a name it's called "Idea N". `grid` is
  * whether the bar/beat grid shows from the start: off for quick capture, on for a deliberate blank idea.
  */
@@ -350,7 +379,7 @@ export async function createProject(
     await tx.runAsync('UPDATE projects SET armed_track_id = ? WHERE id = ?', firstTrackId, id);
   });
 
-  return { id, name: projectName, createdAt: now, updatedAt: now, duration: 0 };
+  return { id, name: projectName, createdAt: now, updatedAt: now, duration: 0, notes: '' };
 }
 
 /** Renames an idea (blank names are ignored). Counts as an edit, so it moves up in "Recent". */
@@ -394,8 +423,8 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
     await db.withExclusiveTransactionAsync(async (tx) => {
       await tx.runAsync(
         `INSERT INTO projects (id, name, created_at, updated_at, pre_roll, snap, bpm, beats_per_bar, beat_unit, grid,
-           metronome, metronome_volume, metronome_output, loop_on, loop_start, loop_end)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           metronome, metronome_volume, metronome_output, loop_on, loop_start, loop_end, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         newId,
         name,
         now,
@@ -412,6 +441,7 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
         source.loopOn ? 1 : 0,
         source.loopRegion?.start ?? null,
         source.loopRegion?.end ?? null,
+        source.notes,
       );
       for (const track of source.tracks) {
         await tx.runAsync(
@@ -442,14 +472,17 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
       for (const track of source.tracks) {
         for (const clip of track.clips) {
           await tx.runAsync(
-            `INSERT INTO clips (id, track_id, take_id, start, offset, duration)
-             VALUES (?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO clips (id, track_id, take_id, start, offset, duration, gain, fade_in, fade_out)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             randomUUID(),
             trackIds.get(track.id)!,
             takeIds.get(clip.takeId)!,
             clip.start,
             clip.offset,
             clip.duration,
+            clip.gain,
+            clip.fadeIn,
+            clip.fadeOut,
           );
         }
       }
@@ -485,6 +518,7 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
     createdAt: now,
     updatedAt: now,
     duration: source.duration,
+    notes: source.notes,
   };
 }
 
@@ -557,15 +591,20 @@ export async function saveChanges(
       if (change.table !== 'clips' || !change.after) continue;
       const clip = change.after;
       await tx.runAsync(
-        `INSERT INTO clips (id, track_id, take_id, start, offset, duration) VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO clips (id, track_id, take_id, start, offset, duration, gain, fade_in, fade_out)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET track_id = excluded.track_id, take_id = excluded.take_id,
-           start = excluded.start, offset = excluded.offset, duration = excluded.duration`,
+           start = excluded.start, offset = excluded.offset, duration = excluded.duration,
+           gain = excluded.gain, fade_in = excluded.fade_in, fade_out = excluded.fade_out`,
         clip.id,
         clip.trackId,
         clip.takeId,
         clip.start,
         clip.offset,
         clip.duration,
+        clip.gain,
+        clip.fadeIn,
+        clip.fadeOut,
       );
     }
     for (const change of changes) {

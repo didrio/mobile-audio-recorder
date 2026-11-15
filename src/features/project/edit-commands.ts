@@ -164,14 +164,26 @@ export function recordTakeEdit(project: Project, input: RecordedTakeInput): Edit
     table: 'clips',
     id: clipId,
     before: null,
-    after: { id: clipId, trackId: track.id, takeId: input.take.id, start, offset, duration },
+    after: {
+      id: clipId,
+      trackId: track.id,
+      takeId: input.take.id,
+      start,
+      offset,
+      duration,
+      ...PLAIN_CLIP,
+    },
   });
   return { label: 'Record', changes };
 }
 
+/** Clip options of a new recording: 0 dB, no fades (T16). */
+const PLAIN_CLIP = { gain: 1, fadeIn: 0, fadeOut: 0 } as const;
+
 /**
  * The changes that clear `from…to` on a track holding `clips`: overlapped clips are trimmed, split or
- * deleted (`clip-overlap.ts`). Leave out the clip being placed.
+ * deleted (`clip-overlap.ts`). Leave out the clip being placed. An edge made by the cut has no fade
+ * (a fade stays with the edge it was set on); gain is kept.
  */
 function clearRangeChanges(clips: Clip[], from: number, to: number): Change[] {
   const changes: Change[] = [];
@@ -181,18 +193,23 @@ function clearRangeChanges(clips: Clip[], from: number, to: number): Change[] {
     if (edit.kind === 'delete') {
       changes.push({ table: 'clips', id: clip.id, before: clip, after: null });
     } else if (edit.kind === 'update') {
+      const keepsHead = edit.start === clip.start;
       const after: Clip = {
         ...clip,
         start: edit.start,
         offset: edit.offset,
         duration: edit.duration,
+        fadeIn: keepsHead ? clip.fadeIn : 0,
+        fadeOut: keepsHead ? 0 : clip.fadeOut,
       };
       changes.push({ table: 'clips', id: clip.id, before: clip, after });
     } else {
       const tailId = randomUUID();
+      const head: Clip = { ...clip, duration: edit.duration, fadeOut: 0 };
+      const tail: Clip = { ...clip, id: tailId, ...edit.tail, fadeIn: 0 };
       changes.push(
-        { table: 'clips', id: clip.id, before: clip, after: { ...clip, duration: edit.duration } },
-        { table: 'clips', id: tailId, before: null, after: { ...clip, id: tailId, ...edit.tail } },
+        { table: 'clips', id: clip.id, before: clip, after: head },
+        { table: 'clips', id: tailId, before: null, after: tail },
       );
     }
   }
@@ -269,19 +286,26 @@ export function splitClipEdit(
   if (!clip || !canSplitAt(clip, at)) return null;
   const head = at - clip.start;
   const tailId = randomUUID();
+  // Both pieces keep the gain; the fades stay on the outer edges (the split point plays straight through).
   const tail: Clip = {
     ...clip,
     id: tailId,
     start: at,
     offset: clip.offset + head,
     duration: clip.duration - head,
+    fadeIn: 0,
   };
   return {
     tailId,
     edit: {
       label: 'Split clip',
       changes: [
-        { table: 'clips', id: clipId, before: clip, after: { ...clip, duration: head } },
+        {
+          table: 'clips',
+          id: clipId,
+          before: clip,
+          after: { ...clip, duration: head, fadeOut: 0 },
+        },
         { table: 'clips', id: tailId, before: null, after: tail },
       ],
     },
@@ -315,6 +339,83 @@ export function duplicateClipEdit(
         { table: 'clips', id: copyId, before: null, after: copy },
       ],
     },
+  };
+}
+
+/** The per-clip options of the Options sheet (T16). */
+export type ClipOptions = Pick<Clip, 'gain' | 'fadeIn' | 'fadeOut'>;
+
+/** Longest fade the Options sheet offers (seconds); longer values are clamped. */
+export const MAX_FADE_SECONDS = 10;
+
+/**
+ * Changes a clip's gain and/or fades (one undo step). Gain is clamped to 0…`maxGain`, fades to
+ * 0…`MAX_FADE_SECONDS`. `null` for a missing clip or when nothing changes.
+ */
+export function setClipOptionsEdit(
+  project: Project,
+  clipId: string,
+  patch: Partial<ClipOptions>,
+  { label = 'Clip options', maxGain = Infinity }: { label?: string; maxGain?: number } = {},
+): Edit | null {
+  const clip = findClip(project, clipId);
+  if (!clip) return null;
+  const fade = (value: number | undefined, current: number) =>
+    value === undefined || !Number.isFinite(value)
+      ? current
+      : Math.min(Math.max(0, value), MAX_FADE_SECONDS);
+  const after: Clip = {
+    ...clip,
+    gain:
+      patch.gain === undefined || !Number.isFinite(patch.gain)
+        ? clip.gain
+        : Math.min(Math.max(0, patch.gain), maxGain),
+    fadeIn: fade(patch.fadeIn, clip.fadeIn),
+    fadeOut: fade(patch.fadeOut, clip.fadeOut),
+  };
+  if (after.gain === clip.gain && after.fadeIn === clip.fadeIn && after.fadeOut === clip.fadeOut) {
+    return null;
+  }
+  return { label, changes: [{ table: 'clips', id: clipId, before: clip, after }] };
+}
+
+/**
+ * Where "Restore full take" would put the clip: its whole take at the same alignment (the audio stays
+ * where it is), cut back so it doesn't reach before 0:00 or into its neighbors on the track. `null`
+ * when that is no bigger than the clip already is (nothing to restore, or no room).
+ */
+export function restoredClipWindow(
+  project: Project,
+  clipId: string,
+): Pick<Clip, 'start' | 'offset' | 'duration'> | null {
+  const clip = findClip(project, clipId);
+  const take = clip ? project.takes[clip.takeId] : undefined;
+  const track = project.tracks.find((candidate) => candidate.id === clip?.trackId);
+  if (!clip || !take || !track) return null;
+  const takeStart = clip.start - clip.offset;
+  const clipEnd = clip.start + clip.duration;
+  let floor = 0;
+  let ceiling = Infinity;
+  for (const other of track.clips) {
+    if (other.id === clip.id) continue;
+    const otherEnd = other.start + other.duration;
+    if (otherEnd <= clip.start + 1e-9) floor = Math.max(floor, otherEnd);
+    else if (other.start >= clipEnd - 1e-9) ceiling = Math.min(ceiling, other.start);
+  }
+  const start = Math.min(clip.start, Math.max(takeStart, floor));
+  const end = Math.max(clipEnd, Math.min(takeStart + take.duration, ceiling));
+  if (start >= clip.start - 1e-9 && end <= clipEnd + 1e-9) return null;
+  return { start, offset: start - takeStart, duration: end - start };
+}
+
+/** "Restore full take": the clip grows back towards its whole take (`restoredClipWindow`). */
+export function restoreClipEdit(project: Project, clipId: string): Edit | null {
+  const clip = findClip(project, clipId);
+  const window = restoredClipWindow(project, clipId);
+  if (!clip || !window) return null;
+  return {
+    label: 'Restore full take',
+    changes: [{ table: 'clips', id: clipId, before: clip, after: { ...clip, ...window } }],
   };
 }
 

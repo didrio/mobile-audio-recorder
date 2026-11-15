@@ -47,8 +47,10 @@ import {
   useOpenIdea,
 } from './editor-store';
 import { IDEA_MENU_ITEMS, type IdeaMenuItemId } from './idea-menu-items';
+import { hasNotes } from './idea-notes';
 import { hasSolo, trackOutputGain } from './mixer';
 import { SECTION_NAME_MAX } from './sections';
+import { registerTransportLink } from './transport-link';
 import { useInputMeter } from './use-input-meter';
 import { useSpeakerRecording } from './use-speaker-mode';
 import { useTransport } from './use-transport';
@@ -60,8 +62,9 @@ import { useTransport } from './use-transport';
  * playing punches in on the fly; with pre-roll on, Record starts with a run-up (`use-transport.ts`). The app is portrait-only
  * (`orientation` in app.json), so there is no landscape layout. One track is
  * armed: Record records onto it while the others play. Tracks are added from the timeline's
- * "+ New Track" row. The header has Undo, Redo (enabled only while idle) and "⋯" (Idea settings, Duplicate, Delete; Favorite is a
- * placeholder until T19). The idea itself lives in the editor store (`editor-store.ts`), open while this screen is.
+ * "+ New Track" row. The header has Undo, Redo (enabled only while idle) and "⋯" (Idea settings, Notes, Duplicate, Delete;
+ * Favorite is a placeholder until T19). The strip's Notes button (dot = has notes) opens the idea notes sheet (T24),
+ * the keyboard button the pitch reference keyboard (T20). The idea itself lives in the editor store (`editor-store.ts`), open while this screen is.
  */
 export function ProjectScreen() {
   const styles = useStyles();
@@ -89,6 +92,19 @@ export function ProjectScreen() {
   const speakerRecording = useSpeakerRecording();
   const transport = useTransport(project, speakerRecording);
   const tracks = project?.tracks ?? [];
+
+  // Sheets over the idea (notes, clip options) read and move the playhead through this.
+  const { playhead, revealPlayhead, seek, replay } = transport;
+  useEffect(() =>
+    registerTransportLink({
+      playheadTime: () => playhead.get(),
+      seek: (time) => {
+        seek(time);
+        revealPlayhead.set(revealPlayhead.get() + 1);
+      },
+      replay,
+    }),
+  );
 
   const isRecording = transport.status === 'recording';
   const isPlaying = transport.status === 'playing';
@@ -137,8 +153,10 @@ export function ProjectScreen() {
   // The "⋯" menu: Favorite is the only item that doesn't do anything yet (T19); it stays disabled.
   const duplicateProject = useDuplicateProject();
   const deleteProject = useDeleteProject();
+  const openNotes = () => router.push({ pathname: '/idea-notes/[id]', params: { id: params.id } });
   const menuActions: Partial<Record<IdeaMenuItemId, () => void>> = {
     settings: () => router.push({ pathname: '/idea-settings/[id]', params: { id: params.id } }),
+    notes: openNotes,
     duplicate: () => {
       duplicateProject.mutate(params.id, {
         onSuccess: (copy) => {
@@ -154,7 +172,9 @@ export function ProjectScreen() {
       });
     },
   };
-  const menuEnabled = (id: IdeaMenuItemId) => !!project && isIdle && !!menuActions[id];
+  // Notes stay available while playing or recording (jot down what's happening, jump to a time).
+  const menuEnabled = (id: IdeaMenuItemId) =>
+    !!project && (isIdle || id === 'notes') && !!menuActions[id];
 
   const editTrack = (trackId: string) =>
     router.push({ pathname: '/track/[id]', params: { id: trackId, projectId: params.id } });
@@ -174,6 +194,20 @@ export function ProjectScreen() {
         {formatTimecode(transport.position)}
       </Text>
       <View style={styles.stripSpacer} />
+      <StripButton
+        label="Notes"
+        icon={{ ios: 'note.text', android: 'notes' }}
+        badge={!!project && hasNotes(project.notes)}
+        disabled={!project}
+        onPress={openNotes}
+      />
+      <StripButton
+        label="Pitch keyboard"
+        icon={{ ios: 'pianokeys', android: 'piano' }}
+        badge={false}
+        disabled={false}
+        onPress={() => router.push('/pitch-keyboard')}
+      />
       <StripToggle
         label="Metronome"
         icon={{ ios: 'metronome', android: 'timer' }}
@@ -316,6 +350,8 @@ export function ProjectScreen() {
       if (copyId) transport.replay();
       return copyId;
     },
+    onOptions: (clipId) =>
+      router.push({ pathname: '/clip-options/[id]', params: { id: clipId, projectId: params.id } }),
     onDelete: (clipId) => {
       void deleteClip(clipId);
       transport.replay();
@@ -568,6 +604,44 @@ function StripToggle({
   );
 }
 
+/** An icon-only button in the status strip that opens something; `badge` adds a dot (e.g. "has notes"). */
+function StripButton({
+  label,
+  icon,
+  badge,
+  disabled,
+  onPress,
+}: {
+  label: string;
+  icon: IconName;
+  badge: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const styles = useStyles();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityValue={badge ? { text: 'Has content' } : undefined}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      hitSlop={8}
+      onPress={() => {
+        void Haptics.selectionAsync();
+        onPress();
+      }}
+      style={({ pressed }) => [
+        styles.stripToggle,
+        disabled && styles.disabled,
+        pressed && styles.pressed,
+      ]}>
+      <Icon name={icon} size={16} color="textSecondary" />
+      {badge ? <View style={styles.badge} /> : null}
+    </Pressable>
+  );
+}
+
 /** Round, icon-only transport control; `label` is what screen readers (and tests) see. */
 function TransportButton({
   label,
@@ -648,8 +722,20 @@ const useStyles = makeStyles((t) => ({
     borderRadius: t.radius.full,
   },
   stripToggleOn: { backgroundColor: t.colors.text },
+  badge: {
+    position: 'absolute',
+    top: 0,
+    right: t.spacing.xxs,
+    width: 7,
+    height: 7,
+    borderRadius: t.radius.full,
+    backgroundColor: t.colors.primary,
+  },
+  // Gives way first when the strip gets crowded (narrow phones).
   meter: {
     width: 96,
+    minWidth: 40,
+    flexShrink: 1,
     height: t.spacing.xs,
     borderRadius: t.radius.full,
     backgroundColor: t.colors.surfaceMuted,

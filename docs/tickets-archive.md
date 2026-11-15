@@ -2,6 +2,22 @@
 
 Oldest finished tickets, moved out of `TICKETS.md` to keep it lean. Newest first.
 
+- T35 — Live waveform in step with the take during pre-roll — 2026-11-14 — `drawLivePeaks` anchors bars at the
+  take file's start (`peaksStart`, before the punch with pre-roll) instead of the punch; the index/x math is in
+  `livePeakRange` / `livePeakPoint` (`timeline-math.ts`, unit tests). Seen on the simulator
+- T31 — Grid visibility & snap; pre-roll button in the transport — 2026-11-14 — pre-roll toggle is a plain icon
+  right of Record (empty slot on the left keeps Back/Play/Record in place); per-idea Snap toggle in the strip
+  (`projects.snap`, migration v7, saved not undoable, copied by Duplicate, disabled with the grid hidden); Snap
+  off = no grid snapping for clips (clip edges still snap) and dotted fainter grid lines; sticky playhead on
+  ruler scrub/tap with a haptic (`activeSnapStep`, `stickyTime` in `grid-math.ts`); beat lines stronger
+  (`GRID_BEAT_ALPHA` 0.32, bar 1.5 pt); "Record new idea" starts with the grid off, "+" with it on
+  (`createProject({ grid })`). Simulator light + dark; device check pending
+- T34 — Silent recording — 2026-11-14 — Settings → Silent recording (off by default, speaker only like
+  Speaker mode): the run-up plays as usual, then the whole output fades out on the master gain 100–70 ms
+  before the punch (`silenceOutput` in `audio-engine.ts`, `silentFade` / `punchLead` in `take-alignment.ts`;
+  on-the-fly punches come ~0.1 s later so the fade fits); pre-roll off = backing runs muted from the start;
+  beat display shows while recording silently even for Sound-only metronomes; Speaker mode skips cleaning
+  silent takes. Simulator + unit tests only; device check pending
 - T33 — Visual metronome — 2026-11-14 — beat display under the strip while the metronome is on (one block per
   beat, 6/8 and 12/8 grouped, current beat lit with a flash, green downbeat token), driven on the UI thread by
   the transport's unclamped `beatClock` (counts in before 0:00) with `beatAt` in `metronome.ts`; per-idea

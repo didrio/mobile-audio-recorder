@@ -40,12 +40,16 @@ const track = (id: string, name: string, clipCount: number): Project['tracks'][n
     start: 0,
     offset: 0,
     duration: 1,
+    gain: 1,
+    fadeIn: 0,
+    fadeOut: 0,
   })),
 });
 
 const project = (tracks: Project['tracks']): Project => ({
   id: 'p1',
   name: 'Chorus riff',
+  notes: '',
   createdAt: 0,
   updatedAt: 0,
   duration: 1,

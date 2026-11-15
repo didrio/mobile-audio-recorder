@@ -17,7 +17,9 @@
  *   gain, sample-accurate on the context clock), so the armed track plays through the run-up and goes
  *   quiet exactly where the new take starts. Later gain changes leave a cut track silent.
  * - Playback: one shared `AudioContext`. Every clip becomes an `AudioBufferSourceNode` started at
- *   its timeline position: source → track gain → master gain → speakers. Decoded takes are cached.
+ *   its timeline position: source → clip gain → track gain → master gain → speakers. Decoded takes are
+ *   cached. The clip gain node plays the clip's envelope (T16, `clip-envelope.ts`): its gain, fades, and
+ *   a few-millisecond declick on every edge, except where a split left two pieces of a take back to back.
  * - Mixer: `setTrackGain` keeps each track's gain (track volume; later × mute/solo). Playback builds
  *   one `GainNode` per track from it, and changes apply live (short ramp) to the playing graph,
  *   including the backing playback while recording.
@@ -43,6 +45,10 @@
  *   to passes and clip pieces). Where the loop cuts a clip, the tail rings on a few milliseconds
  *   fading out while the head fades in (a per-piece gain), so the wrap doesn't click. A looped
  *   playback never ends by itself. Recording never loops.
+ * - Pitch reference keyboard (T20): `startNote` / `stopNote` play a synthesized tone (a few sine
+ *   partials, attack/decay/release envelope) on the same context, straight to the speakers through
+ *   their own bus: never through a playback's master (so silent recording, Stop and Play don't touch
+ *   them), never into a take except through the mic. `prepareKeyboard` readies the session up front.
  * - Playhead: `playbackAnchor()` gives the moment (on the `performance.now()` clock, shared by the
  *   JS and UI threads) when timeline position `from` is heard, so the UI can animate the playhead
  *   per frame without calling into the engine.
@@ -60,8 +66,11 @@ import {
   type AudioBuffer,
   type AudioBufferSourceNode,
   type GainNode,
+  type OscillatorNode,
+  type PeriodicWave,
 } from 'react-native-audio-api';
 
+import { envelopePoints, seamlessEdges } from './clip-envelope';
 import { clipPieces, loopedPosition, loopSegments, type LoopRegion } from './loop-math';
 import { clicksBetween, clickSamples, type ClickAccent } from './metronome';
 import type { TakeAlignment } from './take-alignment';
@@ -96,7 +105,7 @@ export type BackingPlayed = {
   /** Timeline position the playback started from (nothing before it was heard). */
   from: number;
   /** The clips it scheduled, each with its track's gain when the playback started. */
-  clips: (PlayableClip & { gain: number })[];
+  clips: (PlayableClip & { trackGain: number })[];
   /** Tracks silenced from a timeline position on (`cutTrackAt`, the punch). */
   cuts: { trackId: string; position: number }[];
   /** The metronome when the recording stopped (`null`: off). */
@@ -133,7 +142,14 @@ export type PlayableClip = {
   start: number;
   offset: number;
   duration: number;
+  /** Clip gain (linear) and fade lengths in seconds (T16). */
+  gain: number;
+  fadeIn: number;
+  fadeOut: number;
 };
+
+/** A clip as scheduled: with the edges it shares seamlessly with a neighbor (no declick there). */
+type ScheduledClip = PlayableClip & { seamlessIn: boolean; seamlessOut: boolean };
 
 let context: AudioContext | null = null;
 let recorder: AudioRecorder | null = null;
@@ -177,7 +193,7 @@ let playback: {
   /** Tracks silenced by `cutTrackAt` (and from where): gain changes no longer reach them. */
   cutTracks: Map<string, number>;
   /** What was scheduled, with the gains used (`BackingPlayed`). */
-  played: (PlayableClip & { gain: number })[];
+  played: (PlayableClip & { trackGain: number })[];
   /** Ends the playback after the last clip; `undefined` for an endless (recording) playback. */
   endTimer: ReturnType<typeof setTimeout> | undefined;
   clicks: ClickScheduler;
@@ -195,7 +211,7 @@ let playback: {
 type LoopScheduler = {
   region: LoopRegion;
   /** The clips that play in the region, with their decoded audio. */
-  clips: (PlayableClip & { buffer: AudioBuffer | null })[];
+  clips: (ScheduledClip & { buffer: AudioBuffer | null })[];
   /** The next pass to schedule, and when it starts (elapsed). */
   nextIndex: number;
   nextElapsed: number;
@@ -472,12 +488,13 @@ export async function play(
   const generation = playGeneration;
   const from = options.from ?? 0;
   const region = options.loop && options.loop.end > options.loop.start ? options.loop : null;
+  const joined = seamlessEdges(clips);
   const audible = region
-    ? clips.filter(
+    ? joined.filter(
         (clip) =>
           clip.start + clip.duration > Math.min(from, region.start) && clip.start < region.end,
       )
-    : clips.filter((clip) => clip.start + clip.duration > from);
+    : joined.filter((clip) => clip.start + clip.duration > from);
   if (!region && audible.length === 0 && !(options.endless && metronome)) {
     options.onEnded?.();
     return;
@@ -506,12 +523,11 @@ export async function play(
     const skipped = Math.max(0, from - clip.start);
     const source = ctx.createBufferSource();
     source.buffer = buffers[index] ?? null;
-    source.connect(trackGain(clip.trackId));
-    source.start(
-      startedAt + Math.max(0, clip.start - from),
-      clip.offset + skipped,
-      clip.duration - skipped,
+    const at = startedAt + Math.max(0, clip.start - from);
+    source.connect(
+      clipGainNode(ctx, clip, skipped, clip.duration - skipped, at, trackGain(clip.trackId)),
     );
+    source.start(at, clip.offset + skipped, clip.duration - skipped);
     end = Math.max(end, clip.start + clip.duration - from);
     return source;
   });
@@ -525,7 +541,10 @@ export async function play(
     output: master,
     tracks,
     cutTracks: new Map(),
-    played: audible.map((clip) => ({ ...clip, gain: trackGains.get(clip.trackId) ?? 1 })),
+    played: audible.map(({ seamlessIn: _in, seamlessOut: _out, ...clip }) => ({
+      ...clip,
+      trackGain: trackGains.get(clip.trackId) ?? 1,
+    })),
     endTimer:
       options.endless || region
         ? undefined
@@ -555,6 +574,27 @@ export async function play(
   };
   playback = current;
   tick(current);
+}
+
+/**
+ * The clip's own gain node (T16), connected to `output`: plays its envelope (`clip-envelope.ts`) for
+ * `length` seconds from `from` seconds into the clip, starting at context time `at`.
+ */
+function clipGainNode(
+  ctx: AudioContext,
+  clip: ScheduledClip,
+  from: number,
+  length: number,
+  at: number,
+  output: GainNode,
+): GainNode {
+  const node = ctx.createGain();
+  const [first, ...rest] = envelopePoints(clip, from, length);
+  node.gain.value = first?.value ?? clip.gain;
+  node.gain.setValueAtTime(node.gain.value, at);
+  for (const point of rest) node.gain.linearRampToValueAtTime(point.value, at + point.time);
+  node.connect(output);
+  return node;
 }
 
 /** One gain per track, made on first use at the track's current gain. */
@@ -598,7 +638,14 @@ function scheduleLoop(current: NonNullable<typeof playback>) {
       if (late >= piece.duration) continue;
       const source = ctx.createBufferSource();
       source.buffer = piece.clip.buffer;
-      const track = trackGainNode(ctx, current.tracks, current.output, piece.clip.trackId);
+      const track = clipGainNode(
+        ctx,
+        piece.clip,
+        piece.offset + late - piece.clip.offset,
+        piece.duration - late,
+        at + late,
+        trackGainNode(ctx, current.tracks, current.output, piece.clip.trackId),
+      );
       if (piece.fadeIn > 0 || piece.fadeOut > 0) {
         const fade = ctx.createGain();
         fade.gain.value = piece.fadeIn > 0 ? 0 : 1;
@@ -777,6 +824,93 @@ export function stopPlayback() {
   }
   endPlayback(playback);
   playback = null;
+}
+
+// Pitch reference keyboard (T20).
+
+/** Partial amplitudes of the keyboard tone (fundamental first): soft, clear pitch, no samples. */
+const NOTE_PARTIALS = [1, 0.42, 0.18, 0.1, 0.05, 0.025];
+/** Level of one note at 0 dB keyboard volume (leaves headroom for chords). */
+const NOTE_LEVEL = 0.25;
+const NOTE_ATTACK_SECONDS = 0.005;
+/** After the attack the note settles to this part of its level, like a struck string. */
+const NOTE_SUSTAIN = 0.55;
+const NOTE_DECAY_TIME_CONSTANT = 0.35;
+const NOTE_RELEASE_TIME_CONSTANT = 0.06;
+/** The oscillator stops this long after release, when the tail is inaudible. */
+const NOTE_TAIL_SECONDS = 0.5;
+
+let keyboardBus: GainNode | null = null;
+let noteWave: PeriodicWave | null = null;
+let keyboardReady: Promise<void> | null = null;
+
+export type NoteHandle = { oscillator: OscillatorNode; envelope: GainNode };
+
+/**
+ * Gets the audio session and context ready for the keyboard (call when it opens), so the first key
+ * sounds without a delay. Safe to call again.
+ */
+export function prepareKeyboard(): Promise<void> {
+  keyboardReady ??= (async () => {
+    await activateSession();
+    const ctx = getContext();
+    if (ctx.state !== 'running') await ctx.resume();
+  })().catch(() => {
+    keyboardReady = null; // try again next time
+  });
+  return keyboardReady;
+}
+
+/** Starts a note at `frequency` Hz, at `volume` (linear, 1 = 0 dB). Returns what `stopNote` needs. */
+export function startNote(frequency: number, volume: number): NoteHandle | null {
+  if (!(frequency > 0) || !(volume > 0)) return null;
+  const ctx = getContext();
+  // Something else (the recorder, another app) may have suspended it since the keyboard opened.
+  if (ctx.state !== 'running') void ctx.resume();
+  if (!keyboardBus) {
+    keyboardBus = ctx.createGain();
+    keyboardBus.connect(ctx.destination);
+  }
+  noteWave ??= ctx.createPeriodicWave(
+    new Float32Array(NOTE_PARTIALS.length + 1),
+    Float32Array.from([0, ...NOTE_PARTIALS]),
+  );
+  const now = ctx.currentTime;
+  // The volume setting goes up to +6 dB (2×), like the faders.
+  const level = NOTE_LEVEL * Math.min(2, volume);
+  const envelope = ctx.createGain();
+  envelope.gain.value = 0;
+  envelope.gain.setValueAtTime(0, now);
+  envelope.gain.linearRampToValueAtTime(level, now + NOTE_ATTACK_SECONDS);
+  envelope.gain.setTargetAtTime(
+    level * NOTE_SUSTAIN,
+    now + NOTE_ATTACK_SECONDS,
+    NOTE_DECAY_TIME_CONSTANT,
+  );
+  envelope.connect(keyboardBus);
+  const oscillator = ctx.createOscillator();
+  oscillator.setPeriodicWave(noteWave);
+  oscillator.frequency.value = frequency;
+  oscillator.connect(envelope);
+  oscillator.start(now);
+  return { oscillator, envelope };
+}
+
+/** Releases a note smoothly (no click) and frees it once its tail has faded. */
+export function stopNote(note: NoteHandle) {
+  if (!context) return;
+  const now = context.currentTime;
+  note.envelope.gain.cancelAndHoldAtTime(now);
+  note.envelope.gain.setTargetAtTime(0, now, NOTE_RELEASE_TIME_CONSTANT);
+  try {
+    note.oscillator.stop(now + NOTE_TAIL_SECONDS);
+  } catch {
+    // Already stopped.
+  }
+  note.oscillator.onended = () => {
+    note.oscillator.disconnect();
+    note.envelope.disconnect();
+  };
 }
 
 /** Output latency in seconds; 0 when the platform doesn't report it. */

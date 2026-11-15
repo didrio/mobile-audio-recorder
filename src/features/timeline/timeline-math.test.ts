@@ -1,21 +1,31 @@
+import { rowAt } from './clip-edit-math';
 import {
   clampScroll,
+  CONTROLS_WIDTH,
   clampZoom,
   DEFAULT_ZOOM,
   defaultZoom,
   followScroll,
   formatRulerTime,
   hiddenLanes,
+  LANE_HEIGHT,
   laneScrollMax,
   livePeakPoint,
   livePeakRange,
+  logicalPoint,
   MAX_ZOOM,
   maxScroll,
   minZoom,
+  MIXER_ROW_HEIGHT,
+  MIXER_WIDTH,
+  NEW_TRACK_SIZE,
   pageScroll,
   pointToTime,
   rulerSteps,
+  timelineLayout,
   timeToPoint,
+  TRACK_ROW_HEIGHT,
+  verticalLaneSize,
   waveformGain,
   waveformLevel,
   zoomAroundPoint,
@@ -152,5 +162,98 @@ describe('live waveform while recording', () => {
     });
     expect(livePeakRange({ ...live, from: 5, to: 6 })?.first).toBe(300);
     expect(livePeakRange({ ...live, from: 6, to: 4 })).toBeNull();
+  });
+});
+
+describe('orientation (T43)', () => {
+  const header = 62;
+
+  it('lays out the horizontal timeline as before: controls column, fixed lanes', () => {
+    expect(
+      timelineLayout('horizontal', 402, 600, {
+        trackCount: 3,
+        mixerOpen: false,
+        headerSize: header,
+      }),
+    ).toEqual({
+      vertical: false,
+      controls: CONTROLS_WIDTH,
+      viewLength: 402 - CONTROLS_WIDTH,
+      crossLength: 600,
+      lanesViewport: 600 - header,
+      lane: LANE_HEIGHT,
+    });
+    // The mixer: MIXER_WIDTH, never more than half the view (plus the handles).
+    expect(
+      timelineLayout('horizontal', 402, 600, { trackCount: 3, mixerOpen: true, headerSize: header })
+        .controls,
+    ).toBe(MIXER_WIDTH);
+    expect(
+      timelineLayout('horizontal', 300, 600, { trackCount: 3, mixerOpen: true, headerSize: header })
+        .controls,
+    ).toBe(150 + CONTROLS_WIDTH);
+  });
+
+  it('lays out the vertical timeline: header row on top, time down, lanes across', () => {
+    const layout = timelineLayout('vertical', 402, 600, {
+      trackCount: 2,
+      mixerOpen: false,
+      headerSize: header,
+    });
+    expect(layout).toEqual({
+      vertical: true,
+      controls: TRACK_ROW_HEIGHT,
+      viewLength: 600 - TRACK_ROW_HEIGHT,
+      crossLength: 402,
+      lanesViewport: 402 - header,
+      lane: Math.floor((402 - header - NEW_TRACK_SIZE) / 2),
+    });
+    // The mixer grows the row down, at most half the height.
+    expect(
+      timelineLayout('vertical', 402, 600, { trackCount: 2, mixerOpen: true, headerSize: header })
+        .controls,
+    ).toBe(MIXER_ROW_HEIGHT);
+    expect(
+      timelineLayout('vertical', 402, 200, { trackCount: 2, mixerOpen: true, headerSize: header })
+        .controls,
+    ).toBe(100);
+  });
+
+  it('fills the width beside the New Track column with up to four lanes, which keep that size after', () => {
+    // 340 points of lanes, 44 for New Track.
+    expect(verticalLaneSize(340, 0, 44)).toBe(296);
+    expect(verticalLaneSize(340, 1, 44)).toBe(296);
+    expect(verticalLaneSize(340, 2, 44)).toBe(148);
+    expect(verticalLaneSize(340, 3, 44)).toBe(98); // 98.67, whole points
+    expect(verticalLaneSize(340, 4, 44)).toBe(74); // New Track still in view
+    expect(verticalLaneSize(340, 6, 44)).toBe(74);
+    expect(verticalLaneSize(0, 2, 44)).toBe(1); // before layout: never 0 (lanes are divided by)
+  });
+
+  it('swaps the axes of a touch in the vertical timeline', () => {
+    expect(logicalPoint(30, 200, false)).toEqual({ t: 30, l: 200 });
+    expect(logicalPoint(30, 200, true)).toEqual({ t: 200, l: 30 });
+  });
+
+  it('hit-tests a vertical touch with the same lane and time math as a horizontal one', () => {
+    // Lanes 74 wide start after the 62-point rail + ruler, scrolled 40 sideways; time scrolled to 10 s
+    // at 20 points per second. A touch at x 200, y 150 is on lane 2 at 17.5 s.
+    const { t, l } = logicalPoint(200, 150, true);
+    expect(rowAt(l - header, 40, 74, 6)).toBe(2);
+    expect(pointToTime(t, 10, 20)).toBe(17.5);
+    // The same spot in a horizontal timeline is the touch with x and y swapped.
+    const flat = logicalPoint(150, 200, false);
+    expect(rowAt(flat.l - header, 40, 74, 6)).toBe(2);
+    expect(pointToTime(flat.t, 10, 20)).toBe(17.5);
+  });
+
+  it('counts and pages lanes scrolled out sideways in the vertical timeline', () => {
+    // 6 lanes of 74 in 340 points: 4 show and most of the 5th peeks in, 1 to the right. Scrolled to the
+    // end (New Track in view), 2 to the left.
+    const max = laneScrollMax(340, 6, 74, NEW_TRACK_SIZE);
+    expect(max).toBe(6 * 74 + NEW_TRACK_SIZE - 340);
+    expect(hiddenLanes(0, 340, 74, 6)).toEqual({ above: 0, below: 1 });
+    expect(hiddenLanes(max, 340, 74, 6)).toEqual({ above: 2, below: 0 });
+    expect(pageScroll(0, 340, 74, 1, max)).toBe(max);
   });
 });

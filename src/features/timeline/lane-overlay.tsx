@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 import Animated, {
   useAnimatedReaction,
   useAnimatedStyle,
@@ -9,18 +9,28 @@ import Animated, {
 } from 'react-native-reanimated';
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 
-import { Icon, Text } from '@/components/ui';
+import { Icon, Text, type IconName } from '@/components/ui';
 import type { Track } from '@/features/projects/projects-repo';
 import { makeStyles } from '@/theme';
 
 import { formatDb } from './fader-math';
-import { hiddenLanes, laneScrollMax, pageScroll } from './timeline-math';
+import { GRIP_BAND, hiddenLanes, laneScrollMax, PILL_BAND, pageScroll } from './timeline-math';
 import type { FaderDraft } from './track-column';
 import { useReorderStyle, type TrackDrag } from './use-reorder-style';
 
 const PAGE_SCROLL_MS = 250;
 /** Extra space above and left of a name pill, on top of the lane inset. */
 const PILL_MARGIN = 4;
+/** Vertical timeline: the pill's room in the header row's pill band. */
+const PILL_SLOT = PILL_BAND - 6;
+
+type Direction = 'up' | 'down' | 'left' | 'right';
+const CHEVRONS: Record<Direction, IconName> = {
+  up: { ios: 'chevron.up', android: 'keyboard_arrow_up' },
+  down: { ios: 'chevron.down', android: 'keyboard_arrow_down' },
+  left: { ios: 'chevron.left', android: 'keyboard_arrow_left' },
+  right: { ios: 'chevron.right', android: 'keyboard_arrow_right' },
+};
 
 /**
  * RN views over the lanes, moved with their vertical scroll: each track's name floating at the
@@ -28,11 +38,16 @@ const PILL_MARGIN = 4;
  * badges when it's muted or soloed, so that shows with the mixer closed), the
  * "+ New Track" row after the last lane (it stays put while a track is dragged), and "N more" chevrons at the top / bottom edge when lanes
  * are scrolled out of view (tap: one page).
+ *
+ * Vertical timeline (T43): the same, turned with the lanes. Names sit in the header row's pill band (under
+ * each column's grab handle, see `TrackColumn`), "+ New Track" is a column after the last lane, and the
+ * chevrons sit at the left / right edges, following the lanes' sideways scroll.
  */
 export function LaneOverlay({
   tracks,
-  top,
-  left,
+  start,
+  timeStart,
+  vertical = false,
   viewport,
   lane,
   inset,
@@ -47,16 +62,18 @@ export function LaneOverlay({
   onAddTrack,
 }: {
   tracks: Pick<Track, 'id' | 'name' | 'muted' | 'solo'>[];
-  /** Where the lanes start (below the ruler). */
-  top: number;
-  /** Where the time area starts (after the controls column). */
-  left: number;
-  /** Visible height of the lanes area. */
+  /** Where the lanes start across time (below the ruler; right of it when vertical). */
+  start: number;
+  /** Where the time area starts (after the controls column; below the header row when vertical). */
+  timeStart: number;
+  /** Lanes are columns (the vertical timeline). */
+  vertical?: boolean;
+  /** Visible length of the lanes area across time. */
   viewport: number;
   lane: number;
   /** Gap between a name label and the lane edges. */
   inset: number;
-  /** Height of the "+ New Track" row. */
+  /** Size of the "+ New Track" row (its width as a column). */
   footer: number;
   laneScroll: SharedValue<number>;
   /** A track being dragged to a new place: its pill moves with it. */
@@ -73,7 +90,9 @@ export function LaneOverlay({
   const styles = useStyles();
   const count = tracks.length;
   const trackIds = tracks.map((track) => track.id);
-  const scrolled = useAnimatedStyle(() => ({ transform: [{ translateY: -laneScroll.get() }] }));
+  const scrolled = useAnimatedStyle(() => ({
+    transform: [vertical ? { translateX: -laneScroll.get() } : { translateY: -laneScroll.get() }],
+  }));
 
   const [hidden, setHidden] = useState(() => hiddenLanes(laneScroll.get(), viewport, lane, count));
   useAnimatedReaction(
@@ -93,8 +112,42 @@ export function LaneOverlay({
     });
   };
 
+  const pillPosition = (index: number): ViewStyle =>
+    vertical
+      ? {
+          top: GRIP_BAND + (PILL_BAND - PILL_SLOT) / 2,
+          left: index * lane + inset,
+          width: lane - inset * 2,
+          height: PILL_SLOT,
+          justifyContent: 'center',
+        }
+      : {
+          top: index * lane + inset + PILL_MARGIN,
+          left: timeStart + inset + PILL_MARGIN,
+          maxWidth: lane * 3,
+        };
+  // Starts one hairline early so its border sits on the last lane's separator pixel.
+  const newTrackPosition: ViewStyle = vertical
+    ? {
+        left: count * lane - StyleSheet.hairlineWidth,
+        width: footer + StyleSheet.hairlineWidth,
+      }
+    : {
+        top: count * lane - StyleSheet.hairlineWidth,
+        height: footer + StyleSheet.hairlineWidth,
+      };
+  const [back, forward]: [Direction, Direction] = vertical ? ['left', 'right'] : ['up', 'down'];
+  const moreBack: ViewStyle = vertical
+    ? { left: inset, top: timeStart, bottom: 0 }
+    : { top: inset, left: timeStart };
+  const moreForward: ViewStyle = vertical
+    ? { right: inset, top: timeStart, bottom: 0 }
+    : { bottom: inset, left: timeStart };
+
   return (
-    <View pointerEvents="box-none" style={[styles.viewport, { top }]}>
+    <View
+      pointerEvents="box-none"
+      style={[styles.viewport, vertical ? { left: start, top: 0 } : { top: start, left: 0 }]}>
       <Animated.View pointerEvents="box-none" style={[styles.fill, scrolled]}>
         {tracks.map((track, index) => (
           <NamePill
@@ -104,8 +157,8 @@ export function LaneOverlay({
             trackIds={trackIds}
             drag={drag}
             lane={lane}
-            top={index * lane + inset + PILL_MARGIN}
-            left={left + inset + PILL_MARGIN}
+            vertical={vertical}
+            position={pillPosition(index)}
             level={draft?.trackId === track.id ? formatDb(draft.gain) : null}
             armed={track.id === armedTrackId}
             armDisabled={armDisabled}
@@ -120,33 +173,32 @@ export function LaneOverlay({
           onPress={onAddTrack}
           style={({ pressed }) => [
             styles.newTrack,
-            // Starts one hairline early so its top border sits on the last lane's separator pixel.
-            {
-              top: count * lane - StyleSheet.hairlineWidth,
-              height: footer + StyleSheet.hairlineWidth,
-            },
+            vertical ? styles.newTrackColumn : styles.newTrackRow,
+            newTrackPosition,
             addTrackDisabled && styles.disabled,
             pressed && styles.pressed,
           ]}>
           <Icon name={{ ios: 'plus', android: 'add' }} size={16} color="textSecondary" />
-          <Text variant="subheadline" color="textSecondary">
-            New Track
-          </Text>
+          {vertical ? null : (
+            <Text variant="subheadline" color="textSecondary">
+              New Track
+            </Text>
+          )}
         </Pressable>
       </Animated.View>
       {hidden.above > 0 ? (
         <MoreChip
           count={hidden.above}
-          direction="up"
-          style={[styles.more, { top: inset, left }]}
+          direction={back}
+          style={[vertical ? styles.moreSide : styles.more, moreBack]}
           onPress={() => page(-1)}
         />
       ) : null}
       {hidden.below > 0 ? (
         <MoreChip
           count={hidden.below}
-          direction="down"
-          style={[styles.more, { bottom: inset, left }]}
+          direction={forward}
+          style={[vertical ? styles.moreSide : styles.more, moreForward]}
           onPress={() => page(1)}
         />
       ) : null}
@@ -161,8 +213,8 @@ function NamePill({
   trackIds,
   drag,
   lane,
-  top,
-  left,
+  vertical,
+  position,
   level,
   armed,
   armDisabled,
@@ -173,8 +225,9 @@ function NamePill({
   trackIds: string[];
   drag: TrackDrag;
   lane: number;
-  top: number;
-  left: number;
+  vertical: boolean;
+  /** Where its slot is, in lane content coordinates. */
+  position: ViewStyle;
   /** The dB while its volume slider moves. */
   level: string | null;
   armed: boolean;
@@ -182,11 +235,9 @@ function NamePill({
   onArm: (trackId: string) => void;
 }) {
   const styles = useStyles();
-  const reorder = useReorderStyle(index, trackIds, drag, lane);
+  const reorder = useReorderStyle(index, trackIds, drag, lane, { axis: vertical ? 'x' : 'y' });
   return (
-    <Animated.View
-      pointerEvents="box-none"
-      style={[styles.pillSlot, { top, left, maxWidth: lane * 3 }, reorder]}>
+    <Animated.View pointerEvents="box-none" style={[styles.pillSlot, position, reorder]}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Arm ${track.name}`}
@@ -241,39 +292,36 @@ function MoreChip({
   onPress,
 }: {
   count: number;
-  direction: 'up' | 'down';
+  direction: Direction;
   style: object;
   onPress: () => void;
 }) {
   const styles = useStyles();
   const label = `${count} more`;
+  const where = { up: 'above', down: 'below', left: 'to the left', right: 'to the right' }[
+    direction
+  ];
+  const icon = CHEVRONS[direction];
   return (
     <View pointerEvents="box-none" style={style}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${label} ${count === 1 ? 'track' : 'tracks'} ${direction === 'up' ? 'above' : 'below'}`}
+        accessibilityLabel={`${label} ${count === 1 ? 'track' : 'tracks'} ${where}`}
         hitSlop={8}
         onPress={onPress}
         style={({ pressed }) => [styles.chip, pressed && styles.pressed]}>
-        <Icon
-          name={
-            direction === 'up'
-              ? { ios: 'chevron.up', android: 'keyboard_arrow_up' }
-              : { ios: 'chevron.down', android: 'keyboard_arrow_down' }
-          }
-          size={12}
-          color="textSecondary"
-        />
+        {direction === 'right' ? null : <Icon name={icon} size={12} color="textSecondary" />}
         <Text variant="caption" color="textSecondary">
           {label}
         </Text>
+        {direction === 'right' ? <Icon name={icon} size={12} color="textSecondary" /> : null}
       </Pressable>
     </View>
   );
 }
 
 const useStyles = makeStyles((t) => ({
-  viewport: { position: 'absolute', left: 0, right: 0, bottom: 0, overflow: 'hidden' },
+  viewport: { position: 'absolute', right: 0, bottom: 0, overflow: 'hidden' },
   fill: { flex: 1 },
   pillSlot: { position: 'absolute', flexDirection: 'row' },
   name: {
@@ -298,19 +346,29 @@ const useStyles = makeStyles((t) => ({
   armDotOn: { backgroundColor: t.colors.primary },
   newTrack: {
     position: 'absolute',
+    alignItems: 'center',
+    gap: t.spacing.xs,
+    borderColor: t.colors.border,
+    backgroundColor: t.colors.background,
+  },
+  newTrackRow: {
     left: 0,
     right: 0,
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    gap: t.spacing.xs,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: t.colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: t.colors.border,
-    backgroundColor: t.colors.background,
+  },
+  // A column from the top (the + in the header row) to the bottom.
+  newTrackColumn: {
+    top: 0,
+    bottom: 0,
+    paddingTop: GRIP_BAND,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: StyleSheet.hairlineWidth,
   },
   more: { position: 'absolute', right: 0, alignItems: 'center' },
+  moreSide: { position: 'absolute', justifyContent: 'center' },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',

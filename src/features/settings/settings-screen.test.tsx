@@ -9,6 +9,7 @@ import * as echoCanceller from '@/lib/echo-canceller';
 import { storage } from '@/lib/storage';
 
 import { useAppearanceStore } from './appearance-store';
+import { useExperimentalSettingsStore } from './experimental-settings-store';
 import { useInputDevicesStore } from './input-devices-store';
 import { useKeyboardSettingsStore } from './keyboard-settings-store';
 import { useRecordingSettingsStore } from './recording-settings-store';
@@ -278,6 +279,18 @@ describe('SettingsScreen', () => {
     expect(screen.getByRole('radio', { name: '2 bars' })).toBeChecked();
     expect(useRecordingSettingsStore.getState().preRollBars).toBe(2);
     expect(storage.getString('settings.recording')).toContain('"preRollBars":2');
+  });
+
+  it('turns the experimental vertical timeline on and persists it (off by default)', async () => {
+    useExperimentalSettingsStore.setState({ verticalTimeline: false });
+    await render(<SettingsScreen />);
+    const toggle = screen.getByRole('switch', { name: 'Vertical timeline' });
+    expect(toggle).not.toBeChecked();
+
+    await fireEvent(toggle, 'valueChange', true);
+
+    expect(useExperimentalSettingsStore.getState().verticalTimeline).toBe(true);
+    expect(storage.getString('settings.experimental')).toContain('"verticalTimeline":true');
   });
 
   it('shows app version info', async () => {

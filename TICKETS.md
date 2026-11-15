@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T43 — Vertical timeline (experimental) · Opus · extra high effort · plan mode on
+**Next:** T46 — Device test pass · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -62,56 +62,49 @@ whole list is tested in one pass at the end (a fresh dev or preview build on bot
   Backlog). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
+- **Vertical timeline** (T43, experimental, Settings → Experimental): the same `Timeline` turned sideways, so
+  every timeline change must keep working in both. Draw and hit-test in the logical axes (`t` along time, `l`
+  across: rail, ruler, lanes), never raw x/y: the picture is transposed in vertical and touches go through
+  `pointOf`; text is the exception (`rulerLabel`, the rail's `text`). Sizes come from `timelineLayout` in
+  `timeline-math.ts`; `TrackColumn`, `LaneOverlay` and `useReorderStyle` branch on `vertical`.
 
-### T43 — Vertical timeline (experimental)
+### T46 — Device test pass
 
 - **Status:** ready
-- **Session:** Opus · extra high effort · plan mode on
-- **Goal:** An experimental Settings toggle that turns the idea editor vertical: time runs top→bottom, tracks
-  are side-by-side columns, the playhead moves down. All behavior stays the same. It's there to try out and
-  tweak, not to replace the horizontal editor.
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Everything built since the last phone build runs on the user's iPhone: one fresh build with all the
+  native changes since then, installed, and the **Device checks** list below gone through with the user.
 - **Done when:**
-  - [ ] Settings → new "Experimental" section → "Vertical timeline" switch (off by default, persisted). Opening
-        an idea uses the chosen layout. The horizontal editor is unchanged when it's off.
-  - [ ] Layout: ruler and section rail run down the left edge. Track header (grab handle + name pill, arm, M/S
-        badges) sits in a row along the top. Up to 4 lanes fill the width. With more tracks, lanes scroll
-        sideways, with the floating "N tracks ←/→" indicators (today's above/below ones turned sideways).
-        "+ New Track" is a column after the last lane.
-  - [ ] Clips, waveforms (drawn along the vertical time axis), grid, sections, loop region, punch notch, live
-        recording take and playhead all draw rotated. Follow-playhead scrolls down. Pinch zooms time
-        vertically.
-  - [ ] The interaction model works the same along the new axes: tap select, drag/trim/resize, long-press
-        pickup, tap empty space or ruler to seek, section labels, loop edges, snap, auto-scroll at the
-        edges, long-press reorder of tracks (now left/right). Undo/redo is unaffected (it's the same edits).
-  - [ ] Mixer, action bars, status strip and transport have a decided vertical placement (UI calls below),
-        reviewed with the user from simulator screenshots. Light + dark.
-  - [ ] Unit tests for the axis-swapped math. Existing timeline tests still pass.
-- **Context:** Tried early on and found confusing for first-time users. Now that most features exist, the
-  user wants it as a toggle to find a version that works. Most ideas have 2–3 tracks (instrument + vocal,
-  maybe bass or a backing vocal), so 4 columns covers the usual case and shows about twice the time.
-  - Code: `src/features/timeline/timeline.tsx` (~1.9k lines: Skia drawing + all gestures),
-    `timeline-math.ts` (`timeToPoint`/`pointToTime`, `LANE_HEIGHT`, `hiddenLanes`/`pageScroll` for the
-    off-screen indicators), `lane-overlay.tsx` (name pills, indicators, New Track row), `track-column.tsx`
-    (handles, mixer, reorder), `clip-edit-math.ts` / `section-math.ts` / `reorder-math.ts` / `grid-math.ts`
-    (hit-testing in 1-D time + lane index, mostly axis-agnostic already). Screen composition is in
-    `src/features/project/project-screen.tsx`.
-  - Approach to weigh in plan mode: put one orientation/axis mapping (time axis ↔ lane axis → x/y) in the
-    timeline and route drawing and hit-testing through it. Don't fork `timeline.tsx` into a second copy that
-    drifts. If the refactor alone is a session, split: (a) axis refactor + vertical drawing/playback/scroll,
-    (b) vertical gestures + editing.
-  - Setting: a small persisted zustand store like `src/features/settings/recording-settings-store.ts`
-    (`zustandStorage`), shown in `settings-screen.tsx` (Speaker mode's "(experimental)" row is the
-    precedent).
-  - UI calls to make (and show the user): lane width with 1–3 tracks (fill the width, or stay at ¼ and leave
-    room?); where the mixer opens (a row expanding down under the header vs. a sheet); clip/section action bar
-    position (beside the item instead of above); ruler label format in a narrow column; whether the status
-    strip and transport stay as they are.
-  - Portrait only, as everywhere. Check Android's opaque header padding (Gotchas) if the header row changes.
+  - [ ] A fresh iOS build with this checkout's fingerprint is on the user's iPhone: a preview build
+        (`npm run build:preview`, then install from EAS/TestFlight) or a local dev build
+        (`npm run ios:device -- <udid> --no-bundler`). Ask the user which; ask before anything that publishes
+        or costs money (`release` skill).
+  - [ ] Each **Device checks** line run with the user (they test, the agent guides, reads logs and fixes).
+        Passing lines are deleted; small failures fixed in this session, bigger ones become tickets.
+  - [ ] `node scripts/ota-check.mjs` says "OTA ok" for iOS afterwards, and the "Device testing deferred" note
+        above is removed, so later sessions go back to a preview OTA update per ticket.
+  - [ ] Milestone checks: `npx expo export --platform ios --platform android --output-dir /tmp/export`;
+        Maestro (`npm run e2e`) only if it runs here (Native Instruments' NTKDaemon on port 5563 blocks it on
+        this Mac; don't kill it, ask the user).
+- **Context:** Android stays paused unless the user says otherwise: its lines stay in Device checks. Several
+  lines need native code newer than some installed builds (local modules `audio-input`, `audio-export`, T7's
+  background audio); the iPhone dev build from 2026-11-15 already has part of it, so first check what's installed
+  (`node scripts/ota-check.mjs` compares fingerprints with the latest preview build) before building. Local
+  native builds need a UTF-8 locale for CocoaPods and `--no-bundler` when Metro already runs (AGENTS.md
+  Gotchas). The `run-app` and `release` skills have the steps. The vertical timeline (T43) is worth trying on
+  the phone too: it's off by default.
 
 ## Device checks
 
 Run these with the next build on real phones (T7 needs one anyway, or before a release; see the `release`
 skill). Fix or ticket what fails, then delete the line.
+
+- Vertical timeline (T43; JS only, also fine in the simulator): Settings → Experimental → Vertical timeline on,
+  open an idea. Not tried yet: drag along the ruler to scrub; tap an empty spot on the rail to add a section;
+  move and resize a selected section; drag a clip to the bottom / right edge (auto-scroll); Record with
+  pre-roll (dashed punch line across the lanes, notch on the ruler). Then how it feels: pinch, two-way pan,
+  long-press pickup, the mixer row, 5+ tracks scrolled sideways. Switch off: the horizontal editor as before.
+  Android (never run).
 
 - Background & interruptions (T7, needs a new build; the iPhone dev build from 2026-11-15 has it, untested): arm a
   track in an idea with a take. Lock the screen ~30 s mid-take, unlock, Stop: the take is complete, lined up,
@@ -330,12 +323,26 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   in the pan's `onBegin`).
 - Clock text runs ~0.1–0.3 s ahead of the playhead (the playhead includes output latency). Show the clock from
   the playhead instead once a cheap way to do it without per-frame React renders exists.
+- Vertical timeline polish (from T43, decide after trying it): m:ss ruler labels sit tight against the minor
+  ticks in the 32 pt ruler (smaller font or a wider ruler when vertical; `rulerLabel` in `timeline.tsx`); the
+  section notes glyph turns into "|||" in the rail (`section-rail.ts`); the lift shadow of a dragged lane or
+  clip falls to the right instead of down; with 4+ tracks (74 pt lanes) longer track names truncate in the
+  header row. Sizes are in `timeline-math.ts` (`GRIP_BAND`, `PILL_BAND`, `MIXER_ROW_HEIGHT`).
 - Reorder drag: while a lifted lane passes over a track whose name pill hasn't slid away yet, that pill draws
   on top of the lifted lane for a moment (pills are RN views above the Skia canvas). Could hide or fade the
   passed pills, or draw the lifted pill above; only if it bothers on a device.
 
 ## Done
 
+- T43 — Vertical timeline (experimental) — 2026-11-15 — Settings → Experimental → "Vertical timeline" (off by
+  default, `experimental-settings-store.ts`) turns the same `Timeline` sideways: drawing and hit-testing stay in
+  logical axes (`t` along time, `l` across), the Skia picture is transposed and touches swapped back
+  (`logicalPoint`), ruler labels drawn upright and section names turned. Layout from `timelineLayout`
+  (`timeline-math.ts`): rail + ruler down the left, `TrackColumn` becomes a header row (grip over the name pill;
+  the mixer grows it down with M / S + volume), lanes share the width beside the "+" column (up to 4, then 74 pt
+  each, scrolling sideways with ‹ / › chips). Status strip, transport and action bars unchanged. Simulator light
+  - dark (play/follow, pinch, select, move, trim, pickup, seek, section tap, loop edge, reorder, mixer, mute, 6
+    tracks, record); Android not run
 - T7 — Background recording & interruptions — 2026-11-15 — a call, Siri, an alarm or another app taking audio
   stops the take and saves it up to there with a note; playback pauses; nothing auto-resumes (iOS would restart
   the recorder after a gap). Engine: `setInterruptionHandler`, interruptions observed only while playing or
@@ -351,22 +358,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   Hear yourself, Input (new `input-picker` sheet), Output, Silent recording, Bluetooth mic, Latency, from the
   rows now shared with the Settings tab (`recording-settings-rows.tsx`). Name moved from Idea settings to
   Rename. Tab bar stays hidden in an idea. Simulator light + dark; Android not run
-- T39 — Hear yourself — 2026-11-15 — input monitoring in Settings → Hear yourself (switch, level up to +6 dB,
-  delay, direct-monitoring note; the user's call: no editor UI until T44): `recorder.connect()` →
-  `RecorderAdapterNode` → chosen channel → own gain → destination (`setMonitor` in `audio-engine.ts`,
-  reconnected around every recorder stop/start: the library drops the adapter on stop and the next start fails).
-  Offered only on headphones/interface with ≤ 30 ms round trip (`monitoring.ts`; estimate from the new
-  `getInputInfo` latency on iOS, live measurement in `use-monitoring.ts`; Bluetooth refused). The mic now stays
-  open while playing with a track armed (meter too). `ListRow` accessories sit at the trailing edge. Needs a new
-  build; on-device checks are in Device checks.
-- T38 — Inputs, outputs, Bluetooth & latency per route — 2026-11-15 — everything in Settings (the user's call;
-  the editor only gets a red clip hold on its meter, `clip-hold.ts`, no "Too loud" text): Recording → Input
-  screen (`input-screen.tsx`: Automatic or a device, remembered by id then name+category in
-  `input-devices-store.ts`, fallback while unplugged; Channel Input 1…N for multi-channel inputs; Input gain
-  where iOS allows), Output name + iOS `AVRoutePickerView`, Bit depth 16/24, "Phone's mic with Bluetooth" (off:
-  `allowBluetoothHFP` + iOS 26 `bluetoothHighQualityRecording`), latency offset per output route (persist v2
-  migration, old value claimed by the first route seen). Live route in `audio-route-store.ts` (synced from the
-  root layout); pure rules in `audio-route.ts`. Multi-channel takes are recorded whole and the chosen channel
-  extracted to mono after Stop by the new local module `modules/audio-input` (also channel count, gain, route
-  button). New iOS dev build; simulator light + dark (Settings, Input picker, a take); Maestro skipped
-  (NTKDaemon), Android not run

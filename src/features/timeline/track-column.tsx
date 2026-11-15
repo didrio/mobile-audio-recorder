@@ -16,7 +16,7 @@ import type { Track } from '@/features/projects/projects-repo';
 import { makeStyles, useTheme } from '@/theme';
 
 import { autoScrollSpeed, dropIndex } from './reorder-math';
-import { clamp } from './timeline-math';
+import { clamp, GRIP_BAND, PILL_BAND } from './timeline-math';
 import { useReorderStyle, type TrackDrag } from './use-reorder-style';
 import { VolumeSlider } from './volume-slider';
 
@@ -47,15 +47,21 @@ export type FaderDraft = { trackId: string; gain: number };
  * slider, and there's no reordering. Arming happens on the track's name pill over the lanes. It follows
  * the lanes' vertical scroll (`laneScroll`) but never scrolls with time.
  *
+ * In the vertical timeline (T43) it's the header row along the top instead, one cell per lane column,
+ * following the lanes' sideways scroll: a band with the grab handle (in the mixer, the info button) over a
+ * band left free for the track's name pill (drawn by `LaneOverlay`); the mixer grows the row down with
+ * Mute · Solo and the volume slider under the name. Tracks are dragged left / right.
+ *
  * The drag lives in shared values (`drag`, read by the lanes and name pills too) and runs on the UI
  * thread; only the drop reaches JS.
  */
 export function TrackColumn({
   tracks,
-  top,
-  width,
+  start,
+  size,
   armWidth,
   expanded,
+  vertical = false,
   lane,
   laneScroll,
   viewport,
@@ -72,16 +78,19 @@ export function TrackColumn({
   onVolumeRelease,
 }: {
   tracks: Pick<Track, 'id' | 'name' | 'volume' | 'muted' | 'solo'>[];
-  /** Where the lanes start (below the ruler). */
-  top: number;
-  width: number;
+  /** Where the lanes start across time (below the ruler, or right of it when vertical). */
+  start: number;
+  /** The column's width (the row's height when vertical). */
+  size: number;
   /** Width of the collapsed column: the grab handle, and the info button's area in the mixer. */
   armWidth: number;
   /** Show the mixer controls. */
   expanded: boolean;
+  /** The header row of the vertical timeline instead of the column. */
+  vertical?: boolean;
   lane: number;
   laneScroll: SharedValue<number>;
-  /** Visible height of the lanes area, and how far it can scroll. */
+  /** Visible length of the lanes area across time, and how far it can scroll. */
   viewport: number;
   maxLaneScroll: number;
   drag: TrackDrag;
@@ -100,14 +109,16 @@ export function TrackColumn({
   onVolumeRelease: (trackId: string, gain: number) => void;
 }) {
   const styles = useStyles();
-  const scrolled = useAnimatedStyle(() => ({ transform: [{ translateY: -laneScroll.get() }] }));
+  const scrolled = useAnimatedStyle(() => ({
+    transform: [vertical ? { translateX: -laneScroll.get() } : { translateY: -laneScroll.get() }],
+  }));
   const trackIds = tracks.map((track) => track.id);
   const count = tracks.length;
   const reorderable = !expanded && !editDisabled && count > 1;
 
   /** The gesture picked a track up (it can be a long press below the last track: nothing). */
   const active = useSharedValue(false);
-  /** Finger y in the column, and where the drag started (finger, lane top, scroll). */
+  /** Finger position across time (y in the column, x in the row), and where the drag started (finger, lane top, scroll). */
   const finger = useSharedValue(0);
   const startFinger = useSharedValue(0);
   const startTop = useSharedValue(0);
@@ -156,7 +167,7 @@ export function TrackColumn({
     // (not dragging yet) picks the track up.
     onBegin: (event) => {
       'worklet';
-      const index = Math.floor((event.y + laneScroll.get()) / lane);
+      const index = Math.floor(((vertical ? event.x : event.y) + laneScroll.get()) / lane);
       if (index < 0 || index >= count) return;
       pressIndex.set(index);
       press.set(PRESS_START);
@@ -166,14 +177,15 @@ export function TrackColumn({
       'worklet';
       cancelAnimation(laneScroll);
       const scroll = laneScroll.get();
-      const index = Math.floor((event.y + scroll) / lane);
+      const along = vertical ? event.x : event.y;
+      const index = Math.floor((along + scroll) / lane);
       const id = trackIds[index];
       if (id == null) return;
       active.set(true);
       // The lift takes over from the press highlight.
       press.set(withTiming(0, { duration: LIFT_MS }));
-      finger.set(event.y);
-      startFinger.set(event.y);
+      finger.set(along);
+      startFinger.set(along);
       startScroll.set(scroll);
       startTop.set(index * lane);
       target.set(index);
@@ -189,7 +201,7 @@ export function TrackColumn({
     onUpdate: (event) => {
       'worklet';
       if (!active.get()) return;
-      finger.set(event.y);
+      finger.set(vertical ? event.x : event.y);
       follow();
     },
     onFinalize: () => {
@@ -217,8 +229,14 @@ export function TrackColumn({
 
   return (
     <GestureDetector gesture={pan}>
-      <View style={[styles.viewport, { top, width }]}>
-        <Animated.View style={scrolled}>
+      <View
+        style={[
+          styles.viewport,
+          vertical
+            ? [styles.rowViewport, { left: start, height: size }]
+            : [styles.columnViewport, { top: start, width: size }],
+        ]}>
+        <Animated.View style={[vertical && styles.row, scrolled]}>
           {tracks.map((track, index) => (
             <ColumnCell
               key={track.id}
@@ -230,8 +248,10 @@ export function TrackColumn({
               pressIndex={pressIndex}
               press={press}
               lane={lane}
+              size={size}
               armWidth={armWidth}
               expanded={expanded}
+              vertical={vertical}
               reorderable={reorderable}
               editDisabled={editDisabled}
               silent={anySolo ? !track.solo : track.muted}
@@ -260,8 +280,10 @@ function ColumnCell({
   pressIndex,
   press,
   lane,
+  size,
   armWidth,
   expanded,
+  vertical,
   reorderable,
   editDisabled,
   silent,
@@ -281,8 +303,11 @@ function ColumnCell({
   pressIndex: SharedValue<number>;
   press: SharedValue<number>;
   lane: number;
+  /** The row's height (vertical). */
+  size: number;
   armWidth: number;
   expanded: boolean;
+  vertical: boolean;
   reorderable: boolean;
   editDisabled: boolean;
   silent: boolean;
@@ -300,85 +325,123 @@ function ColumnCell({
     shadow: true,
     stripes: [colors.background, colors.laneAlt],
     liftedBackground: colors.laneLifted,
+    axis: vertical ? 'x' : 'y',
   });
   const pressed = useAnimatedStyle(() => ({
     opacity: pressIndex.get() === index ? press.get() : 0,
   }));
-  const moves = reorderable
+  const [back, forward] = vertical
     ? [
-        ...(index > 0 ? [{ name: 'moveUp', label: 'Move up' }] : []),
-        ...(index < count - 1 ? [{ name: 'moveDown', label: 'Move down' }] : []),
+        { name: 'moveLeft', label: 'Move left' },
+        { name: 'moveRight', label: 'Move right' },
       ]
+    : [
+        { name: 'moveUp', label: 'Move up' },
+        { name: 'moveDown', label: 'Move down' },
+      ];
+  const moves = reorderable
+    ? [...(index > 0 ? [back] : []), ...(index < count - 1 ? [forward] : [])]
     : [];
+
+  const info = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${track.name} settings`}
+      accessibilityState={{ disabled: editDisabled }}
+      disabled={editDisabled}
+      hitSlop={8}
+      onPress={() => onEdit(track.id)}
+      style={({ pressed: down }) => [
+        styles.info,
+        vertical && styles.infoBand,
+        editDisabled && styles.disabled,
+        down && styles.pressed,
+      ]}>
+      <Icon
+        name={{ ios: 'info.circle', android: 'info' }}
+        size={vertical ? 18 : 22}
+        color="textSecondary"
+      />
+    </Pressable>
+  );
+  const toggles = (
+    <>
+      <MixerToggle
+        label={`Mute ${track.name}`}
+        letter="M"
+        active={track.muted}
+        kind="mute"
+        onPress={() => onToggleMute(track.id)}
+      />
+      <MixerToggle
+        label={`Solo ${track.name}`}
+        letter="S"
+        active={track.solo}
+        kind="solo"
+        onPress={() => onToggleSolo(track.id)}
+      />
+    </>
+  );
+  const slider = (
+    <VolumeSlider
+      label={`${track.name} volume`}
+      gain={gain}
+      dimmed={silent}
+      onDrag={(next) => onVolumeDrag(track.id, next)}
+      onRelease={(next) => onVolumeRelease(track.id, next)}
+    />
+  );
+  const highlight = <Animated.View pointerEvents="none" style={[styles.pressHighlight, pressed]} />;
+  const grip = (
+    <View
+      style={vertical ? styles.gripBand : [styles.armArea, { width: armWidth }]}
+      accessible={reorderable}
+      accessibilityLabel={`Reorder ${track.name}`}
+      accessibilityHint={`Touch and hold, then drag to move the track`}
+      accessibilityActions={moves}
+      onAccessibilityAction={(event) => {
+        const name = event.nativeEvent.actionName;
+        const step = name === 'moveUp' || name === 'moveLeft' ? -1 : 1;
+        onMoveTrack(track.id, index + step);
+      }}>
+      <Icon
+        name={{ ios: 'line.3.horizontal', android: 'drag_indicator' }}
+        size={14}
+        color="textSecondary"
+        style={[styles.grip, vertical && styles.gripTurned]}
+      />
+    </View>
+  );
+
+  if (vertical) {
+    return (
+      <Animated.View style={[styles.cellVertical, { width: lane, height: size }, reorder]}>
+        {expanded ? null : highlight}
+        {expanded ? <View style={styles.gripBand}>{info}</View> : grip}
+        {/* The track's name pill (LaneOverlay) sits in this band. */}
+        <View style={styles.pillBand} />
+        {expanded ? (
+          <View style={styles.mixerStack}>
+            <View style={styles.toggles}>{toggles}</View>
+            <View style={styles.sliderRow}>{slider}</View>
+          </View>
+        ) : null}
+      </Animated.View>
+    );
+  }
 
   return (
     <Animated.View style={[styles.cell, { height: lane }, expanded && styles.cellMixer, reorder]}>
       {expanded ? (
         <View style={styles.mixer}>
-          <View style={[styles.armArea, { width: armWidth }]}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`${track.name} settings`}
-              accessibilityState={{ disabled: editDisabled }}
-              disabled={editDisabled}
-              hitSlop={8}
-              onPress={() => onEdit(track.id)}
-              style={({ pressed }) => [
-                styles.info,
-                editDisabled && styles.disabled,
-                pressed && styles.pressed,
-              ]}>
-              <Icon
-                name={{ ios: 'info.circle', android: 'info' }}
-                size={22}
-                color="textSecondary"
-              />
-            </Pressable>
-          </View>
-          <MixerToggle
-            label={`Mute ${track.name}`}
-            letter="M"
-            active={track.muted}
-            kind="mute"
-            onPress={() => onToggleMute(track.id)}
-          />
-          <MixerToggle
-            label={`Solo ${track.name}`}
-            letter="S"
-            active={track.solo}
-            kind="solo"
-            onPress={() => onToggleSolo(track.id)}
-          />
-          <VolumeSlider
-            label={`${track.name} volume`}
-            gain={gain}
-            dimmed={silent}
-            onDrag={(next) => onVolumeDrag(track.id, next)}
-            onRelease={(next) => onVolumeRelease(track.id, next)}
-          />
+          <View style={[styles.armArea, { width: armWidth }]}>{info}</View>
+          {toggles}
+          {slider}
         </View>
       ) : (
-        <Animated.View pointerEvents="none" style={[styles.pressHighlight, pressed]} />
+        highlight
       )}
-      {expanded ? null : (
-        <View
-          style={[styles.armArea, { width: armWidth }]}
-          accessible={reorderable}
-          accessibilityLabel={`Reorder ${track.name}`}
-          accessibilityHint="Touch and hold, then drag to move the track"
-          accessibilityActions={moves}
-          onAccessibilityAction={(event) => {
-            const step = event.nativeEvent.actionName === 'moveUp' ? -1 : 1;
-            onMoveTrack(track.id, index + step);
-          }}>
-          <Icon
-            name={{ ios: 'line.3.horizontal', android: 'drag_indicator' }}
-            size={14}
-            color="textSecondary"
-            style={styles.grip}
-          />
-        </View>
-      )}
+      {expanded ? null : grip}
     </Animated.View>
   );
 }
@@ -424,13 +487,11 @@ function MixerToggle({
 }
 
 const useStyles = makeStyles((t) => ({
-  viewport: {
-    position: 'absolute',
-    left: 0,
-    bottom: 0,
-    overflow: 'hidden',
-    backgroundColor: t.colors.background,
-  },
+  viewport: { position: 'absolute', overflow: 'hidden', backgroundColor: t.colors.background },
+  columnViewport: { left: 0, bottom: 0 },
+  // The vertical timeline's header row: along the top, right of the rail and ruler.
+  rowViewport: { top: 0, right: 0 },
+  row: { flexDirection: 'row' },
   cell: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -442,9 +503,25 @@ const useStyles = makeStyles((t) => ({
     backgroundColor: t.colors.background,
   },
   cellMixer: { paddingHorizontal: t.spacing.sm },
+  cellVertical: {
+    // A hairline between columns (like the lanes' separators) and a solid bottom edge on the row.
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderRightColor: t.colors.border,
+    borderBottomWidth: 1,
+    borderBottomColor: t.colors.border,
+    backgroundColor: t.colors.background,
+  },
+  gripBand: { height: GRIP_BAND, alignItems: 'center', justifyContent: 'center' },
+  pillBand: { height: PILL_BAND },
+  mixerStack: { gap: t.spacing.xs, paddingHorizontal: t.spacing.xs },
+  toggles: { flexDirection: 'row', justifyContent: 'center', gap: t.spacing.sm },
+  sliderRow: { flexDirection: 'row' },
   armArea: { alignItems: 'center', justifyContent: 'center' },
   info: { width: INFO_SIZE, height: INFO_SIZE, alignItems: 'center', justifyContent: 'center' },
+  infoBand: { height: GRIP_BAND },
   grip: { opacity: 0.6 },
+  // The grip runs across a column: tracks move left / right.
+  gripTurned: { transform: [{ rotate: '90deg' }] },
   pressHighlight: {
     position: 'absolute',
     top: 0,

@@ -86,18 +86,20 @@ import {
   defaultZoom,
   followScroll,
   formatRulerTime,
-  LANE_HEIGHT,
   laneScrollMax,
   livePeakPoint,
   livePeakRange,
+  logicalPoint,
   maxScroll,
-  MIXER_WIDTH,
-  NEW_TRACK_ROW_HEIGHT,
+  NEW_TRACK_SIZE,
   pointToTime,
   rulerSteps,
+  timelineLayout,
+  TRACK_ROW_HEIGHT,
   waveformGain,
   waveformLevel,
   zoomAroundPoint,
+  type Orientation,
 } from './timeline-math';
 import { TrackColumn, type FaderDraft } from './track-column';
 import { LIFT_FADE, LIFT_SCALE, useTrackDrag } from './use-reorder-style';
@@ -255,9 +257,18 @@ export type SectionEditing = {
  * unselected one up; sections stop at their neighbors and snap to bars while the grid snaps.
  * Waveforms share one vertical scale per project (the loudest take fills its lane), so relative
  * loudness between takes stays true.
+ *
+ * Vertical (T43, experimental `orientation`): the same timeline turned so time runs down and tracks are
+ * columns. Everything (drawing, hit-testing, drags, scroll) works in two logical axes: `t` along time and
+ * `l` across it (rail, ruler, lanes), which horizontally are x and y. Vertically they swap: the picture is
+ * drawn as usual inside a transpose (x ↔ y), touches are swapped back by `pointOf`, and the RN views
+ * around the canvas are placed for either layout (`TrackColumn` becomes the header row on top, the rail
+ * and ruler run down the left edge). Text is the one exception in the picture: a transpose mirrors it, so
+ * ruler labels are drawn upright and section names turned to read top to bottom.
  */
 export function Timeline({
   project,
+  orientation = 'horizontal',
   playhead,
   revealPlayhead,
   following,
@@ -281,6 +292,8 @@ export function Timeline({
   onVolumeCommit,
 }: {
   project: Project;
+  /** Time left → right (tracks are rows), or top → bottom (tracks are columns; experimental). */
+  orientation?: Orientation;
   /** Playhead position in seconds, animated by the transport. */
   playhead: SharedValue<number>;
   /** Bumped to bring the playhead into view (and resume following) even if it didn't move. */
@@ -316,19 +329,22 @@ export function Timeline({
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [draft, setDraft] = useState<FaderDraft | null>(null);
   const [mixerOpen, setMixerOpen] = useState(false);
-  // Never wider than half the view (so some timeline stays visible next to the mixer).
-  const columnWidth = mixerOpen
-    ? Math.max(CONTROLS_WIDTH, Math.min(MIXER_WIDTH, size.width / 2 + CONTROLS_WIDTH))
-    : CONTROLS_WIDTH;
-  // The canvas covers the time area right of the controls column; its x = 0 is the column's edge.
-  const viewWidth = Math.max(0, size.width - columnWidth);
-  // Time is laid out over the view minus the leading space: x = LEADING_SPACE + (t - scroll) * zoom.
-  const timeWidth = Math.max(0, viewWidth - LEADING_SPACE);
-  const viewHeight = size.height;
   const trackCount = project.tracks.length;
-  const lane = LANE_HEIGHT;
-  const lanesViewport = Math.max(0, viewHeight - HEADER_SIZE);
-  const maxLaneScroll = laneScrollMax(lanesViewport, trackCount, lane, NEW_TRACK_ROW_HEIGHT);
+  const layout = timelineLayout(orientation, size.width, size.height, {
+    trackCount,
+    mixerOpen,
+    headerSize: HEADER_SIZE,
+  });
+  const { vertical, lane, lanesViewport } = layout;
+  // The track controls: the column's width, or (vertical) the header row's height.
+  const controls = layout.controls;
+  // The canvas covers the time area beside the controls; its t = 0 is their edge, l = 0 the rail's outer
+  // edge. `viewLength` is its length along time, `crossLength` across it.
+  const viewLength = layout.viewLength;
+  const crossLength = layout.crossLength;
+  // Time is laid out over the view minus the leading space: t = LEADING_SPACE + (time - scroll) * zoom.
+  const timeLength = Math.max(0, viewLength - LEADING_SPACE);
+  const maxLaneScroll = laneScrollMax(lanesViewport, trackCount, lane, NEW_TRACK_SIZE);
   const duration = project.duration;
   const isRecording = liveTake != null;
   // The bar/beat grid (T9): lines in the lanes, bar numbers on the ruler, and a snap target for drags.
@@ -469,17 +485,19 @@ export function Timeline({
   // the UI thread: scroll is moved there (gestures, following), so a JS-side read could be stale and
   // write an old position back (seen right after recording: the view jumped away from the playhead).
   useEffect(() => {
-    if (timeWidth <= 0) return;
+    if (timeLength <= 0) return;
     scheduleOnUI(() => {
       'worklet';
       const extent = Math.max(contentEnd, playhead.get(), loopEnd.get());
       const nextZoom =
-        zoom.get() > 0 ? clampZoom(zoom.get(), timeWidth, extent) : defaultZoom(timeWidth, extent);
+        zoom.get() > 0
+          ? clampZoom(zoom.get(), timeLength, extent)
+          : defaultZoom(timeLength, extent);
       zoom.set(nextZoom);
-      scroll.set(clampScroll(scroll.get(), timeWidth, nextZoom, extent));
+      scroll.set(clampScroll(scroll.get(), timeLength, nextZoom, extent));
       laneScroll.set(clamp(laneScroll.get(), 0, maxLaneScroll));
     });
-  }, [timeWidth, contentEnd, maxLaneScroll, zoom, scroll, laneScroll, playhead, loopEnd]);
+  }, [timeLength, contentEnd, maxLaneScroll, zoom, scroll, laneScroll, playhead, loopEnd]);
 
   useEffect(() => {
     if (following) follow.set(true);
@@ -492,7 +510,7 @@ export function Timeline({
     (position, previous) => {
       const currentZoom = zoom.get();
       if (currentZoom <= 0) return;
-      const viewSeconds = timeWidth / currentZoom;
+      const viewSeconds = timeLength / currentZoom;
       if (following) {
         if (follow.get()) scroll.set(followScroll(scroll.get(), position, viewSeconds));
         return;
@@ -502,7 +520,7 @@ export function Timeline({
       scroll.set(
         clampScroll(
           followScroll(start, position, viewSeconds),
-          timeWidth,
+          timeLength,
           currentZoom,
           Math.max(contentEnd, position),
         ),
@@ -520,8 +538,8 @@ export function Timeline({
       const position = playhead.get();
       scroll.set(
         clampScroll(
-          followScroll(scroll.get(), position, timeWidth / currentZoom),
-          timeWidth,
+          followScroll(scroll.get(), position, timeLength / currentZoom),
+          timeLength,
           currentZoom,
           Math.max(contentEnd, position),
         ),
@@ -529,10 +547,16 @@ export function Timeline({
     },
   );
 
-  const freeSeekable = (x: number) => {
+  /** A touch in logical axes (`t` along time, `l` across it): swaps x and y in the vertical timeline. */
+  const pointOf = (event: { x: number; y: number }) => {
+    'worklet';
+    return logicalPoint(event.x, event.y, vertical);
+  };
+
+  const freeSeekable = (t: number) => {
     'worklet';
     return clamp(
-      pointToTime(x - LEADING_SPACE, scroll.get(), zoom.get()),
+      pointToTime(t - LEADING_SPACE, scroll.get(), zoom.get()),
       0,
       contentDuration(contentEnd),
     );
@@ -540,9 +564,9 @@ export function Timeline({
 
   // Where a touch on the ruler or lanes puts the playhead: the touch's time, pulled onto a grid line
   // within SNAP_POINTS (so it doesn't depend on the zoom) while Snap is on.
-  const seekable = (x: number) => {
+  const seekable = (t: number) => {
     'worklet';
-    const time = freeSeekable(x);
+    const time = freeSeekable(t);
     if (!snapToGrid) return time;
     const z = zoom.get();
     return clamp(
@@ -573,10 +597,10 @@ export function Timeline({
   const dragRow = useSharedValue(0);
   /** Bumped by every drag, so clearing an old drop can't clear a newer drag. */
   const dragSerial = useSharedValue(0);
-  /** Timeline time under the finger when the drag started, and the finger now. */
+  /** Timeline time under the finger when the drag started, and the finger now (logical axes). */
   const grabTime = useSharedValue(0);
-  const fingerX = useSharedValue(0);
-  const fingerY = useSharedValue(0);
+  const fingerT = useSharedValue(0);
+  const fingerL = useSharedValue(0);
   /** 0 → 1 while a moved clip is lifted (shadow, scale). */
   const lift = useSharedValue(0);
   /** Time a dragged edge snapped to (drawn as a guide), or -1. */
@@ -589,20 +613,20 @@ export function Timeline({
   /** The drag whose drop is waiting for its saved edit to render. */
   const awaitingSerial = useRef(-1);
 
-  const timeAt = (x: number) => {
+  const timeAt = (t: number) => {
     'worklet';
-    return pointToTime(x - LEADING_SPACE, scroll.get(), zoom.get());
+    return pointToTime(t - LEADING_SPACE, scroll.get(), zoom.get());
   };
 
   /** The loop handle under a point (`LOOP_EDGE_START`/`_END`), or 0. The nearer edge wins. */
-  const loopEdgeAt = (x: number, y: number): number => {
+  const loopEdgeAt = (t: number, l: number): number => {
     'worklet';
     const start = loopStart.get();
     const end = loopEnd.get();
     if (
       isRecording ||
-      y < RAIL_SIZE ||
-      y > HEADER_SIZE + RULER_SLOP ||
+      l < RAIL_SIZE ||
+      l > HEADER_SIZE + RULER_SLOP ||
       start < 0 ||
       !(end > start)
     ) {
@@ -610,8 +634,8 @@ export function Timeline({
     }
     const z = zoom.get();
     // Positive inside the region.
-    const intoStart = (timeAt(x) - start) * z;
-    const intoEnd = (end - timeAt(x)) * z;
+    const intoStart = (timeAt(t) - start) * z;
+    const intoEnd = (end - timeAt(t)) * z;
     const nearStart = intoStart >= -LOOP_REACH_OUT && intoStart <= LOOP_REACH_IN;
     const nearEnd = intoEnd >= -LOOP_REACH_OUT && intoEnd <= LOOP_REACH_IN;
     if (nearStart && nearEnd) return Math.abs(intoStart) <= Math.abs(intoEnd) ? 1 : 2;
@@ -619,14 +643,14 @@ export function Timeline({
   };
 
   /** Index of the clip under a point, or -1. */
-  const clipAt = (x: number, y: number) => {
+  const clipAt = (t: number, l: number) => {
     'worklet';
-    const contentY = y - HEADER_SIZE + laneScroll.get();
-    if (contentY < 0 || contentY >= trackCount * lane) return -1;
-    return itemAt(clips, timeAt(x), Math.floor(contentY / lane));
+    const content = l - HEADER_SIZE + laneScroll.get();
+    if (content < 0 || content >= trackCount * lane) return -1;
+    return itemAt(clips, timeAt(t), Math.floor(content / lane));
   };
 
-  const startDrag = (index: number, part: DragPart, x: number, y: number) => {
+  const startDrag = (index: number, part: DragPart, t: number, l: number) => {
     'worklet';
     const clip = clips[index];
     if (!clip) return;
@@ -637,13 +661,13 @@ export function Timeline({
     dragPart.set(part);
     dragWin.set({ start: clip.start, offset: clip.offset, duration: clip.duration });
     dragRow.set(clip.row);
-    grabTime.set(timeAt(x));
-    fingerX.set(x);
-    fingerY.set(y);
+    grabTime.set(timeAt(t));
+    fingerT.set(t);
+    fingerL.set(l);
     snapTime.set(-1);
   };
 
-  const startSectionDrag = (index: number, part: DragPart, x: number) => {
+  const startSectionDrag = (index: number, part: DragPart, t: number) => {
     'worklet';
     const section = sections[index];
     if (!section) return;
@@ -656,8 +680,8 @@ export function Timeline({
     dragId.set(section.id);
     dragPart.set(part);
     dragWin.set({ start: section.start, offset: 0, duration: section.duration });
-    grabTime.set(timeAt(x));
-    fingerX.set(x);
+    grabTime.set(timeAt(t));
+    fingerT.set(t);
     snapTime.set(-1);
   };
 
@@ -671,7 +695,7 @@ export function Timeline({
     const part = dragPart.get() as DragPart;
     const origin = { start: section.start, duration: section.duration };
     const step = snapToGrid ? barSeconds(meter) : 0;
-    let delta = timeAt(fingerX.get()) - grabTime.get();
+    let delta = timeAt(fingerT.get()) - grabTime.get();
     let guide = -1;
     if (step === 0) {
       const candidates = [0, playhead.get()];
@@ -720,7 +744,7 @@ export function Timeline({
     const snapped = snapDrag(
       part,
       origin,
-      timeAt(fingerX.get()) - grabTime.get(),
+      timeAt(fingerT.get()) - grabTime.get(),
       candidates,
       SNAP_POINTS / z,
       activeSnapStep(grid, snap, meter, z),
@@ -734,7 +758,7 @@ export function Timeline({
     dragWin.set(next);
     snapTime.set(landed ? guide : -1);
     if (part === DRAG_MOVE) {
-      dragRow.set(rowAt(fingerY.get() - HEADER_SIZE, laneScroll.get(), lane, trackCount));
+      dragRow.set(rowAt(fingerL.get() - HEADER_SIZE, laneScroll.get(), lane, trackCount));
     }
   };
 
@@ -743,11 +767,11 @@ export function Timeline({
     'worklet';
     const z = zoom.get();
     if (!dragging.get() || z <= 0) return;
-    const sx = autoScrollSpeed(fingerX.get(), viewWidth, AUTO_SCROLL_EDGE, AUTO_SCROLL_SPEED);
+    const sx = autoScrollSpeed(fingerT.get(), viewLength, AUTO_SCROLL_EDGE, AUTO_SCROLL_SPEED);
     const sy =
       dragPart.get() === DRAG_MOVE && dragKind.get() === KIND_CLIP
         ? autoScrollSpeed(
-            fingerY.get() - HEADER_SIZE,
+            fingerL.get() - HEADER_SIZE,
             lanesViewport,
             AUTO_SCROLL_EDGE,
             AUTO_SCROLL_SPEED,
@@ -757,7 +781,7 @@ export function Timeline({
     const seconds = (frame.timeSincePreviousFrame ?? 16) / 1000;
     const window = dragWin.get();
     const extent = Math.max(contentEnd, playhead.get(), window.start + window.duration);
-    scroll.set(clampScroll(scroll.get() + (sx * seconds) / z, timeWidth, z, extent));
+    scroll.set(clampScroll(scroll.get() + (sx * seconds) / z, timeLength, z, extent));
     laneScroll.set(clamp(laneScroll.get() + sy * seconds, 0, maxLaneScroll));
     updateDrag();
   }, false);
@@ -896,38 +920,39 @@ export function Timeline({
       'worklet';
       cancelAnimation(scroll);
       panScrolling.set(false);
+      const { t, l } = pointOf(event);
       // A loop handle: this pan resizes the region.
-      const edge = loopEdgeAt(event.x, event.y);
+      const edge = loopEdgeAt(t, l);
       loopEdge.set(edge);
       if (edge !== 0) {
         const region = { start: loopStart.get(), end: loopEnd.get() };
         loopOrigin.set(region);
-        loopGrab.set(timeAt(event.x) - (edge === LOOP_EDGE_START ? region.start : region.end));
+        loopGrab.set(timeAt(t) - (edge === LOOP_EDGE_START ? region.start : region.end));
         scrubbing.set(false);
         return;
       }
       // On the selected section: this pan moves it or (near an edge) resizes it. Else it scrolls.
-      if (event.y < RAIL_SIZE) {
+      if (l < RAIL_SIZE) {
         scrubbing.set(false);
         const section = sections[selectedSectionIndex];
         if (!section || owner.get() !== 0) return;
-        const part = grabPart(section, timeAt(event.x), HANDLE_REACH / zoom.get());
+        const part = grabPart(section, timeAt(t), HANDLE_REACH / zoom.get());
         if (part === DRAG_NONE) return;
         owner.set(1);
-        startSectionDrag(selectedSectionIndex, part, event.x);
+        startSectionDrag(selectedSectionIndex, part, t);
         return;
       }
-      const onRuler = event.y <= HEADER_SIZE + RULER_SLOP;
+      const onRuler = l <= HEADER_SIZE + RULER_SLOP;
       scrubbing.set(!isRecording && onRuler);
       // On the selected clip: this pan drags it (an edge trims, the body moves).
       const clip = clips[selectedIndex];
       if (onRuler || !clip || owner.get() !== 0) return;
-      const contentY = event.y - HEADER_SIZE + laneScroll.get();
-      if (Math.floor(contentY / lane) !== clip.row) return;
-      const part = grabPart(clip, timeAt(event.x), HANDLE_REACH / zoom.get());
+      const content = l - HEADER_SIZE + laneScroll.get();
+      if (Math.floor(content / lane) !== clip.row) return;
+      const part = grabPart(clip, timeAt(t), HANDLE_REACH / zoom.get());
       if (part === DRAG_NONE) return;
       owner.set(1);
-      startDrag(selectedIndex, part, event.x, event.y);
+      startDrag(selectedIndex, part, t, l);
     },
     onActivate: () => {
       'worklet';
@@ -943,6 +968,7 @@ export function Timeline({
     },
     onUpdate: (event) => {
       'worklet';
+      const { t, l } = pointOf(event);
       const edge = loopEdge.get();
       if (edge !== 0) {
         // Whole bars while the grid snaps (and at least one bar), else free (at least a second).
@@ -950,7 +976,7 @@ export function Timeline({
         const next = dragLoopEdge(
           loopOrigin.get(),
           edge === LOOP_EDGE_START ? 1 : 2,
-          timeAt(event.x) - loopGrab.get(),
+          timeAt(t) - loopGrab.get(),
           { step, minLength: step > 0 ? step : MIN_LOOP_SECONDS },
         );
         loopStart.set(next.start);
@@ -958,17 +984,17 @@ export function Timeline({
         return;
       }
       if (scrubbing.get()) {
-        const time = seekable(event.x);
+        const time = seekable(t);
         scrubTime.set(time);
-        scrubSnap.set(snapToGrid && time !== freeSeekable(event.x) ? time : -1);
+        scrubSnap.set(snapToGrid && time !== freeSeekable(t) ? time : -1);
         // Idle: the playhead (and clock) follow the finger. Playing: seek once, on release.
         if (!following) scheduleOnRN(onSeek, time);
         return;
       }
       if (owner.get() !== 0) {
         if (owner.get() === 1) {
-          fingerX.set(event.x);
-          fingerY.set(event.y);
+          fingerT.set(t);
+          fingerL.set(l);
           updateDrag();
         }
         return;
@@ -976,10 +1002,12 @@ export function Timeline({
       follow.set(false);
       const currentZoom = zoom.get();
       const extent = Math.max(contentEnd, playhead.get(), loopEnd.get());
+      const changeT = vertical ? event.changeY : event.changeX;
+      const changeL = vertical ? event.changeX : event.changeY;
       scroll.set(
-        clampScroll(scroll.get() - event.changeX / currentZoom, timeWidth, currentZoom, extent),
+        clampScroll(scroll.get() - changeT / currentZoom, timeLength, currentZoom, extent),
       );
-      laneScroll.set(clamp(laneScroll.get() - event.changeY, 0, maxLaneScroll));
+      laneScroll.set(clamp(laneScroll.get() - changeL, 0, maxLaneScroll));
     },
     onDeactivate: (event) => {
       'worklet';
@@ -993,8 +1021,8 @@ export function Timeline({
       const extent = Math.max(contentEnd, playhead.get(), loopEnd.get());
       scroll.set(
         withDecay({
-          velocity: -event.velocityX / currentZoom,
-          clamp: [0, maxScroll(timeWidth, currentZoom, extent)],
+          velocity: -(vertical ? event.velocityY : event.velocityX) / currentZoom,
+          clamp: [0, maxScroll(timeLength, currentZoom, extent)],
         }),
       );
     },
@@ -1023,8 +1051,9 @@ export function Timeline({
     onBegin: (event) => {
       'worklet';
       pickIndex.set(-1);
-      if (event.y < RAIL_SIZE) {
-        const index = sectionEditable ? sectionAt(sections, timeAt(event.x)) : -1;
+      const { t, l } = pointOf(event);
+      if (l < RAIL_SIZE) {
+        const index = sectionEditable ? sectionAt(sections, timeAt(t)) : -1;
         const section = sections[index];
         if (!section || section.id === selectedSectionKey) return;
         pickIndex.set(index);
@@ -1034,8 +1063,8 @@ export function Timeline({
         press.set(withTiming(1, { duration: LONG_PRESS_MS }));
         return;
       }
-      if (!editable || event.y <= HEADER_SIZE + RULER_SLOP) return;
-      const index = clipAt(event.x, event.y);
+      if (!editable || l <= HEADER_SIZE + RULER_SLOP) return;
+      const index = clipAt(t, l);
       const clip = clips[index];
       if (!clip || clip.id === selectedClipId) return;
       pickIndex.set(index);
@@ -1051,8 +1080,9 @@ export function Timeline({
       const item = kind === KIND_SECTION ? sections[index] : clips[index];
       if (!item || owner.get() !== 0 || panScrolling.get()) return;
       owner.set(2);
-      if (kind === KIND_SECTION) startSectionDrag(index, DRAG_MOVE, event.x);
-      else startDrag(index, DRAG_MOVE, event.x, event.y);
+      const { t, l } = pointOf(event);
+      if (kind === KIND_SECTION) startSectionDrag(index, DRAG_MOVE, t);
+      else startDrag(index, DRAG_MOVE, t, l);
       dragging.set(true);
       follow.set(false);
       press.set(withTiming(0, { duration: LIFT_MS }));
@@ -1062,8 +1092,9 @@ export function Timeline({
     onUpdate: (event) => {
       'worklet';
       if (owner.get() !== 2) return;
-      fingerX.set(event.x);
-      fingerY.set(event.y);
+      const { t, l } = pointOf(event);
+      fingerT.set(t);
+      fingerL.set(l);
       updateDrag();
     },
     onFinalize: () => {
@@ -1081,11 +1112,11 @@ export function Timeline({
     onUpdate: (event) => {
       'worklet';
       const extent = Math.max(contentEnd, playhead.get(), loopEnd.get());
-      const nextZoom = clampZoom(pinchStartZoom.get() * event.scale, timeWidth, extent);
-      const focal = event.focalX - LEADING_SPACE;
+      const nextZoom = clampZoom(pinchStartZoom.get() * event.scale, timeLength, extent);
+      const focal = (vertical ? event.focalY : event.focalX) - LEADING_SPACE;
       const nextScroll = zoomAroundPoint(scroll.get(), zoom.get(), nextZoom, focal);
       zoom.set(nextZoom);
-      scroll.set(clampScroll(nextScroll, timeWidth, nextZoom, extent));
+      scroll.set(clampScroll(nextScroll, timeLength, nextZoom, extent));
     },
   });
 
@@ -1096,11 +1127,12 @@ export function Timeline({
     onActivate: (event) => {
       'worklet';
       press.set(withTiming(0, { duration: PRESS_FADE_MS }));
+      const { t, l } = pointOf(event);
       // A tap on a loop handle does nothing (it's there to be dragged).
-      if (loopEdgeAt(event.x, event.y) !== 0) return;
+      if (loopEdgeAt(t, l) !== 0) return;
       // The rail: a section jumps the playhead to its start (and is selected); an empty spot adds one.
-      if (event.y < RAIL_SIZE) {
-        const time = timeAt(event.x);
+      if (l < RAIL_SIZE) {
+        const time = timeAt(t);
         const section = sections[sectionAt(sections, time)];
         if (section) {
           if (sectionEditable) scheduleOnRN(selectSection, section.id);
@@ -1119,12 +1151,12 @@ export function Timeline({
         if (window) scheduleOnRN(requestSection, window);
         return;
       }
-      const clip = editable && event.y > HEADER_SIZE ? clips[clipAt(event.x, event.y)] : undefined;
+      const clip = editable && l > HEADER_SIZE ? clips[clipAt(t, l)] : undefined;
       if (clip) {
         scheduleOnRN(selectClip, clip.id);
         return;
       }
-      scheduleOnRN(onSeek, seekable(event.x));
+      scheduleOnRN(onSeek, seekable(t));
       scheduleOnRN(selectClip, null);
     },
   });
@@ -1135,6 +1167,12 @@ export function Timeline({
     createPicture((canvas) => {
       const z = zoom.get();
       if (z <= 0) return;
+      // Drawn in logical axes (x along time, y across it); the vertical timeline transposes them.
+      canvas.save();
+      if (vertical) {
+        canvas.rotate(90, 0, 0);
+        canvas.scale(1, -1);
+      }
       const s = scroll.get();
       const ls = laneScroll.get();
       const scrubbed = scrubTime.get();
@@ -1160,7 +1198,7 @@ export function Timeline({
       const pressAmount = press.get();
       const pressed = pressAmount > 0 ? pressId.get() : null;
       const visibleStart = s - LEADING_SPACE / z;
-      const visibleEnd = s + timeWidth / z;
+      const visibleEnd = s + timeLength / z;
       const toX = (time: number) => LEADING_SPACE + (time - s) * z;
       const loopFrom = loopStart.get();
       const loopTo = loopEnd.get();
@@ -1179,7 +1217,7 @@ export function Timeline({
         const beats = Skia.PathBuilder.Make();
         const line = (builder: typeof bars, time: number) => {
           const gx = toX(time);
-          if (gx < 0.5 || gx > viewWidth) return;
+          if (gx < 0.5 || gx > viewLength) return;
           builder.moveTo(gx, 0);
           builder.lineTo(gx, lane);
         };
@@ -1216,7 +1254,7 @@ export function Timeline({
       const drawLane = (index: number) => {
         const top = laneTop(index);
         canvas.drawRect(
-          Skia.XYWHRect(0, top, viewWidth, lane),
+          Skia.XYWHRect(0, top, viewLength, lane),
           index === lifted ? paints.laneLifted : stripe(index),
         );
         if (looping) {
@@ -1231,7 +1269,7 @@ export function Timeline({
           canvas.drawPath(gridPaths.bars, gridPaths.style.bar);
           canvas.restore();
         }
-        canvas.drawLine(0, top + lane, viewWidth, top + lane, paints.separator);
+        canvas.drawLine(0, top + lane, viewLength, top + lane, paints.separator);
       };
       // A clip showing `offset…offset + length` of its take from `start` on lane `row` (a drag can
       // differ from the clip's saved window and lane).
@@ -1244,7 +1282,7 @@ export function Timeline({
       ) => {
         const x0 = toX(start);
         const width = length * z;
-        if (x0 > viewWidth || x0 + width < 0) return;
+        if (x0 > viewLength || x0 + width < 0) return;
         const top = laneTop(row) + CLIP_INSET;
         const height = lane - CLIP_INSET * 2;
         const rect = Skia.XYWHRect(x0, top, width, height);
@@ -1321,20 +1359,20 @@ export function Timeline({
         const top = laneTop(lifted);
         const scale = 1 + LIFT_SCALE * lift;
         canvas.save();
-        canvas.translate(viewWidth / 2, top + lane / 2);
+        canvas.translate(viewLength / 2, top + lane / 2);
         canvas.scale(scale, scale);
-        canvas.translate(-viewWidth / 2, -(top + lane / 2));
+        canvas.translate(-viewLength / 2, -(top + lane / 2));
         if (lift > 0) {
           paints.liftShadow.setAlphaf(0.35 * lift);
           canvas.drawRect(
-            Skia.XYWHRect(0, top + LIFT_SHADOW_Y * lift, viewWidth, lane),
+            Skia.XYWHRect(0, top + LIFT_SHADOW_Y * lift, viewLength, lane),
             paints.liftShadow,
           );
         }
         paints.liftLayer.setAlphaf(1 - LIFT_FADE * lift);
         canvas.saveLayer(paints.liftLayer);
         drawLane(lifted);
-        canvas.drawLine(0, top, viewWidth, top, paints.separator);
+        canvas.drawLine(0, top, viewLength, top, paints.separator);
         for (const clip of clips) if (clip.row === lifted && clip.id !== dragged) drawSaved(clip);
         canvas.restore();
         canvas.restore();
@@ -1396,12 +1434,12 @@ export function Timeline({
       // (1, 2, 3…) instead of minutes and seconds. Drawn in its own coordinates, under the rail.
       canvas.save();
       canvas.translate(0, RAIL_SIZE);
-      canvas.drawRect(Skia.XYWHRect(0, 0, viewWidth, RULER_SIZE), paints.ruler);
+      canvas.drawRect(Skia.XYWHRect(0, 0, viewLength, RULER_SIZE), paints.ruler);
       // The loop region: a band with a handle tab inside each end (faint while Loop is off).
       if (hasLoop) {
         const x0 = toX(loopFrom);
         const x1 = toX(loopTo);
-        if (x1 > 0 && x0 < viewWidth) {
+        if (x1 > 0 && x0 < viewLength) {
           canvas.drawRect(
             Skia.XYWHRect(x0, 0, x1 - x0, RULER_SIZE),
             looping ? paints.loopBand : paints.loopBandOff,
@@ -1422,6 +1460,21 @@ export function Timeline({
         }
       }
       const labelY = RULER_SIZE - 13;
+      const labelSize = font.getSize();
+      // A ruler label at time point `at`: right of its tick, or (vertical) upright on screen just below
+      // it, which undoes the transpose for the text.
+      const rulerLabel = (text: string, at: number) => {
+        if (!vertical) {
+          canvas.drawText(text, at + 4, labelY, paints.label, font);
+          return;
+        }
+        canvas.save();
+        canvas.translate(at, 0);
+        canvas.rotate(90, 0, 0);
+        canvas.scale(1, -1);
+        canvas.drawText(text, 3, labelSize + 2, paints.label, font);
+        canvas.restore();
+      };
       if (gridLevels) {
         const barLength = barSeconds(meter);
         const { lineEvery, labelEvery } = gridLevels;
@@ -1455,12 +1508,12 @@ export function Timeline({
             canvas.drawLine(x, RULER_SIZE - 4, x, RULER_SIZE, paints.tickBeat);
           }
         }
-        canvas.drawLine(0, RULER_SIZE, viewWidth, RULER_SIZE, paints.separator);
+        canvas.drawLine(0, RULER_SIZE, viewLength, RULER_SIZE, paints.separator);
         const firstLabel = Math.max(0, Math.floor(visibleStart / barLength / labelEvery));
         const lastLabel = Math.ceil(visibleEnd / barLength / labelEvery);
         for (let index = firstLabel; index <= lastLabel; index++) {
           const bar = index * labelEvery;
-          canvas.drawText(String(bar + 1), toX(bar * barLength) + 4, labelY, paints.label, font);
+          rulerLabel(String(bar + 1), toX(bar * barLength));
         }
       } else {
         const steps = rulerSteps(z);
@@ -1474,12 +1527,11 @@ export function Timeline({
           const isLabel = isMultiple(time, steps.label);
           canvas.drawLine(x, RULER_SIZE - (isLabel ? 10 : 5), x, RULER_SIZE, paints.tick);
         }
-        canvas.drawLine(0, RULER_SIZE, viewWidth, RULER_SIZE, paints.separator);
+        canvas.drawLine(0, RULER_SIZE, viewLength, RULER_SIZE, paints.separator);
         const firstLabel = Math.max(0, Math.floor(visibleStart / steps.label));
         const lastLabel = Math.ceil(visibleEnd / steps.label);
         for (let index = firstLabel; index <= lastLabel; index++) {
-          const x = toX(index * steps.label);
-          canvas.drawText(formatRulerTime(index * steps.label), x + 4, labelY, paints.label, font);
+          rulerLabel(formatRulerTime(index * steps.label), toX(index * steps.label));
         }
       }
       canvas.restore();
@@ -1487,7 +1539,7 @@ export function Timeline({
       // The section rail above the ruler.
       drawSectionRail(canvas, {
         sections,
-        width: viewWidth,
+        width: viewLength,
         height: RAIL_SIZE,
         toX,
         zoom: z,
@@ -1500,9 +1552,10 @@ export function Timeline({
         paints: paints.rail,
         font: sectionFont,
         hint: sectionEditable ? RAIL_HINT : null,
+        vertical,
       });
 
-      const playheadEnd = Math.min(viewHeight, HEADER_SIZE + trackCount * lane - ls);
+      const playheadEnd = Math.min(crossLength, HEADER_SIZE + trackCount * lane - ls);
 
       // The punch point during the run-up: a dashed line down the lanes, a notch on the ruler.
       if (liveTake && position < liveTake.start) {
@@ -1535,11 +1588,15 @@ export function Timeline({
       handle.lineTo(x - PLAYHEAD_HANDLE, HEADER_SIZE - PLAYHEAD_HANDLE * 2);
       handle.close();
       canvas.drawPath(handle.detach(), paints.playheadHandle);
+      canvas.restore();
     }),
   );
 
   const clipCount = clips.length;
   const sectionCount = sections.length;
+  // Action bars float over the bottom of the lanes, centered: right of the controls column, or right of
+  // the ruler when vertical.
+  const lanesStart = vertical ? HEADER_SIZE : controls;
   return (
     <View
       style={styles.root}
@@ -1549,7 +1606,10 @@ export function Timeline({
       }}>
       <GestureDetector gesture={gesture}>
         <View
-          style={[styles.timeArea, { left: columnWidth }]}
+          style={[
+            styles.timeArea,
+            vertical ? { top: controls, left: 0 } : { left: controls, top: 0 },
+          ]}
           accessible
           accessibilityLabel={`Timeline, ${trackCount} ${trackCount === 1 ? 'track' : 'tracks'}, ${clipCount} ${clipCount === 1 ? 'clip' : 'clips'}, ${sectionCount} ${sectionCount === 1 ? 'section' : 'sections'}`}>
           {size.width > 0 ? (
@@ -1570,8 +1630,10 @@ export function Timeline({
             onPress={() => setMixerOpen((open) => !open)}
             style={({ pressed }) => [
               styles.corner,
+              vertical
+                ? [styles.cornerVertical, { width: HEADER_SIZE, height: controls }]
+                : [styles.cornerHorizontal, { width: controls, height: HEADER_SIZE }],
               {
-                width: columnWidth,
                 backgroundColor: mixerOpen
                   ? theme.colors.surfacePressed
                   : theme.colors.surfaceMuted,
@@ -1580,7 +1642,7 @@ export function Timeline({
               },
               pressed && styles.pressed,
             ]}>
-            <View style={styles.cornerIcon}>
+            <View style={vertical ? styles.cornerIconVertical : styles.cornerIcon}>
               <Icon
                 name={{ ios: 'slider.horizontal.3', android: 'tune' }}
                 size={18}
@@ -1590,10 +1652,11 @@ export function Timeline({
           </Pressable>
           <TrackColumn
             tracks={project.tracks}
-            top={HEADER_SIZE}
-            width={columnWidth}
+            start={HEADER_SIZE}
+            size={controls}
             armWidth={CONTROLS_WIDTH}
             expanded={mixerOpen}
+            vertical={vertical}
             anySolo={anySolo}
             onToggleMute={onToggleMute}
             onToggleSolo={onToggleSolo}
@@ -1617,12 +1680,13 @@ export function Timeline({
           />
           <LaneOverlay
             tracks={project.tracks}
-            top={HEADER_SIZE}
-            left={columnWidth}
+            start={HEADER_SIZE}
+            timeStart={controls}
+            vertical={vertical}
             viewport={lanesViewport}
             lane={lane}
             inset={CLIP_INSET}
-            footer={NEW_TRACK_ROW_HEIGHT}
+            footer={NEW_TRACK_SIZE}
             laneScroll={laneScroll}
             drag={drag}
             draft={draft}
@@ -1633,7 +1697,7 @@ export function Timeline({
             onAddTrack={onAddTrack}
           />
           {selected && clipEditing ? (
-            <View pointerEvents="box-none" style={[styles.actionBar, { left: columnWidth }]}>
+            <View pointerEvents="box-none" style={[styles.actionBar, { left: lanesStart }]}>
               <ClipActionBar
                 canSplit={canSplit}
                 onSplit={() => clipEditing.onSplit(selected.id, playhead.get())}
@@ -1650,7 +1714,7 @@ export function Timeline({
             </View>
           ) : null}
           {selectedSection && sectionEditing ? (
-            <View pointerEvents="box-none" style={[styles.actionBar, { left: columnWidth }]}>
+            <View pointerEvents="box-none" style={[styles.actionBar, { left: lanesStart }]}>
               <SectionActionBar
                 key={selectedSection.id}
                 color={selectedSection.color}
@@ -1843,20 +1907,21 @@ function makeRailPaints(
 
 const styles = StyleSheet.create({
   root: { flex: 1, overflow: 'hidden' },
-  timeArea: { position: 'absolute', top: 0, bottom: 0, right: 0 },
+  timeArea: { position: 'absolute', bottom: 0, right: 0 },
   // The clip action bar floats over the bottom of the lanes, centered in the time area.
   actionBar: { position: 'absolute', right: 0, bottom: 12, alignItems: 'center' },
-  corner: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    height: HEADER_SIZE,
+  corner: { position: 'absolute', top: 0, left: 0 },
+  cornerHorizontal: {
     justifyContent: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
     // A solid right edge, so the toggle ends cleanly where the ruler starts.
     borderRightWidth: 1,
   },
+  // Vertical: the ruler's edge continues down from its right side, the header row's solid edge under it.
+  cornerVertical: { borderRightWidth: StyleSheet.hairlineWidth, borderBottomWidth: 1 },
   // The icon stays centered over the arm buttons whether the mixer is open or not.
   cornerIcon: { width: CONTROLS_WIDTH, alignItems: 'center' },
+  // Vertical: centered over the rail and ruler, level with the collapsed header row.
+  cornerIconVertical: { height: TRACK_ROW_HEIGHT, alignItems: 'center', justifyContent: 'center' },
   pressed: { opacity: 0.6 },
 });

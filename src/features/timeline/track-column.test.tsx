@@ -31,8 +31,8 @@ function renderColumn(overrides: Partial<Parameters<typeof TrackColumn>[0]> = {}
     <GestureHandlerRootView>
       <TrackColumn
         tracks={tracks}
-        top={32}
-        width={236}
+        start={32}
+        size={236}
         armWidth={38}
         expanded
         lane={88}
@@ -70,6 +70,33 @@ describe('TrackColumn', () => {
     await fireEvent(second, 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
 
     expect(onMoveTrack).toHaveBeenCalledWith('b', 0);
+  });
+
+  it('moves tracks left and right in the vertical timeline (a header row)', async () => {
+    const { view, onMoveTrack } = renderColumn({ expanded: false, vertical: true });
+    await view;
+
+    expect(screen.getByLabelText('Reorder Track 1').props.accessibilityActions).toEqual([
+      { name: 'moveRight', label: 'Move right' },
+    ]);
+    await fireEvent(screen.getByLabelText('Reorder Vocals'), 'accessibilityAction', {
+      nativeEvent: { actionName: 'moveLeft' },
+    });
+
+    expect(onMoveTrack).toHaveBeenCalledWith('b', 0);
+  });
+
+  it('keeps the mixer controls in the vertical header row', async () => {
+    const { view, onEdit, onToggleSolo } = renderColumn({ vertical: true });
+    await view;
+    const user = userEvent.setup();
+
+    await user.press(screen.getByRole('button', { name: 'Vocals settings' }));
+    await user.press(screen.getByRole('button', { name: 'Solo Track 1' }));
+
+    expect(onEdit).toHaveBeenCalledWith('b');
+    expect(onToggleSolo).toHaveBeenCalledWith('a');
+    expect(screen.getByRole('adjustable', { name: 'Vocals volume' })).toBeOnTheScreen();
   });
 
   it('offers no reordering while recording', async () => {

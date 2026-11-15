@@ -21,8 +21,8 @@ function renderOverlay(overrides: Partial<Parameters<typeof LaneOverlay>[0]> = {
   const view = render(
     <LaneOverlay
       tracks={tracks}
-      top={32}
-      left={44}
+      start={32}
+      timeStart={44}
       viewport={440}
       lane={88}
       inset={3}
@@ -88,6 +88,25 @@ describe('LaneOverlay', () => {
     await user.press(screen.getByRole('button', { name: '3 more tracks below' }));
 
     expect(getScroll()).toBe(308); // a page is 5 lanes, capped at the end (8 lanes + the row)
+  });
+
+  it('turns sideways in the vertical timeline: tracks to the right, paged by whole columns', async () => {
+    // 8 columns of 85 in 340 points: 4 show, 4 to the right.
+    const { view, getScroll, onAddTrack } = renderOverlay({
+      vertical: true,
+      viewport: 340,
+      lane: 85,
+    });
+    await view;
+    const user = userEvent.setup();
+
+    expect(screen.queryByRole('button', { name: /to the left/ })).not.toBeOnTheScreen();
+    await user.press(screen.getByRole('button', { name: '4 more tracks to the right' }));
+    expect(getScroll()).toBe(340); // a page is 4 columns
+
+    await user.press(screen.getByRole('button', { name: 'New track' }));
+    expect(onAddTrack).toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Arm Track 1' })).toBeSelected();
   });
 
   it('locks tracks while recording', async () => {

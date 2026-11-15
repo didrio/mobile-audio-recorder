@@ -17,6 +17,7 @@ import {
   useIsFavorite,
   useSetFavorite,
 } from '@/features/projects/queries';
+import { useExperimentalSettingsStore } from '@/features/settings/experimental-settings-store';
 import { Timeline, type ClipEditing, type SectionEditing } from '@/features/timeline/timeline';
 import { makeStyles, useTheme } from '@/theme';
 
@@ -96,6 +97,7 @@ export function ProjectScreen() {
   const loopRegion = useEditorStore((state) => state.loopRegion);
   const canUndo = useEditorStore(selectCanUndo);
   const canRedo = useEditorStore(selectCanRedo);
+  const verticalTimeline = useExperimentalSettingsStore((state) => state.verticalTimeline);
   const speakerRecording = useSpeakerRecording();
   const transport = useTransport(project, speakerRecording);
   const tracks = project?.tracks ?? [];
@@ -437,7 +439,10 @@ export function ProjectScreen() {
     </View>
   ) : project ? (
     <Timeline
+      // A fresh timeline (zoom, scroll, selection) when the layout changes.
+      key={verticalTimeline ? 'vertical' : 'horizontal'}
       project={project}
+      orientation={verticalTimeline ? 'vertical' : 'horizontal'}
       playhead={transport.playhead}
       revealPlayhead={transport.revealPlayhead}
       following={isPlaying || isRecording}

@@ -181,14 +181,105 @@ export function waveformLevel(
   return level;
 }
 
+/**
+ * Which way the timeline runs: time left → right with tracks as rows, or (experimental, T43) time top →
+ * bottom with tracks as columns. The timeline works in two logical axes either way: `t` along time and `l`
+ * across it (section rail, ruler, then the lanes); vertical swaps which one is x.
+ */
+export type Orientation = 'horizontal' | 'vertical';
+
 /** Height of one track lane: fixed, so 5–6 lanes fit a phone and more scroll. */
 export const LANE_HEIGHT = 88;
 /** Width of the pinned track column left of the lanes: one grab handle per track (T23). */
 export const CONTROLS_WIDTH = 38;
 /** Width of that column expanded into the mixer (arm · mute · solo · volume). */
 export const MIXER_WIDTH = 230;
-/** Height of the "+ New Track" row after the last lane. */
-export const NEW_TRACK_ROW_HEIGHT = 44;
+/** The "+ New Track" row after the last lane: its height (horizontal) or its width as a column (vertical). */
+export const NEW_TRACK_SIZE = 44;
+
+/** Vertical timeline: the track header row along the top is a band with each track's grab handle (in the
+ * mixer, its info button) over a band with its name pill. */
+export const GRIP_BAND = 22;
+export const PILL_BAND = 30;
+export const TRACK_ROW_HEIGHT = GRIP_BAND + PILL_BAND;
+/** The header row expanded into the mixer: Mute · Solo and a volume slider under each name. */
+export const MIXER_ROW_HEIGHT = TRACK_ROW_HEIGHT + 80;
+/** Vertical timeline: up to this many lanes share the width (beside "+ New Track"); more scroll sideways. */
+export const MAX_VISIBLE_LANES = 4;
+
+/** A point on the timeline's view in logical axes: `t` along time, `l` across it. */
+export function logicalPoint(x: number, y: number, vertical: boolean): { t: number; l: number } {
+  'worklet';
+  return vertical ? { t: y, l: x } : { t: x, l: y };
+}
+
+/**
+ * Width of a lane (column) in the vertical timeline, whose lanes show `viewport` points wide. Up to
+ * `MAX_VISIBLE_LANES` tracks fill the width beside the `footer` column ("+ New Track"), so it's always in
+ * view until there are more; then each lane keeps that share, the next one peeks in at the edge and the
+ * rest scroll sideways. Whole points, at least 1.
+ */
+export function verticalLaneSize(viewport: number, count: number, footer: number): number {
+  'worklet';
+  const visible = Math.min(Math.max(1, count), MAX_VISIBLE_LANES);
+  return Math.max(1, Math.floor(Math.max(0, viewport - footer) / visible));
+}
+
+export type TimelineLayout = {
+  vertical: boolean;
+  /** The track controls band across time: the column's width (horizontal) or the header row's height. */
+  controls: number;
+  /** The time area (the canvas) along time, and across it (rail + ruler + lanes). */
+  viewLength: number;
+  crossLength: number;
+  /** How much of the lanes shows across time (after the rail and ruler). */
+  lanesViewport: number;
+  /** A lane's size across time: its height (horizontal) or its width (vertical). */
+  lane: number;
+};
+
+/**
+ * Where everything goes in a `width` × `height` timeline. Horizontal: the controls column on the left (the
+ * mixer never wider than half the view, so some timeline stays visible), the time area right of it with
+ * fixed-height lanes. Vertical: the header row on top (the mixer at most half the height), the time area
+ * below it, lanes sized by `verticalLaneSize`. `headerSize` is the rail + ruler.
+ */
+export function timelineLayout(
+  orientation: Orientation,
+  width: number,
+  height: number,
+  {
+    trackCount,
+    mixerOpen,
+    headerSize,
+  }: { trackCount: number; mixerOpen: boolean; headerSize: number },
+): TimelineLayout {
+  if (orientation === 'vertical') {
+    const controls = mixerOpen
+      ? Math.max(TRACK_ROW_HEIGHT, Math.min(MIXER_ROW_HEIGHT, height / 2))
+      : TRACK_ROW_HEIGHT;
+    const lanesViewport = Math.max(0, width - headerSize);
+    return {
+      vertical: true,
+      controls,
+      viewLength: Math.max(0, height - controls),
+      crossLength: width,
+      lanesViewport,
+      lane: verticalLaneSize(lanesViewport, trackCount, NEW_TRACK_SIZE),
+    };
+  }
+  const controls = mixerOpen
+    ? Math.max(CONTROLS_WIDTH, Math.min(MIXER_WIDTH, width / 2 + CONTROLS_WIDTH))
+    : CONTROLS_WIDTH;
+  return {
+    vertical: false,
+    controls,
+    viewLength: Math.max(0, width - controls),
+    crossLength: height,
+    lanesViewport: Math.max(0, height - headerSize),
+    lane: LANE_HEIGHT,
+  };
+}
 
 /** How far the lanes can scroll down: every lane plus the footer row (e.g. "+ New Track"). */
 export function laneScrollMax(

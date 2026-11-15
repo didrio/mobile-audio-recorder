@@ -14,6 +14,7 @@ import { SPEAKER_MODE_ENABLED, isEchoCancellerAvailable } from '@/lib/echo-cance
 import { makeStyles, useTheme } from '@/theme';
 
 import { useAppearanceStore, type AppearancePreference } from './appearance-store';
+import { useExperimentalSettingsStore } from './experimental-settings-store';
 import { useKeyboardSettingsStore } from './keyboard-settings-store';
 import {
   BluetoothSection,
@@ -76,6 +77,8 @@ export function SettingsScreen() {
   const setPreRollSeconds = useRecordingSettingsStore((state) => state.setPreRollSeconds);
   const preRollBars = useRecordingSettingsStore((state) => state.preRollBars);
   const setPreRollBars = useRecordingSettingsStore((state) => state.setPreRollBars);
+  const verticalTimeline = useExperimentalSettingsStore((state) => state.verticalTimeline);
+  const setVerticalTimeline = useExperimentalSettingsStore((state) => state.setVerticalTimeline);
   const keyboardVolume = useKeyboardSettingsStore((state) => state.keyboardVolume);
   const setKeyboardVolume = useKeyboardSettingsStore((state) => state.setKeyboardVolume);
   // The volume while its slider is dragged (saved on release).
@@ -237,6 +240,22 @@ export function SettingsScreen() {
         <ListRow
           title="Recently Deleted"
           value={deletedStorage.data != null ? formatBytes(deletedStorage.data) : '—'}
+        />
+      </ListSection>
+
+      <ListSection
+        title="Experimental"
+        footer="Turns an idea's timeline on its side: time runs down the screen and tracks sit side by side. Still being tried out, so it may change.">
+        <ListRow
+          title="Vertical timeline"
+          accessory={
+            <Switch
+              accessibilityLabel="Vertical timeline"
+              value={verticalTimeline}
+              onValueChange={setVerticalTimeline}
+              trackColor={{ true: theme.colors.primary }}
+            />
+          }
         />
       </ListSection>
 

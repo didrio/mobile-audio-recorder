@@ -1,7 +1,8 @@
 /**
  * Drawing of the section rail (T18): the strip above the ruler with the song's sections (Intro, Verse…)
  * as colored, labelled blocks. Called from the timeline's per-frame Skia picture (a worklet), which owns
- * the gestures; the geometry is in `section-math.ts`.
+ * the gestures; the geometry is in `section-math.ts`. Drawn in the timeline's logical axes (x along time,
+ * y across the rail): in the vertical timeline the canvas is transposed, so only the text is turned.
  */
 import { ClipOp, Skia, type SkCanvas, type SkFont, type SkPaint } from '@shopify/react-native-skia';
 
@@ -67,6 +68,8 @@ export function drawSectionRail(
     font: SkFont;
     /** Shown when there are no sections. */
     hint: string | null;
+    /** The vertical timeline (transposed canvas): names read top to bottom. */
+    vertical: boolean;
   },
 ) {
   'worklet';
@@ -83,9 +86,22 @@ export function drawSectionRail(
     return font.measureText(text).width;
   };
 
-  if (rail.sections.length === 0 && rail.hint) {
-    canvas.drawText(rail.hint, PADDING + 2, baseline, paints.hint, font);
-  }
+  // Text starting at `x` along the rail, centered across it. The transposed canvas would mirror it, so in
+  // the vertical timeline it's flipped across the rail: turned 90° clockwise, reading top to bottom.
+  const text = (value: string, x: number, paint: SkPaint) => {
+    'worklet';
+    if (!rail.vertical) {
+      canvas.drawText(value, x, baseline, paint, font);
+      return;
+    }
+    canvas.save();
+    canvas.translate(x, height / 2 - fontSize * 0.36);
+    canvas.scale(1, -1);
+    canvas.drawText(value, 0, 0, paint, font);
+    canvas.restore();
+  };
+
+  if (rail.sections.length === 0 && rail.hint) text(rail.hint, PADDING + 2, paints.hint);
 
   const drawSection = (section: RailSection, start: number, duration: number, lift: number) => {
     'worklet';
@@ -121,7 +137,7 @@ export function drawSectionRail(
     const glyphX = x1 - PADDING - glyph;
     const room = (glyph > 0 ? glyphX - GLYPH_SPACING : x1 - PADDING) - labelX;
     const label = room > 0 ? truncateLabel(section.name, room, measure) : '';
-    if (label) canvas.drawText(label, labelX, baseline, paints.label, font);
+    if (label) text(label, labelX, paints.label);
     if (glyph > 0) {
       // A note: three short lines, the last one shorter.
       const middle = height / 2;

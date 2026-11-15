@@ -2,6 +2,25 @@
 
 Oldest finished tickets, moved out of `TICKETS.md` to keep it lean. Newest first.
 
+- T39 — Hear yourself — 2026-11-15 — input monitoring in Settings → Hear yourself (switch, level up to +6 dB,
+  delay, direct-monitoring note; the user's call: no editor UI until T44): `recorder.connect()` →
+  `RecorderAdapterNode` → chosen channel → own gain → destination (`setMonitor` in `audio-engine.ts`,
+  reconnected around every recorder stop/start: the library drops the adapter on stop and the next start fails).
+  Offered only on headphones/interface with ≤ 30 ms round trip (`monitoring.ts`; estimate from the new
+  `getInputInfo` latency on iOS, live measurement in `use-monitoring.ts`; Bluetooth refused). The mic now stays
+  open while playing with a track armed (meter too). `ListRow` accessories sit at the trailing edge. Needs a new
+  build; on-device checks are in Device checks.
+- T38 — Inputs, outputs, Bluetooth & latency per route — 2026-11-15 — everything in Settings (the user's call;
+  the editor only gets a red clip hold on its meter, `clip-hold.ts`, no "Too loud" text): Recording → Input
+  screen (`input-screen.tsx`: Automatic or a device, remembered by id then name+category in
+  `input-devices-store.ts`, fallback while unplugged; Channel Input 1…N for multi-channel inputs; Input gain
+  where iOS allows), Output name + iOS `AVRoutePickerView`, Bit depth 16/24, "Phone's mic with Bluetooth" (off:
+  `allowBluetoothHFP` + iOS 26 `bluetoothHighQualityRecording`), latency offset per output route (persist v2
+  migration, old value claimed by the first route seen). Live route in `audio-route-store.ts` (synced from the
+  root layout); pure rules in `audio-route.ts`. Multi-channel takes are recorded whole and the chosen channel
+  extracted to mono after Stop by the new local module `modules/audio-input` (also channel count, gain, route
+  button). New iOS dev build; simulator light + dark (Settings, Input picker, a take); Maestro skipped
+  (NTKDaemon), Android not run
 - T37 — Stems & batch export — 2026-11-15 — export sheet Mix / Stems: one file per track over the same range
   (`planExport` in `export-plan.ts`: numbered `01 Vocals.m4a`, de-duplicated names, muted skipped unless asked,
   "Apply track volume"), extras click track / the mix / "Tempo & markers" (`tempo-midi.ts`: format 0 SMF,

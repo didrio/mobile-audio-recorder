@@ -67,7 +67,8 @@ export function useTrackDrag(trackIds: string[]): TrackDrag {
 
 /**
  * Animated style for a per-track row (column cell, name pill) laid out at `index * lane`: follows the
- * finger and lifts when it's the dragged track, slides aside when another one passes it.
+ * finger and lifts when it's the dragged track, slides aside when another one passes it. Lanes run down
+ * (`axis` y, tracks are rows) or, in the vertical timeline, across (`axis` x, tracks are columns).
  */
 export function useReorderStyle(
   index: number,
@@ -78,6 +79,7 @@ export function useReorderStyle(
     shadow = false,
     stripes,
     liftedBackground,
+    axis = 'y',
   }: {
     shadow?: boolean;
     /**
@@ -86,9 +88,12 @@ export function useReorderStyle(
      */
     stripes?: readonly [string, string];
     liftedBackground?: string;
+    axis?: 'x' | 'y';
   } = {},
 ) {
   return useAnimatedStyle(() => {
+    const shift = (amount: number) =>
+      axis === 'x' ? { translateX: amount } : { translateY: amount };
     const id = drag.id.get();
     const from = id == null ? -1 : trackIds.indexOf(id);
     if (index !== from) {
@@ -99,7 +104,7 @@ export function useReorderStyle(
         opacity: 1,
         boxShadow: 'none',
         transform: [
-          { translateY: from < 0 ? 0 : laneShift(index, from, drag.progress.get(), lane) },
+          shift(from < 0 ? 0 : laneShift(index, from, drag.progress.get(), lane)),
           { scale: 1 },
         ],
       };
@@ -113,7 +118,7 @@ export function useReorderStyle(
         shadow && lift > 0
           ? `0px ${4 * lift}px ${12 * lift}px rgba(0, 0, 0, ${0.3 * lift})`
           : 'none',
-      transform: [{ translateY: drag.top.get() - index * lane }, { scale: 1 + LIFT_SCALE * lift }],
+      transform: [shift(drag.top.get() - index * lane), { scale: 1 + LIFT_SCALE * lift }],
     };
   });
 }

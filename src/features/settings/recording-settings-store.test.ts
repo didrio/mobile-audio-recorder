@@ -16,10 +16,8 @@ describe('recording settings', () => {
     });
   });
 
-  it('keeps speaker mode off, the cleanup light, the phone mic with Bluetooth and 24-bit by default', () => {
+  it('keeps the phone mic with Bluetooth and 24-bit by default', () => {
     const state = useRecordingSettingsStore.getState();
-    expect(state.speakerMode).toBe(false);
-    expect(state.cleanupStrength).toBe('light');
     expect(state.bluetoothPhoneMic).toBe(true);
     expect(state.bitDepth).toBe(24);
   });
@@ -60,9 +58,12 @@ describe('recording settings', () => {
 describe('migrateRecordingSettings', () => {
   it('turns the single v1 offset into per-route offsets, holding the old value for the current route', () => {
     expect(
-      migrateRecordingSettings({ latencyOffsetMs: 40, speakerMode: false, preRollSeconds: 4 }, 1),
+      migrateRecordingSettings(
+        { latencyOffsetMs: 40, silentRecording: true, preRollSeconds: 4 },
+        1,
+      ),
     ).toEqual({
-      speakerMode: false,
+      silentRecording: true,
       preRollSeconds: 4,
       latencyOffsetsMs: NO_OFFSETS,
       legacyLatencyOffsetMs: 40,
@@ -80,8 +81,19 @@ describe('migrateRecordingSettings', () => {
     });
   });
 
-  it('leaves v2 settings alone', () => {
-    const v2 = { latencyOffsetsMs: { ...NO_OFFSETS, usb: 10 }, legacyLatencyOffsetMs: null };
-    expect(migrateRecordingSettings(v2, 2)).toBe(v2);
+  it('drops the v2 Speaker mode fields (moved to the experimental settings, one strength)', () => {
+    const kept = { latencyOffsetsMs: { ...NO_OFFSETS, usb: 10 }, legacyLatencyOffsetMs: null };
+    expect(
+      migrateRecordingSettings({ ...kept, speakerMode: true, cleanupStrength: 'strong' }, 2),
+    ).toEqual(kept);
+    expect(migrateRecordingSettings({ latencyOffsetMs: 0, cleanupStrength: 'light' }, 1)).toEqual({
+      latencyOffsetsMs: NO_OFFSETS,
+      legacyLatencyOffsetMs: null,
+    });
+  });
+
+  it('leaves v3 settings alone', () => {
+    const v3 = { latencyOffsetsMs: { ...NO_OFFSETS, usb: 10 }, legacyLatencyOffsetMs: null };
+    expect(migrateRecordingSettings(v3, 3)).toBe(v3);
   });
 });

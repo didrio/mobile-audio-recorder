@@ -21,11 +21,21 @@
 /** 10 ms stretches whose reference is quieter than this (about -50 dBFS) don't count for the stats. */
 #define ACTIVE_REFERENCE_RMS 0.003
 
+/*
+ * Tuned on the desktop test's "realistic" phone (T47, the sweep is in the module README): the most
+ * aggressive settings before the voice is clearly altered. Compared with the old Strong (85 ms filter,
+ * residual margin 0.1 / floor 0.2, no spread or broadband, clicks 3 / 0.03): backing 22 → 44 dB
+ * removed, clicks 22 → 45 dB, voice level -0.2 dB. If takes sound dull or watery, pull back
+ * `residual.spread` (to 0), then `residual.margin` (toward 0.3) and `residual.floor` (toward 0.1).
+ */
 void ec_default_options(ec_options *options) {
-  options->filter_ms = 85;
-  options->residual_suppression = 0;
+  options->filter_ms = 300;
+  options->estimate_iterations = 3;
   options->max_delay_ms = 150;
   options->lead_ms = 10;
+  options->residual = (ec_suppression){1024, 1.0, 0, 1.0, 1, 0.05, 0.03};
+  options->click_margin = 5.0;
+  options->click_floor = 0.01;
 }
 
 static void fail(ec_result *result, const char *message) {
@@ -278,7 +288,6 @@ long ec_estimate_delay(const float *mic, const float *ref, long n, long max_lag,
  * echo) count much more than frames where the performer plays, so singing doesn't bias the filter.
  */
 
-#define ESTIMATE_ITERATIONS 3
 /** Frames used for the estimate (the loudest backing); ~40 s with 32k-sample frames at 48 kHz. */
 #define ESTIMATE_MAX_FRAMES 120
 /** Weight cap: residual-to-echo ratio below this counts as "pure echo". */
@@ -333,7 +342,10 @@ static int solve_complex(double ar[TERMS][TERMS], double ai[TERMS][TERMS], doubl
     double best = 0;
     for (int r = c; r < TERMS; r++) {
       double m = ar[r][c] * ar[r][c] + ai[r][c] * ai[r][c];
-      if (m > best) best = m, pivot = r;
+      if (m > best) {
+        best = m;
+        pivot = r;
+      }
     }
     if (best <= 0) return 0;
     if (pivot != c) {
@@ -377,7 +389,8 @@ static int solve_complex(double ar[TERMS][TERMS], double ai[TERMS][TERMS], doubl
  * Estimates the echo path from each input in `terms` (`TERMS` signals, `terms[0]` the reference) as
  * `taps` FIR coefficients into `h[term]`. 0 when there's nothing to learn from.
  */
-static int estimate_paths(const float *mic, float *const *terms, long n, long taps, float **h) {
+static int estimate_paths(const float *mic, float *const *terms, long n, long taps, int iterations,
+                          float **h) {
   long size = next_pow2(4 * taps);
   long hop = size / 2;
   long bins = size / 2 + 1;
@@ -418,7 +431,7 @@ static int estimate_paths(const float *mic, float *const *terms, long n, long ta
   while (used > 1 && frames[used - 1].energy < frames[0].energy * 1e-6) used--;
 
   int have_h = 0;
-  for (int iteration = 0; iteration < ESTIMATE_ITERATIONS; iteration++) {
+  for (int iteration = 0; iteration < (iterations > 0 ? iterations : 1); iteration++) {
     memset(rr, 0, sizeof(double) * bins * TERMS * TERMS);
     memset(ri, 0, sizeof(double) * bins * TERMS * TERMS);
     memset(pr, 0, sizeof(double) * bins * TERMS);
@@ -533,130 +546,58 @@ static int convolve(const float *ref, long n, const float *h, long taps, float *
   return 1;
 }
 
-/** How hard `suppress` turns down what a predicted signal says is still there. */
-typedef struct {
-  long frame;
-  /** Expected leftover as a share of the predicted energy, per bin. */
-  double share;
-  /** Bins either side a prediction also covers (energy smeared by the speaker). */
-  long spread;
-  /**
-   * Share of a frame's total predicted energy assumed in *every* bin: a distorting speaker turns a
-   * tone into harmonics and noise that the (linear) prediction doesn't show.
-   */
-  double broadband;
-  /** Never turned down below this gain. */
-  double floor;
-} suppression;
-
-/** Residual suppression after the linear cancellation (Strong cleanup). */
-static const suppression RESIDUAL = {1024, 0.1, 0, 0, 0.2};
-
-/**
- * Per frequency bin, turns down `out` where `predicted` (the echo as the filter predicts it) says the
- * backing still dominates. STFT with square-root Hann windows, 50% overlap; frames where nothing is
- * predicted are left untouched.
- */
-static void suppress(float *out, const float *predicted, long n, const suppression *how) {
-  long size = how->frame, hop = how->frame / 2;
-  float *window = malloc(sizeof(float) * size);
-  float *or_ = malloc(sizeof(float) * size), *oi = malloc(sizeof(float) * size);
-  float *er = malloc(sizeof(float) * size), *ei = malloc(sizeof(float) * size);
-  double *expected = malloc(sizeof(double) * size);
-  float *result = calloc(n + size, sizeof(float));
-  if (!window || !or_ || !oi || !er || !ei || !expected || !result) goto done;
-  for (long i = 0; i < size; i++) window[i] = (float)sqrt(0.5 - 0.5 * cos(2 * M_PI * i / size));
-  for (long start = -hop; start < n; start += hop) {
-    windowed_spectrum(out, n, start, window, size, or_, oi);
-    windowed_spectrum(predicted, n, start, window, size, er, ei);
-    double total = 0;
-    for (long k = 0; k < size; k++) {
-      expected[k] = (double)er[k] * er[k] + (double)ei[k] * ei[k];
-      total += expected[k];
-    }
-    if (total > 1e-12) {
-      // Smear across neighbouring bins (a running max) and add the broadband share.
-      double *spread = malloc(sizeof(double) * size);
-      if (spread) {
-        for (long k = 0; k < size; k++) {
-          double value = 0;
-          for (long j = k - how->spread; j <= k + how->spread; j++) {
-            long b = (j % size + size) % size;
-            if (expected[b] > value) value = expected[b];
-          }
-          spread[k] = value + how->broadband * total / (double)size;
-        }
-        for (long k = 0; k < size; k++) {
-          double o2 = (double)or_[k] * or_[k] + (double)oi[k] * oi[k];
-          double gain = 1.0 - how->share * spread[k] / (o2 + 1e-12);
-          if (gain < how->floor) gain = how->floor;
-          or_[k] *= (float)gain;
-          oi[k] *= (float)gain;
-        }
-        free(spread);
-      }
-    }
-    fft(or_, oi, size, 1);
-    for (long i = 0; i < size; i++) {
-      long t = start + i;
-      if (t >= 0 && t < n) result[t] += or_[i] / (float)size * window[i];
-    }
-  }
-  memcpy(out, result, sizeof(float) * n);
-done:
-  free(window), free(or_), free(oi), free(er), free(ei), free(expected), free(result);
-}
-
 /*
- * Metronome clicks are short and loud, and a phone speaker often clips them, so more is left after
- * the linear cancellation than for the backing tracks, partly as harmonics the filter can't predict.
- * How much is left is *measured*: in the click frames, per frequency bin, the leftover energy next to
- * the clicks' predicted echo; a low percentile over all clicks is what's left where the performer is
- * quiet. Each click frame is then turned down by about that much (times a margin), so a louder
- * performance in the same bins keeps its level.
+ * What the linear cancellation leaves is turned down per frequency, by how much is *measured* to be
+ * left: in the frames where something played, per bin, the leftover energy next to the predicted echo;
+ * a low percentile over those frames is what's left where the performer is quiet. Each frame is then
+ * turned down by that much times a margin, so a phone the filter fits well keeps the performance
+ * almost untouched, a poor fit gets cleaned harder, and a louder performance in the same bins keeps its
+ * level. The clicks use that: a phone speaker often clips them, so more of them is left, partly as
+ * harmonics. For the backing, measuring holds back too much on a real phone (the leftover changes as
+ * the performer moves, and a low percentile misses that), so it isn't measured but assumed to be the
+ * whole prediction (`percentile` 0, `max_ratio` 1): wherever the predicted echo outweighs what's left,
+ * the bin goes down to the floor. That's the aggressive choice (T47); it can dull the performance
+ * where the backing is louder than it.
  */
-#define CLICK_FRAME 512
-/** Bins either side the prediction covers (the speaker smears a tick's spectrum a little). */
-#define CLICK_SPREAD 3
-/** Share of a click frame's total predicted energy assumed in every bin (distortion products). */
-#define CLICK_BROADBAND 0.05
-/** Frames whose predicted click energy is below this share of the loudest one are left alone. */
-#define CLICK_ACTIVE 1e-3
-/** Percentile of the leftover ratio taken as "the click alone", and its upper bound. */
-#define CLICK_PERCENTILE 0.25
-#define CLICK_MAX_RATIO 0.3
+/** Frames whose predicted energy is below this share of the loudest one are left alone. */
+#define ACTIVE_SHARE 1e-3
+/** At most this many frames are measured (evenly spread), which bounds the memory on long takes. */
+#define MAX_MEASURED_FRAMES 2000
 
-typedef struct {
-  double margin;
-  double floor;
-} click_suppression;
-static const click_suppression CLICKS = {2.0, 0.1};
-static const click_suppression CLICKS_STRONG = {3.0, 0.03};
+/** The click suppression's shape: short frames, wide smearing (a tick's spectrum is spread). */
+static const ec_suppression CLICKS = {512, 0, 0.25, 0.3, 3, 0.05, 0};
 
 static int compare_doubles(const void *a, const void *b) {
   double x = *(const double *)a, y = *(const double *)b;
   return x < y ? -1 : x > y ? 1 : 0;
 }
 
-/** The predicted click energy per bin of one frame (smeared, plus the broadband share); its total. */
-static double click_prediction(const float *er, const float *ei, long size, double *predicted) {
+/** The predicted energy per bin of one frame (smeared, plus the broadband share); its total. */
+static double prediction(const float *er, const float *ei, long size, const ec_suppression *how,
+                         double *predicted) {
   long bins = size / 2 + 1;
   double total = 0;
   for (long k = 0; k < bins; k++) total += (double)er[k] * er[k] + (double)ei[k] * ei[k];
   for (long k = 0; k < bins; k++) {
     double value = 0;
-    for (long j = k - CLICK_SPREAD; j <= k + CLICK_SPREAD; j++) {
+    for (long j = k - how->spread; j <= k + how->spread; j++) {
       if (j < 0 || j >= bins) continue;
       double e = (double)er[j] * er[j] + (double)ei[j] * ei[j];
       if (e > value) value = e;
     }
-    predicted[k] = value + CLICK_BROADBAND * total / (double)bins;
+    predicted[k] = value + how->broadband * total / (double)bins;
   }
   return total;
 }
 
-static void suppress_clicks(float *out, const float *click_echo, long n, const click_suppression *how) {
-  long size = CLICK_FRAME, hop = CLICK_FRAME / 2, bins = size / 2 + 1;
+/**
+ * Turns down `out` where `predicted` (an echo as the filter predicts it) says it's still there, by the
+ * measured leftover times `margin`, never below `floor`. STFT with square-root Hann windows, 50%
+ * overlap; frames where nothing is predicted are left untouched.
+ */
+static void suppress(float *out, const float *predicted_echo, long n, const ec_suppression *how,
+                     double margin, double floor) {
+  long size = how->frame, hop = size / 2, bins = size / 2 + 1;
   long frames = (n + hop) / hop + 1;
   float *window = malloc(sizeof(float) * size);
   float *or_ = malloc(sizeof(float) * size), *oi = malloc(sizeof(float) * size);
@@ -668,52 +609,62 @@ static void suppress_clicks(float *out, const float *click_echo, long n, const c
   if (!window || !or_ || !oi || !er || !ei || !predicted || !ratio || !totals || !result) goto done;
   for (long i = 0; i < size; i++) window[i] = (float)sqrt(0.5 - 0.5 * cos(2 * M_PI * i / size));
 
-  // Which frames have a click, and how loud the loudest one is.
+  // Which frames have something predicted, and how loud the loudest one is.
   double loudest = 0;
   long active = 0;
   for (long f = 0; f < frames; f++) {
-    windowed_spectrum(click_echo, n, f * hop - hop, window, size, er, ei);
+    windowed_spectrum(predicted_echo, n, f * hop - hop, window, size, er, ei);
     double total = 0;
     for (long k = 0; k < bins; k++) total += (double)er[k] * er[k] + (double)ei[k] * ei[k];
     totals[f] = total;
     if (total > loudest) loudest = total;
   }
   if (loudest <= 1e-12) goto done;
-  for (long f = 0; f < frames; f++) active += totals[f] > CLICK_ACTIVE * loudest;
-  samples = malloc(sizeof(double) * (size_t)active * (size_t)bins);
+  if (how->percentile <= 0) {
+    // Not measured: the leftover is assumed to be `max_ratio` of the prediction everywhere.
+    for (long k = 0; k < bins; k++) ratio[k] = how->max_ratio;
+    goto apply;
+  }
+  for (long f = 0; f < frames; f++) active += totals[f] > ACTIVE_SHARE * loudest;
+  long stride = (active + MAX_MEASURED_FRAMES - 1) / MAX_MEASURED_FRAMES;
+  if (stride < 1) stride = 1;
+  long measured = (active + stride - 1) / stride;
+  samples = malloc(sizeof(double) * (size_t)measured * (size_t)bins);
   if (!samples) goto done;
 
-  // Measure: the leftover-to-prediction ratio per bin, in every click frame.
-  long a = 0;
-  for (long f = 0; f < frames; f++) {
-    if (totals[f] <= CLICK_ACTIVE * loudest) continue;
+  // Measure: the leftover-to-prediction ratio per bin, in every `stride`-th active frame.
+  long a = 0, m = 0;
+  for (long f = 0; f < frames && m < measured; f++) {
+    if (totals[f] <= ACTIVE_SHARE * loudest) continue;
+    if (a++ % stride != 0) continue;
     windowed_spectrum(out, n, f * hop - hop, window, size, or_, oi);
-    windowed_spectrum(click_echo, n, f * hop - hop, window, size, er, ei);
-    click_prediction(er, ei, size, predicted);
+    windowed_spectrum(predicted_echo, n, f * hop - hop, window, size, er, ei);
+    prediction(er, ei, size, how, predicted);
     for (long k = 0; k < bins; k++) {
       double o2 = (double)or_[k] * or_[k] + (double)oi[k] * oi[k];
-      samples[k * active + a] = o2 / (predicted[k] + 1e-20);
+      samples[k * measured + m] = o2 / (predicted[k] + 1e-20);
     }
-    a++;
+    m++;
   }
   for (long k = 0; k < bins; k++) {
-    double *values = samples + k * active;
-    qsort(values, active, sizeof(double), compare_doubles);
-    double r = values[(long)(CLICK_PERCENTILE * (double)(active - 1))];
-    ratio[k] = r < CLICK_MAX_RATIO ? r : CLICK_MAX_RATIO;
+    double *values = samples + k * measured;
+    qsort(values, m, sizeof(double), compare_doubles);
+    double r = values[(long)(how->percentile * (double)(m - 1))];
+    ratio[k] = r < how->max_ratio ? r : how->max_ratio;
   }
 
-  // Apply: turn each click frame down by what's expected to be left of the click there.
+apply:
+  // Apply: turn each active frame down by what's expected to be left there.
   for (long f = 0; f < frames; f++) {
     long start = f * hop - hop;
     windowed_spectrum(out, n, start, window, size, or_, oi);
-    if (totals[f] > CLICK_ACTIVE * loudest) {
-      windowed_spectrum(click_echo, n, start, window, size, er, ei);
-      click_prediction(er, ei, size, predicted);
+    if (totals[f] > ACTIVE_SHARE * loudest) {
+      windowed_spectrum(predicted_echo, n, start, window, size, er, ei);
+      prediction(er, ei, size, how, predicted);
       for (long k = 0; k < bins; k++) {
         double o2 = (double)or_[k] * or_[k] + (double)oi[k] * oi[k];
-        double gain = 1.0 - how->margin * ratio[k] * predicted[k] / (o2 + 1e-20);
-        if (gain < how->floor) gain = how->floor;
+        double gain = 1.0 - margin * ratio[k] * predicted[k] / (o2 + 1e-20);
+        if (gain < floor) gain = floor;
         or_[k] *= (float)gain;
         oi[k] *= (float)gain;
         if (k > 0 && k < size - k) {
@@ -747,7 +698,7 @@ void ec_cancel(const float *mic, const float *ref, const float *clicks, long n, 
     if (ok && i > 0) make_term(ref, n, i, terms[i]);
   }
   *reduction_db = 0;
-  ok = ok && estimate_paths(mic, terms, n, taps, h);
+  ok = ok && estimate_paths(mic, terms, n, taps, options->estimate_iterations, h);
   // The echo: every input through its filter.
   if (ok) memset(echo, 0, sizeof(float) * n);
   for (int i = 0; i < TERMS && ok; i++) {
@@ -760,7 +711,8 @@ void ec_cancel(const float *mic, const float *ref, const float *clicks, long n, 
     goto done;
   }
   for (long t = 0; t < n; t++) out[t] = mic[t] - echo[t];
-  if (options->residual_suppression) suppress(out, echo, n, &RESIDUAL);
+  if (options->residual.floor < 1)
+    suppress(out, echo, n, &options->residual, options->residual.margin, options->residual.floor);
   if (clicks) {
     // The clicks' own predicted echo (through the same model) says exactly when and where to turn
     // down what's left of them.
@@ -772,7 +724,7 @@ void ec_cancel(const float *mic, const float *ref, const float *clicks, long n, 
       fine = convolve(click_term, n, h[i], taps, part);
       for (long t = 0; fine && t < n; t++) echo[t] += part[t];
     }
-    if (fine) suppress_clicks(out, echo, n, options->residual_suppression ? &CLICKS_STRONG : &CLICKS);
+    if (fine) suppress(out, echo, n, &CLICKS, options->click_margin, options->click_floor);
     free(click_term);
   }
 

@@ -1,7 +1,8 @@
 import { speakerModeApplies } from '@/features/audio/audio-route';
 import { useHeadphones } from '@/features/audio/audio-route-store';
+import { useExperimentalSettingsStore } from '@/features/settings/experimental-settings-store';
 import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
-import { SPEAKER_MODE_ENABLED, isEchoCancellerAvailable } from '@/lib/echo-canceller';
+import { isEchoCancellerAvailable } from '@/lib/echo-canceller';
 
 export type SpeakerRecording = {
   /**
@@ -10,7 +11,7 @@ export type SpeakerRecording = {
    */
   silent: boolean;
   /**
-   * The take gets the backing removed afterwards: Speaker mode is on in Settings, the device can do
+   * The take gets the backing removed afterwards: Speaker mode is on (Settings → Experimental), the device can do
    * it, no headphones are connected, and the take isn't recorded in silence (nothing to remove).
    */
   clean: boolean;
@@ -18,16 +19,12 @@ export type SpeakerRecording = {
 
 /** How a take recorded through the speaker (no headphones) is kept free of the backing. */
 export function useSpeakerRecording(): SpeakerRecording {
-  const speakerMode = useRecordingSettingsStore((state) => state.speakerMode);
+  const speakerMode = useExperimentalSettingsStore((state) => state.speakerMode);
   const silentRecording = useRecordingSettingsStore((state) => state.silentRecording);
   const headphones = useHeadphones();
   const silent = speakerModeApplies(silentRecording, headphones);
   return {
     silent,
-    clean:
-      SPEAKER_MODE_ENABLED &&
-      isEchoCancellerAvailable &&
-      speakerModeApplies(speakerMode, headphones) &&
-      !silent,
+    clean: isEchoCancellerAvailable && speakerModeApplies(speakerMode, headphones) && !silent,
   };
 }

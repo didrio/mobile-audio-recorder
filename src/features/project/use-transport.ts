@@ -330,7 +330,6 @@ export function useTransport(
         micPath: plainPath(recorded.path),
         outputPath,
         plan,
-        strong: useRecordingSettingsStore.getState().cleanupStrength === 'strong',
       });
       return outputPath;
     } catch (cause) {

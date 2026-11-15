@@ -80,19 +80,16 @@ describe('SettingsScreen', () => {
       bitDepth: 24,
       preRollSeconds: 2,
       preRollBars: 1,
-      speakerMode: false,
-      cleanupStrength: 'light',
     });
+    useExperimentalSettingsStore.setState({ speakerMode: false });
   });
 
-  it('hides Speaker mode while it is shelved', async () => {
-    const shelved = jest.replaceProperty(echoCanceller, 'SPEAKER_MODE_ENABLED', false);
-    useRecordingSettingsStore.setState({ speakerMode: true });
+  it('hides Speaker mode where the echo canceller is missing', async () => {
+    const missing = jest.replaceProperty(echoCanceller, 'isEchoCancellerAvailable', false);
     await render(<SettingsScreen />);
-    shelved.restore();
+    missing.restore();
 
     expect(screen.queryByRole('switch', { name: 'Speaker mode' })).not.toBeOnTheScreen();
-    expect(screen.queryByRole('radiogroup', { name: 'Cleanup strength' })).not.toBeOnTheScreen();
   });
 
   it('shows the current appearance preference', async () => {
@@ -248,15 +245,15 @@ describe('SettingsScreen', () => {
     expect(screen.getByRole('button', { name: 'Increase latency offset' })).toBeEnabled();
   });
 
-  it('turns speaker mode on and offers the cleanup strength', async () => {
+  it('turns Speaker mode on under Experimental, with no strength to choose', async () => {
     await render(<SettingsScreen />);
 
     expect(screen.getByRole('switch', { name: 'Speaker mode' })).not.toBeChecked();
-    expect(screen.queryByLabelText('Cleanup strength')).toBeNull();
     await fireEvent(screen.getByRole('switch', { name: 'Speaker mode' }), 'valueChange', true);
 
-    expect(storage.getString('settings.recording')).toContain('"speakerMode":true');
-    expect(screen.getByLabelText('Cleanup strength')).toBeOnTheScreen();
+    expect(storage.getString('settings.experimental')).toContain('"speakerMode":true');
+    expect(screen.getByRole('switch', { name: 'Speaker mode' })).toBeChecked();
+    expect(screen.queryByLabelText('Cleanup strength')).toBeNull();
   });
 
   it('changes and persists the pre-roll length (2 s by default)', async () => {

@@ -10,7 +10,7 @@ import { deletedRecordingsBytes } from '@/features/projects/trash-repo';
 import { formatDb } from '@/features/timeline/fader-math';
 import { VolumeSlider } from '@/features/timeline/volume-slider';
 import { appInfo, runtimeLabels } from '@/lib/app-info';
-import { SPEAKER_MODE_ENABLED, isEchoCancellerAvailable } from '@/lib/echo-canceller';
+import { isEchoCancellerAvailable } from '@/lib/echo-canceller';
 import { makeStyles, useTheme } from '@/theme';
 
 import { useAppearanceStore, type AppearancePreference } from './appearance-store';
@@ -29,7 +29,6 @@ import {
   PRE_ROLL_SECONDS_OPTIONS,
   RECORDING_BIT_DEPTHS,
   useRecordingSettingsStore,
-  type CleanupStrength,
   type RecordingBitDepth,
   type PreRollBars,
   type PreRollSeconds,
@@ -51,11 +50,6 @@ const bitDepthOptions = RECORDING_BIT_DEPTHS.map((bits) => ({
   label: `${bits}-bit`,
 }));
 
-const cleanupOptions = [
-  { value: 'light', label: 'Light' },
-  { value: 'strong', label: 'Strong' },
-] as const satisfies readonly { value: CleanupStrength; label: string }[];
-
 const preRollBarOptions = PRE_ROLL_BARS_OPTIONS.map((bars) => ({
   value: String(bars),
   label: bars === 1 ? '1 bar' : `${bars} bars`,
@@ -68,10 +62,6 @@ export function SettingsScreen() {
   const router = useRouter();
   const bitDepth = useRecordingSettingsStore((state) => state.bitDepth);
   const setBitDepth = useRecordingSettingsStore((state) => state.setBitDepth);
-  const speakerMode = useRecordingSettingsStore((state) => state.speakerMode);
-  const setSpeakerMode = useRecordingSettingsStore((state) => state.setSpeakerMode);
-  const cleanupStrength = useRecordingSettingsStore((state) => state.cleanupStrength);
-  const setCleanupStrength = useRecordingSettingsStore((state) => state.setCleanupStrength);
   const theme = useTheme();
   const preRollSeconds = useRecordingSettingsStore((state) => state.preRollSeconds);
   const setPreRollSeconds = useRecordingSettingsStore((state) => state.setPreRollSeconds);
@@ -79,6 +69,8 @@ export function SettingsScreen() {
   const setPreRollBars = useRecordingSettingsStore((state) => state.setPreRollBars);
   const verticalTimeline = useExperimentalSettingsStore((state) => state.verticalTimeline);
   const setVerticalTimeline = useExperimentalSettingsStore((state) => state.setVerticalTimeline);
+  const speakerMode = useExperimentalSettingsStore((state) => state.speakerMode);
+  const setSpeakerMode = useExperimentalSettingsStore((state) => state.setSpeakerMode);
   const keyboardVolume = useKeyboardSettingsStore((state) => state.keyboardVolume);
   const setKeyboardVolume = useKeyboardSettingsStore((state) => state.setKeyboardVolume);
   // The volume while its slider is dragged (saved on release).
@@ -141,37 +133,6 @@ export function SettingsScreen() {
       <BluetoothSection />
       <LatencySection />
       <SilentRecordingSection />
-
-      {SPEAKER_MODE_ENABLED && isEchoCancellerAvailable ? (
-        <ListSection
-          title="Speaker mode"
-          footer="Record without headphones: after you stop, the song and the click that came from the speaker are removed from the new take. The original recording is kept. Headphones still give the cleanest takes.">
-          <ListRow
-            title="Speaker mode (experimental)"
-            accessory={
-              <Switch
-                accessibilityLabel="Speaker mode"
-                value={speakerMode}
-                onValueChange={setSpeakerMode}
-                trackColor={{ true: theme.colors.primary }}
-              />
-            }
-          />
-          {speakerMode ? (
-            <View style={styles.segmentRow}>
-              <Text variant="footnote" color="textSecondary">
-                Cleanup
-              </Text>
-              <SegmentedControl
-                accessibilityLabel="Cleanup strength"
-                options={cleanupOptions}
-                value={cleanupStrength}
-                onChange={setCleanupStrength}
-              />
-            </View>
-          ) : null}
-        </ListSection>
-      ) : null}
 
       <ListSection
         title="Pre-roll"
@@ -258,6 +219,21 @@ export function SettingsScreen() {
           }
         />
       </ListSection>
+      {isEchoCancellerAvailable ? (
+        <ListSection footer="Record without headphones: after you stop, the song and the click that came from the speaker are removed from the new take. The original recording is kept. Headphones still give the cleanest takes.">
+          <ListRow
+            title="Speaker mode"
+            accessory={
+              <Switch
+                accessibilityLabel="Speaker mode"
+                value={speakerMode}
+                onValueChange={setSpeakerMode}
+                trackColor={{ true: theme.colors.primary }}
+              />
+            }
+          />
+        </ListSection>
+      ) : null}
 
       <ListSection title="About">
         <ListRow

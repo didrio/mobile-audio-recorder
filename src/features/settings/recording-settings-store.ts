@@ -14,8 +14,6 @@ export type PreRollSeconds = (typeof PRE_ROLL_SECONDS_OPTIONS)[number];
 /** Pre-roll lengths for ideas with the grid on: whole bars, so the punch lands on a bar line. */
 export const PRE_ROLL_BARS_OPTIONS = [1, 2] as const;
 export type PreRollBars = (typeof PRE_ROLL_BARS_OPTIONS)[number];
-/** `light`: echo cancellation only. `strong`: plus residual echo suppression (can dull the take). */
-export type CleanupStrength = 'light' | 'strong';
 
 /** Bit depth of recorded takes (WAV). 24-bit leaves headroom; 16-bit makes files a third smaller. */
 export const RECORDING_BIT_DEPTHS = [16, 24] as const;
@@ -52,21 +50,11 @@ type RecordingSettingsState = {
   bitDepth: RecordingBitDepth;
   setBitDepth: (value: RecordingBitDepth) => void;
   /**
-   * Speaker mode: takes recorded without headphones get the backing (other tracks and the click, heard
-   * from the speaker) removed after Stop, by echo cancellation against the known mix. The raw take is
-   * kept next to the cleaned one.
-   */
-  speakerMode: boolean;
-  /**
    * Silent recording (T34): without headphones, everything plays up to the punch, then the output
    * fades out just before it and the take is recorded in silence (nothing bleeds into it).
    */
   silentRecording: boolean;
   setSilentRecording: (value: boolean) => void;
-  setSpeakerMode: (value: boolean) => void;
-  /** Speaker mode: `strong` also turns down what's left of the backing per frequency (can dull a take). */
-  cleanupStrength: CleanupStrength;
-  setCleanupStrength: (value: CleanupStrength) => void;
   /** How long the run-up before a punch-in is, when pre-roll is on for the idea. */
   preRollSeconds: PreRollSeconds;
   setPreRollSeconds: (value: PreRollSeconds) => void;
@@ -109,12 +97,8 @@ export const useRecordingSettingsStore = create<RecordingSettingsState>()(
       setBluetoothPhoneMic: (value) => set({ bluetoothPhoneMic: value }),
       bitDepth: 24,
       setBitDepth: (value) => set({ bitDepth: value }),
-      speakerMode: false,
       silentRecording: false,
       setSilentRecording: (value) => set({ silentRecording: value }),
-      setSpeakerMode: (value) => set({ speakerMode: value }),
-      cleanupStrength: 'light',
-      setCleanupStrength: (value) => set({ cleanupStrength: value }),
       preRollSeconds: 2,
       setPreRollSeconds: (value) => set({ preRollSeconds: value }),
       preRollBars: 1,
@@ -128,7 +112,7 @@ export const useRecordingSettingsStore = create<RecordingSettingsState>()(
       name: 'settings.recording',
       // New keys get their defaults from the shallow merge, so adding settings needs no migration;
       // changing one does (`migrateRecordingSettings`).
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() => zustandStorage),
       migrate: (persisted, version) => migrateRecordingSettings(persisted, version) as never,
       partialize: (state) => ({
@@ -136,9 +120,7 @@ export const useRecordingSettingsStore = create<RecordingSettingsState>()(
         legacyLatencyOffsetMs: state.legacyLatencyOffsetMs,
         bluetoothPhoneMic: state.bluetoothPhoneMic,
         bitDepth: state.bitDepth,
-        speakerMode: state.speakerMode,
         silentRecording: state.silentRecording,
-        cleanupStrength: state.cleanupStrength,
         preRollSeconds: state.preRollSeconds,
         preRollBars: state.preRollBars,
         monitoring: state.monitoring,
@@ -159,19 +141,25 @@ export function latencyOffsetFor(
 /**
  * Persisted settings from an older version. v1 → v2 (T38): the single `latencyOffsetMs` became one
  * offset per output route; a non-zero old value waits in `legacyLatencyOffsetMs` for the first route
- * the app sees (the one it was most likely tuned on).
+ * the app sees (the one it was most likely tuned on). v2 → v3 (T47): Speaker mode moved to the
+ * experimental settings with one cleanup strength, so `speakerMode` and `cleanupStrength` are dropped.
  */
 export function migrateRecordingSettings(persisted: unknown, version: number): unknown {
   if (typeof persisted !== 'object' || persisted === null) return persisted;
-  if (version >= 2) return persisted;
-  const { latencyOffsetMs, ...rest } = persisted as { latencyOffsetMs?: unknown };
-  const legacy =
-    typeof latencyOffsetMs === 'number' && latencyOffsetMs !== 0
-      ? clampLatencyOffset(latencyOffsetMs)
-      : null;
-  return {
-    ...rest,
-    latencyOffsetsMs: Object.fromEntries(OUTPUT_ROUTES.map((route) => [route, 0])),
-    legacyLatencyOffsetMs: legacy,
-  };
+  if (version >= 3) return persisted;
+  let settings = persisted as Record<string, unknown>;
+  if (version < 2) {
+    const { latencyOffsetMs, ...rest } = settings;
+    const legacy =
+      typeof latencyOffsetMs === 'number' && latencyOffsetMs !== 0
+        ? clampLatencyOffset(latencyOffsetMs)
+        : null;
+    settings = {
+      ...rest,
+      latencyOffsetsMs: Object.fromEntries(OUTPUT_ROUTES.map((route) => [route, 0])),
+      legacyLatencyOffsetMs: legacy,
+    };
+  }
+  const { speakerMode: _speakerMode, cleanupStrength: _cleanupStrength, ...rest } = settings;
+  return rest;
 }

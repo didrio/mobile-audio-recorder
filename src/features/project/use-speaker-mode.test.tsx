@@ -1,5 +1,6 @@
 import { renderHook } from '@testing-library/react-native';
 
+import { useExperimentalSettingsStore } from '@/features/settings/experimental-settings-store';
 import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
 import * as echoCanceller from '@/lib/echo-canceller';
 
@@ -14,25 +15,33 @@ describe('useSpeakerRecording', () => {
   afterEach(() => jest.restoreAllMocks());
 
   beforeEach(() => {
-    useRecordingSettingsStore.setState({ speakerMode: true, silentRecording: false });
+    useExperimentalSettingsStore.setState({ speakerMode: true });
+    useRecordingSettingsStore.setState({ silentRecording: false });
   });
 
-  it('cleans takes when Speaker mode is switched on in the app and in Settings', async () => {
+  it('cleans takes recorded without headphones when Speaker mode is on', async () => {
     const { result } = await renderHook(() => useSpeakerRecording());
 
-    expect(result.current.clean).toBe(true);
+    expect(result.current).toEqual({ silent: false, clean: true });
   });
 
-  it('never cleans while Speaker mode is shelved, even if speakerMode was saved as true', async () => {
-    jest.replaceProperty(echoCanceller, 'SPEAKER_MODE_ENABLED', false);
+  it('cleans nothing with Speaker mode off', async () => {
+    useExperimentalSettingsStore.setState({ speakerMode: false });
 
     const { result } = await renderHook(() => useSpeakerRecording());
 
     expect(result.current.clean).toBe(false);
   });
 
-  it('keeps silent recording working with Speaker mode shelved', async () => {
-    jest.replaceProperty(echoCanceller, 'SPEAKER_MODE_ENABLED', false);
+  it('cleans nothing where the native module is missing', async () => {
+    jest.replaceProperty(echoCanceller, 'isEchoCancellerAvailable', false);
+
+    const { result } = await renderHook(() => useSpeakerRecording());
+
+    expect(result.current.clean).toBe(false);
+  });
+
+  it('records in silence instead of cleaning when silent recording is on', async () => {
     useRecordingSettingsStore.setState({ silentRecording: true });
 
     const { result } = await renderHook(() => useSpeakerRecording());

@@ -13,6 +13,9 @@ expo-env.d.ts
 
 # Native build outputs & signing material
 .kotlin/
+# Gradle and CMake outputs of local modules (modules/*/android/build, .cxx)
+modules/*/android/build/
+.cxx/
 *.orig.*
 *.jks
 *.p8

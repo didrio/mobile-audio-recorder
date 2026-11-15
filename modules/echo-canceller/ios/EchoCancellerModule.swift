@@ -22,7 +22,6 @@ struct CleanTakeRequest: Record {
   @Field var clicks: [EchoClick] = []
   /// Click sounds at the take's sample rate, already scaled by the metronome volume.
   @Field var waves: [[Double]] = []
-  @Field var strong: Bool = false
 }
 
 /// Cleans a take recorded from the speaker by removing the known backing (the C core in `cpp/`).
@@ -58,7 +57,6 @@ public class EchoCancellerModule: Module {
 
     var options = ec_options()
     ec_default_options(&options)
-    options.residual_suppression = request.strong ? 1 : 0
     var result = ec_result()
 
     let ok = clips.withUnsafeMutableBufferPointer { clipBuffer in
@@ -90,6 +88,6 @@ public class EchoCancellerModule: Module {
   }
 }
 
-final class CleanTakeException: GenericException<String> {
+final class CleanTakeException: GenericException<String>, @unchecked Sendable {
   override var reason: String { param }
 }

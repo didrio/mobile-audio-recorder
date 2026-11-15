@@ -1,7 +1,10 @@
 {
-  "platforms": ["apple"],
+  "platforms": ["apple", "android"],
   "apple": {
     "modules": ["EchoCancellerModule"],
     "podspecPath": "EchoCanceller.podspec"
+  },
+  "android": {
+    "modules": ["expo.modules.echocanceller.EchoCancellerModule"]
   }
 }

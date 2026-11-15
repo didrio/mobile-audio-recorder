@@ -35,6 +35,7 @@ import {
   setSnap,
   type Project,
 } from '@/features/projects/projects-repo';
+import { useExperimentalSettingsStore } from '@/features/settings/experimental-settings-store';
 import { useInputDevicesStore } from '@/features/settings/input-devices-store';
 import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
 import { extractChannel } from '@/lib/audio-input';
@@ -351,10 +352,9 @@ describe('ProjectScreen', () => {
       latencyOffsetsMs: { speaker: 0, wired: 0, bluetooth: 0, usb: 0 },
       preRollSeconds: 2,
       preRollBars: 1,
-      speakerMode: false,
       silentRecording: false,
-      cleanupStrength: 'light',
     });
+    useExperimentalSettingsStore.setState({ speakerMode: false });
     jest.mocked(listProjects).mockResolvedValue([]);
     mockPush.mockClear();
   });
@@ -587,7 +587,7 @@ describe('ProjectScreen', () => {
   });
 
   it('in speaker mode, removes what the speaker played from the take and keeps the raw recording', async () => {
-    useRecordingSettingsStore.setState({ speakerMode: true });
+    useExperimentalSettingsStore.setState({ speakerMode: true });
     jest.mocked(getProject).mockResolvedValue(twoTracks);
     mockRecording({
       backing: {
@@ -623,7 +623,6 @@ describe('ProjectScreen', () => {
     expect(cleanTake).toHaveBeenCalledWith({
       micPath: '/cache/take.wav',
       outputPath: expect.stringMatching(/^\/cache\/.+-clean\.wav$/),
-      strong: false,
       plan: {
         clips: [
           {
@@ -644,7 +643,7 @@ describe('ProjectScreen', () => {
   });
 
   it('in speaker mode with headphones connected, keeps the take as recorded', async () => {
-    useRecordingSettingsStore.setState({ speakerMode: true });
+    useExperimentalSettingsStore.setState({ speakerMode: true });
     useAudioRouteStore.setState({
       devices: {
         availableInputs: [],
@@ -824,7 +823,7 @@ describe('ProjectScreen', () => {
   });
 
   it('in speaker mode, suggests the visual metronome instead of clicks', async () => {
-    useRecordingSettingsStore.setState({ speakerMode: true });
+    useExperimentalSettingsStore.setState({ speakerMode: true });
     jest
       .mocked(getProject)
       .mockResolvedValue({ ...project, metronome: true, metronomeOutput: 'both' });
@@ -846,7 +845,7 @@ describe('ProjectScreen', () => {
   });
 
   it('lets the visual metronome suggestion be dismissed', async () => {
-    useRecordingSettingsStore.setState({ speakerMode: true });
+    useExperimentalSettingsStore.setState({ speakerMode: true });
     jest.mocked(getProject).mockResolvedValue({ ...project, metronome: true });
     const user = userEvent.setup();
     await renderScreen();
@@ -1002,7 +1001,8 @@ describe('ProjectScreen', () => {
   });
 
   it('silent recording without pre-roll: muted from the start, nothing for Speaker mode to clean', async () => {
-    useRecordingSettingsStore.setState({ silentRecording: true, speakerMode: true });
+    useRecordingSettingsStore.setState({ silentRecording: true });
+    useExperimentalSettingsStore.setState({ speakerMode: true });
     jest.mocked(getProject).mockResolvedValue(twoTracks);
     mockRecording({
       backing: { from: 5, clips: [], cuts: [], metronome: { meter: METER, volume: 1 } },

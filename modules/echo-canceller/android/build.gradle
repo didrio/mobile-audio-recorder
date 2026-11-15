@@ -1,0 +1,25 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.didrio.audiorecorder'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.echocanceller"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+  // The shared C core in ../cpp, plus the JNI glue in src/main/cpp.
+  externalNativeBuild {
+    cmake {
+      path "CMakeLists.txt"
+    }
+  }
+}
+
+dependencies {
+  implementation 'com.facebook.react:react-android'
+}

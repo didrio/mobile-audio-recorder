@@ -42,18 +42,50 @@ typedef struct {
   int wave_count;
 } ec_plan;
 
+/**
+ * How what a predicted echo says is still there after the linear cancellation gets turned down, per
+ * frequency bin: by the leftover measured where the performer is quiet, times `margin`.
+ */
+typedef struct {
+  /** STFT frame in samples (a power of two). */
+  int frame;
+  /** Multiplies the measured leftover (1: exactly what was measured; more: harder). */
+  double margin;
+  /**
+   * Which percentile of the per-frame leftover counts as "what's left" (low: where the performer is
+   * quiet; higher: also covers a leftover that varies as the performer moves), and its upper bound
+   * as a share of the predicted energy.
+   */
+  double percentile;
+  double max_ratio;
+  /** Bins either side a prediction also covers (energy smeared by the speaker). */
+  int spread;
+  /**
+   * Share of a frame's total predicted energy assumed in *every* bin: a distorting speaker turns a
+   * tone into harmonics and noise that the (linear) prediction doesn't show.
+   */
+  double broadband;
+  /** Never turned down below this gain (linear). 1 switches the suppression off. */
+  double floor;
+} ec_suppression;
+
 typedef struct {
   /** Echo tail the filter models, in milliseconds. */
   int filter_ms;
-  /**
-   * 0: echo cancellation, plus targeted suppression of the clicks. 1: also turns down what's left of
-   * the backing tracks per frequency, and the clicks harder.
-   */
-  int residual_suppression;
+  /** Reweighting passes of the filter estimate (each one trusts echo-only stretches more). */
+  int estimate_iterations;
   /** How far the delay search looks either side of the planned alignment. */
   int max_delay_ms;
   /** How far the aligned reference leads the echo, so the filter sees it first. */
   int lead_ms;
+  /** After the linear cancellation: what's left of the backing, turned down per frequency. */
+  ec_suppression residual;
+  /**
+   * The clicks' leftover is measured where the performer is quiet; each click frame is turned down by
+   * that much times `click_margin`, never below `click_floor`.
+   */
+  double click_margin;
+  double click_floor;
 } ec_options;
 
 typedef struct {
@@ -68,6 +100,7 @@ typedef struct {
   double seconds;
 } ec_result;
 
+/** The settings the app uses: the most aggressive cleanup that still keeps the performance. */
 void ec_default_options(ec_options *options);
 
 /**

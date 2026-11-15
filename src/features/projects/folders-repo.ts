@@ -4,7 +4,6 @@
  */
 import { randomUUID } from 'expo-crypto';
 
-import { deleteProjectFiles } from '@/features/audio/take-files';
 import { getDb } from '@/lib/db';
 
 import { canMoveInto, collectDeletion, type ItemSelection } from './folder-tree';
@@ -16,6 +15,8 @@ export type Folder = {
   name: string;
   createdAt: number;
   updatedAt: number;
+  /** When it was moved to Recently Deleted (T41); `null` = not deleted. */
+  deletedAt: number | null;
 };
 
 type FolderRow = {
@@ -24,6 +25,7 @@ type FolderRow = {
   name: string;
   created_at: number;
   updated_at: number;
+  deleted_at: number | null;
 };
 
 function toFolder(row: FolderRow): Folder {
@@ -33,12 +35,25 @@ function toFolder(row: FolderRow): Folder {
     name: row.name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
   };
 }
 
+/** Every folder that isn't in Recently Deleted. */
 export async function listFolders(): Promise<Folder[]> {
   const db = await getDb();
-  const rows = await db.getAllAsync<FolderRow>('SELECT * FROM folders ORDER BY name');
+  const rows = await db.getAllAsync<FolderRow>(
+    'SELECT * FROM folders WHERE deleted_at IS NULL ORDER BY name',
+  );
+  return rows.map(toFolder);
+}
+
+/** The folders in Recently Deleted (T41), nested ones included. */
+export async function listDeletedFolders(): Promise<Folder[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<FolderRow>(
+    'SELECT * FROM folders WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC',
+  );
   return rows.map(toFolder);
 }
 
@@ -52,6 +67,7 @@ export async function createFolder(parentId: string | null, name: string): Promi
     name: name.trim() || 'New Folder',
     createdAt: now,
     updatedAt: now,
+    deletedAt: null,
   };
   await db.runAsync(
     'INSERT INTO folders (id, parent_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
@@ -101,34 +117,27 @@ export async function moveItems(selection: ItemSelection, targetId: string | nul
 }
 
 /**
- * Deletes ideas and folders with everything inside them: rows in one transaction, then each idea's audio
- * files. Returns the deleted take paths (for `forgetTakes`). T41 turns this into a move to Recently
- * Deleted.
+ * Moves ideas and folders (with everything inside the folders) to Recently Deleted (T41): one shared
+ * `deleted_at` on every row still alive, in one transaction. Nothing is removed from disk; `purgeItems` does that.
  */
-export async function deleteItems(selection: ItemSelection): Promise<string[]> {
+export async function deleteItems(selection: ItemSelection): Promise<void> {
   const db = await getDb();
   const folders = await listFolders();
   const ideas = await db.getAllAsync<{ id: string; folder_id: string | null }>(
-    'SELECT id, folder_id FROM projects',
+    'SELECT id, folder_id FROM projects WHERE deleted_at IS NULL',
   );
   const { folderIds, ideaIds } = collectDeletion(
     folders,
     ideas.map((idea) => ({ id: idea.id, folderId: idea.folder_id })),
     selection,
   );
-  const takePaths: string[] = [];
+  const now = Date.now();
   await db.withExclusiveTransactionAsync(async (tx) => {
     for (const id of ideaIds) {
-      const takes = await tx.getAllAsync<{ path: string }>(
-        'SELECT path FROM takes WHERE project_id = ?',
-        id,
-      );
-      takePaths.push(...takes.map((take) => take.path));
-      await tx.runAsync('DELETE FROM projects WHERE id = ?', id);
+      await tx.runAsync('UPDATE projects SET deleted_at = ? WHERE id = ?', now, id);
     }
-    // Subfolders go with their parent (ON DELETE CASCADE); deleting each is harmless either way.
-    for (const id of folderIds) await tx.runAsync('DELETE FROM folders WHERE id = ?', id);
+    for (const id of folderIds) {
+      await tx.runAsync('UPDATE folders SET deleted_at = ? WHERE id = ?', now, id);
+    }
   });
-  for (const id of ideaIds) deleteProjectFiles(id);
-  return takePaths;
 }

@@ -15,6 +15,7 @@ import {
   type ProjectSummary,
 } from './projects-repo';
 import { IdeasListScreen } from './projects-screen';
+import { listDeleted } from './trash-repo';
 
 const mockPush = jest.fn();
 
@@ -129,6 +130,11 @@ jest.mock('./folders-repo', () => ({
   moveItems: jest.fn(),
   deleteItems: jest.fn(() => Promise.resolve([])),
 }));
+jest.mock('./trash-repo', () => ({
+  listDeleted: jest.fn(),
+  restoreItems: jest.fn(),
+  purgeItems: jest.fn(),
+}));
 jest.mock('@/features/audio/audio-engine', () => ({ forgetTakes: jest.fn() }));
 
 const mockedListProjects = jest.mocked(listProjects);
@@ -156,6 +162,7 @@ const idea = (overrides: Partial<ProjectSummary>): ProjectSummary => ({
   notes: '',
   folderId: null,
   favorite: false,
+  deletedAt: null,
   ...overrides,
 });
 
@@ -165,6 +172,7 @@ const folder = (id: string, name: string, parentId: string | null = null): Folde
   parentId,
   createdAt: 0,
   updatedAt: 0,
+  deletedAt: null,
 });
 
 /** Demos/ (Rough/), with one idea in each and one at the root. */
@@ -185,6 +193,7 @@ describe('IdeasListScreen', () => {
     jest.clearAllMocks();
     useIdeasSortStore.setState({ order: 'recent' });
     mockedListFolders.mockResolvedValue([]);
+    jest.mocked(listDeleted).mockResolvedValue({ folders: [], ideas: [] });
   });
 
   it('offers to record a new idea and explains the empty list', async () => {
@@ -255,6 +264,27 @@ describe('IdeasListScreen', () => {
     await user.type(input, 'Verse riff');
     await user.press(screen.getByRole('button', { name: 'Save' }));
     expect(renameProject).toHaveBeenCalledWith('a', 'Verse riff');
+  });
+
+  it('shows a Recently Deleted row at the bottom of the root once something is deleted', async () => {
+    mockedListProjects.mockResolvedValue([idea({ id: 'a', name: 'Chorus riff' })]);
+    jest.mocked(listDeleted).mockResolvedValue({
+      folders: [],
+      ideas: [idea({ id: 'z', name: 'Old', deletedAt: 5 })],
+    });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: /Recently Deleted/ }));
+    expect(mockPush).toHaveBeenCalledWith('/recently-deleted');
+  });
+
+  it('hides the Recently Deleted row when nothing is deleted', async () => {
+    mockedListProjects.mockResolvedValue([idea({ id: 'a', name: 'Chorus riff' })]);
+    await renderScreen();
+
+    await screen.findByText('Chorus riff');
+    expect(screen.queryByRole('button', { name: /Recently Deleted/ })).not.toBeOnTheScreen();
   });
 
   it('asks before deleting an idea', async () => {

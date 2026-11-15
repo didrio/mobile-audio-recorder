@@ -7,6 +7,7 @@ export default function HomeStackLayout() {
       {/* Titles come from the screen: the folder's name, "Favorites". */}
       <Stack.Screen name="folder/[id]" options={{ title: '' }} />
       <Stack.Screen name="favorites" options={{ title: 'Favorites' }} />
+      <Stack.Screen name="recently-deleted" options={{ title: 'Recently Deleted' }} />
     </Stack>
   );
 }

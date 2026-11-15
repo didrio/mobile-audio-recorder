@@ -35,6 +35,8 @@ export type ProjectSummary = {
   folderId: string | null;
   /** Starred: listed in Favorites too (T19). */
   favorite: boolean;
+  /** When it was moved to Recently Deleted (T41); `null` = not deleted. */
+  deletedAt: number | null;
 };
 
 export type Track = {
@@ -140,6 +142,7 @@ type ProjectRow = {
   notes: string;
   folder_id: string | null;
   favorite: number;
+  deleted_at: number | null;
   duration: number;
 };
 type TrackRow = {
@@ -184,7 +187,7 @@ type ClipRow = {
 const PROJECT_COLUMNS = `
   p.id, p.name, p.created_at, p.updated_at, p.armed_track_id, p.pre_roll, p.snap,
   p.bpm, p.beats_per_bar, p.beat_unit, p.grid, p.metronome, p.metronome_volume,
-  p.metronome_output, p.loop_on, p.loop_start, p.loop_end, p.notes, p.folder_id, p.favorite,
+  p.metronome_output, p.loop_on, p.loop_start, p.loop_end, p.notes, p.folder_id, p.favorite, p.deleted_at,
   COALESCE((
     SELECT MAX(c.start + c.duration) FROM clips c JOIN tracks t ON t.id = c.track_id
     WHERE t.project_id = p.id
@@ -200,13 +203,24 @@ function toSummary(row: ProjectRow): ProjectSummary {
     notes: row.notes,
     folderId: row.folder_id,
     favorite: row.favorite === 1,
+    deletedAt: row.deleted_at,
   };
 }
 
+/** Every idea that isn't in Recently Deleted. */
 export async function listProjects(): Promise<ProjectSummary[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<ProjectRow>(
-    `SELECT ${PROJECT_COLUMNS} FROM projects p ORDER BY p.updated_at DESC`,
+    `SELECT ${PROJECT_COLUMNS} FROM projects p WHERE p.deleted_at IS NULL ORDER BY p.updated_at DESC`,
+  );
+  return rows.map(toSummary);
+}
+
+/** The ideas in Recently Deleted (T41). */
+export async function listDeletedProjects(): Promise<ProjectSummary[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<ProjectRow>(
+    `SELECT ${PROJECT_COLUMNS} FROM projects p WHERE p.deleted_at IS NOT NULL ORDER BY p.deleted_at DESC`,
   );
   return rows.map(toSummary);
 }
@@ -398,6 +412,7 @@ export async function createProject(
     notes: '',
     folderId,
     favorite: false,
+    deletedAt: null,
   };
 }
 
@@ -552,6 +567,7 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
     notes: source.notes,
     folderId: source.folderId,
     favorite: false,
+    deletedAt: null,
   };
 }
 
@@ -678,16 +694,4 @@ export async function deleteUnusedTakes(projectId: string): Promise<string[]> {
   });
   for (const take of unused) deleteTakeFiles(take.path);
   return unused.map((take) => take.path);
-}
-
-/** Deletes the project, its rows (cascade) and its audio files. Returns the deleted take paths. */
-export async function deleteProject(id: string): Promise<string[]> {
-  const db = await getDb();
-  const takes = await db.getAllAsync<{ path: string }>(
-    'SELECT path FROM takes WHERE project_id = ?',
-    id,
-  );
-  await db.runAsync('DELETE FROM projects WHERE id = ?', id);
-  deleteProjectFiles(id);
-  return takes.map((take) => take.path);
 }

@@ -25,6 +25,7 @@ const folder = (id: string, name: string, parentId: string | null = null): Folde
   parentId,
   createdAt: 0,
   updatedAt: 0,
+  deletedAt: null,
 });
 
 function renderScreen() {

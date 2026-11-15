@@ -14,6 +14,9 @@ import { SettingsScreen } from './settings-screen';
 
 jest.mock('expo-router', () => ({ useFocusEffect: jest.fn() }));
 jest.mock('@/features/audio/take-files', () => ({ recordingsSizeBytes: () => 5 * 1024 * 1024 }));
+jest.mock('@/features/projects/trash-repo', () => ({
+  deletedRecordingsBytes: () => Promise.resolve(1024 * 1024),
+}));
 
 const render = (element: ReactElement) =>
   rntlRender(
@@ -37,10 +40,11 @@ describe('SettingsScreen', () => {
     expect(slider).toHaveAccessibilityValue({ text: '−1.0 dB' });
   });
 
-  it('shows the storage used by recordings', async () => {
+  it('shows the storage used by recordings, with Recently Deleted counted separately', async () => {
     await render(<SettingsScreen />);
 
-    expect(await screen.findByText('5.0 MB')).toBeOnTheScreen();
+    expect(await screen.findByText('4.0 MB')).toBeOnTheScreen();
+    expect(screen.getByText('1.0 MB')).toBeOnTheScreen();
   });
 
   beforeEach(() => {

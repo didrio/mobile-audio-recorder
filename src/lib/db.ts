@@ -19,6 +19,10 @@
  *   net: real folder deletion (`deleteItems` in `folders-repo.ts`) removes the ideas and their files
  *   first, and a cascade would drop idea rows but leave their audio behind. `projects.favorite` stars an
  *   idea wherever it lives; starring and moving don't touch `updated_at`.
+ * - `deleted_at` (T41) on `projects` and `folders`: Delete is soft. A deleted folder stamps its whole subtree
+ *   with one shared timestamp and keeps `parent_id` / `folder_id` (the place to restore to). Every normal
+ *   list filters `deleted_at IS NULL`; Recently Deleted (`trash-repo.ts`) lists the rest, and rows older
+ *   than 30 days are purged (rows + audio files) at launch.
  * - The open idea is edited through the editor store (`@/features/project/editor-store`): edits are
  *   snapshots of the track/clip/section rows they touch, applied in memory and written with `saveChanges`
  *   (`projects-repo.ts`). Undo history lives only while the idea is open, so takes no clip uses are
@@ -29,7 +33,7 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 
 const DATABASE_NAME = 'audio-recorder.db';
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 
 let database: Promise<SQLiteDatabase> | null = null;
 
@@ -186,6 +190,15 @@ async function migrate(db: SQLiteDatabase) {
         ALTER TABLE projects ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL;
         ALTER TABLE projects ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
         CREATE INDEX projects_folder ON projects(folder_id);
+      `);
+    }
+    if (version < 13) {
+      // Recently Deleted (T41): soft delete, purged after 30 days.
+      await tx.execAsync(`
+        ALTER TABLE projects ADD COLUMN deleted_at INTEGER;
+        ALTER TABLE folders ADD COLUMN deleted_at INTEGER;
+        CREATE INDEX projects_deleted ON projects(deleted_at);
+        CREATE INDEX folders_deleted ON folders(deleted_at);
       `);
     }
     await tx.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);

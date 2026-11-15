@@ -19,6 +19,7 @@ const folder = (id: string, parentId: string | null, name = id, updatedAt = 0): 
   name,
   createdAt: updatedAt,
   updatedAt,
+  deletedAt: null,
 });
 
 const idea = (
@@ -34,6 +35,7 @@ const idea = (
   notes: '',
   folderId,
   favorite: false,
+  deletedAt: null,
   ...overrides,
 });
 

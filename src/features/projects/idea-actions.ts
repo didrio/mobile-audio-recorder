@@ -77,12 +77,12 @@ export function confirmDelete(
   ]);
 }
 
-/** Asks before deleting an idea and its recordings (the idea's "⋯" menu). */
+/** Asks before moving an idea to Recently Deleted (the idea's "⋯" menu). */
 export function confirmDeleteIdea(name: string, onConfirm: () => void) {
   confirmDelete(
     {
       title: `Delete “${name}”?`,
-      message: 'The idea and its recordings will be deleted. This can’t be undone.',
+      message: 'The idea moves to Recently Deleted. It stays there for 30 days.',
     },
     onConfirm,
   );

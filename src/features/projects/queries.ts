@@ -13,23 +13,27 @@ import type { ItemSelection } from './folder-tree';
 import { createFolder, deleteItems, listFolders, moveItems, renameFolder } from './folders-repo';
 import {
   createProject,
-  deleteProject,
   duplicateProject,
   listProjects,
   renameProject,
   setFavorite,
 } from './projects-repo';
+import { listDeleted, purgeItems, restoreItems } from './trash-repo';
 
 export const projectKeys = {
   all: ['projects'] as const,
   list: () => [...projectKeys.all, 'list'] as const,
   folders: () => [...projectKeys.all, 'folders'] as const,
+  deleted: () => [...projectKeys.all, 'deleted'] as const,
 };
 
+/** Refreshes the Ideas lists, Recently Deleted and the Settings storage numbers. */
 const invalidateLists = (queryClient: QueryClient) =>
   Promise.all([
     queryClient.invalidateQueries({ queryKey: projectKeys.list() }),
     queryClient.invalidateQueries({ queryKey: projectKeys.folders() }),
+    queryClient.invalidateQueries({ queryKey: projectKeys.deleted() }),
+    queryClient.invalidateQueries({ queryKey: ['storage'] }),
   ]);
 
 export function useProjects() {
@@ -58,14 +62,12 @@ export function useCreateProject() {
   });
 }
 
+/** Moves one idea to Recently Deleted (the idea's "⋯" menu). */
 export function useDeleteProject() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => deleteProject(id),
-    onSuccess: (takePaths) => {
-      forgetTakes(takePaths);
-      return queryClient.invalidateQueries({ queryKey: projectKeys.list() });
-    },
+    mutationFn: (id: string) => deleteItems({ ideaIds: [id], folderIds: [] }),
+    onSuccess: () => invalidateLists(queryClient),
   });
 }
 
@@ -120,10 +122,32 @@ export function useMoveItems() {
   });
 }
 
+/** Moves ideas and folders to Recently Deleted. */
 export function useDeleteItems() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (selection: ItemSelection) => deleteItems(selection),
+    onSuccess: () => invalidateLists(queryClient),
+  });
+}
+
+export function useDeleted() {
+  return useQuery({ queryKey: projectKeys.deleted(), queryFn: listDeleted });
+}
+
+export function useRestoreItems() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (selection: ItemSelection) => restoreItems(selection),
+    onSuccess: () => invalidateLists(queryClient),
+  });
+}
+
+/** Delete Now: removes deleted items for good (rows and audio files). */
+export function usePurgeItems() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (selection: ItemSelection) => purgeItems(selection),
     onSuccess: (takePaths) => {
       forgetTakes(takePaths);
       return invalidateLists(queryClient);

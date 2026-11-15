@@ -107,7 +107,7 @@ export function deleteMessage(
   selection: ItemSelection,
 ): { title: string; message: string } {
   const { nestedFolders, nestedIdeas } = collectDeletion(folders, ideas, selection);
-  const irreversible = 'This can’t be undone.';
+  const kept = 'It stays there for 30 days.';
   const { ideaIds, folderIds } = selection;
 
   if (folderIds.length === 1 && ideaIds.length === 0) {
@@ -116,23 +116,23 @@ export function deleteMessage(
     return contents
       ? {
           title: `Delete “${name}” and its ${contents}?`,
-          message: `Everything in it and the recordings will be deleted. ${irreversible}`,
+          message: `Everything in it moves to Recently Deleted too. ${kept}`,
         }
-      : { title: `Delete “${name}”?`, message: irreversible };
+      : { title: `Delete “${name}”?`, message: `The folder moves to Recently Deleted. ${kept}` };
   }
   if (ideaIds.length === 1 && folderIds.length === 0) {
     const name = ideas.find((idea) => idea.id === ideaIds[0])?.name ?? 'idea';
     return {
       title: `Delete “${name}”?`,
-      message: `The idea and its recordings will be deleted. ${irreversible}`,
+      message: `The idea moves to Recently Deleted. ${kept}`,
     };
   }
   const inside = foldersAndIdeas(nestedFolders, nestedIdeas);
   return {
     title: `Delete ${foldersAndIdeas(folderIds.length, ideaIds.length)}?`,
     message: inside
-      ? `What’s in the folders (${inside}) and all the recordings will be deleted too. ${irreversible}`
-      : `The recordings will be deleted. ${irreversible}`,
+      ? `What’s in the folders (${inside}) moves to Recently Deleted too. ${kept}`
+      : `They move to Recently Deleted. ${kept}`,
   };
 }
 

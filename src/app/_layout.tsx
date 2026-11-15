@@ -1,8 +1,13 @@
 import { Stack } from 'expo-router';
+import { useEffect } from 'react';
 
 import { AppProviders } from '@/components/app-providers';
 import { ErrorScreen } from '@/components/error-screen';
+import { forgetTakes } from '@/features/audio/audio-engine';
+import { projectKeys } from '@/features/projects/queries';
+import { purgeExpired } from '@/features/projects/trash-repo';
 import { initAppearance } from '@/features/settings/appearance-store';
+import { queryClient } from '@/lib/query-client';
 
 // One-time app startup work belongs here, at module scope (runs once before the first render).
 initAppearance();
@@ -16,6 +21,17 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
+  // Recently Deleted (T41): items older than 30 days are deleted for good at launch.
+  useEffect(() => {
+    purgeExpired()
+      .then((takePaths) => {
+        if (takePaths.length === 0) return;
+        forgetTakes(takePaths);
+        return queryClient.invalidateQueries({ queryKey: projectKeys.all });
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <AppProviders>
       <Stack screenOptions={{ headerShown: false }}>

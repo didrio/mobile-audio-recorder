@@ -15,6 +15,7 @@ import {
 } from '@/components/ui';
 import { recordingsSizeBytes } from '@/features/audio/take-files';
 import { formatBytes } from '@/features/projects/ideas-list';
+import { deletedRecordingsBytes } from '@/features/projects/trash-repo';
 import { formatDb } from '@/features/timeline/fader-math';
 import { VolumeSlider } from '@/features/timeline/volume-slider';
 import { appInfo, runtimeLabels } from '@/lib/app-info';
@@ -83,11 +84,17 @@ export function SettingsScreen() {
     queryKey: ['storage', 'recordings'],
     queryFn: () => recordingsSizeBytes(),
   });
+  const deletedStorage = useQuery({
+    queryKey: ['storage', 'deleted'],
+    queryFn: deletedRecordingsBytes,
+  });
   const refetchStorage = storage.refetch;
+  const refetchDeleted = deletedStorage.refetch;
   useFocusEffect(
     useCallback(() => {
       void refetchStorage();
-    }, [refetchStorage]),
+      void refetchDeleted();
+    }, [refetchStorage, refetchDeleted]),
   );
   const { updates } = appInfo;
   // OTA update details only mean something in release builds (dev builds load JS from the bundler).
@@ -217,10 +224,20 @@ export function SettingsScreen() {
         </View>
       </ListSection>
 
-      <ListSection title="Storage" footer="Audio files of all your ideas, on this device.">
+      <ListSection
+        title="Storage"
+        footer="Audio files of your ideas, on this device. Recently Deleted ideas are deleted for good after 30 days.">
         <ListRow
           title="Recordings"
-          value={storage.data != null ? formatBytes(storage.data) : '—'}
+          value={
+            storage.data != null && deletedStorage.data != null
+              ? formatBytes(Math.max(0, storage.data - deletedStorage.data))
+              : '—'
+          }
+        />
+        <ListRow
+          title="Recently Deleted"
+          value={deletedStorage.data != null ? formatBytes(deletedStorage.data) : '—'}
         />
       </ListSection>
 

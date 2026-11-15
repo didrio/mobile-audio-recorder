@@ -33,6 +33,7 @@ import type { ProjectSummary } from './projects-repo';
 import {
   useCreateFolder,
   useCreateProject,
+  useDeleted,
   useDeleteItems,
   useDuplicateProject,
   useFolders,
@@ -41,6 +42,7 @@ import {
   useRenameProject,
   useSetFavorite,
 } from './queries';
+import { topLevelDeleted } from './recently-deleted';
 import { SelectionBar, type SelectionAction } from './selection-bar';
 import { useSelection } from './use-selection';
 
@@ -74,6 +76,7 @@ export function IdeasListScreen({ scope }: { scope: IdeasScope }) {
   const router = useRouter();
   const projects = useProjects();
   const foldersQuery = useFolders();
+  const deletedQuery = useDeleted();
   const createProject = useCreateProject();
   const duplicateProject = useDuplicateProject();
   const renameProject = useRenameProject();
@@ -107,6 +110,16 @@ export function IdeasListScreen({ scope }: { scope: IdeasScope }) {
     !searching &&
     !selection.selecting &&
     (!!allIdeas?.length || !!allFolders?.length);
+
+  // Recently Deleted (T41) sits at the bottom of the root, once there's something in it.
+  const deletedCount = deletedQuery.data
+    ? (() => {
+        const rows = topLevelDeleted(deletedQuery.data.folders, deletedQuery.data.ideas);
+        return rows.folders.length + rows.ideas.length;
+      })()
+    : 0;
+  const showDeletedRow =
+    scope.kind === 'root' && !searching && !selection.selecting && deletedCount > 0;
 
   const title =
     scope.kind === 'root'
@@ -413,6 +426,18 @@ export function IdeasListScreen({ scope }: { scope: IdeasScope }) {
               <Text color="textSecondary" align="center">
                 {emptyText}
               </Text>
+            ) : null}
+
+            {showDeletedRow ? (
+              <ListSection>
+                <ListRow
+                  title="Recently Deleted"
+                  icon={{ ios: 'trash', android: 'delete' }}
+                  iconColor="textSecondary"
+                  value={String(deletedCount)}
+                  onPress={() => router.push('/recently-deleted')}
+                />
+              </ListSection>
             ) : null}
           </>
         )}

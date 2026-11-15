@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T41 — Recently Deleted · Sonnet · medium effort · plan mode on
+**Next:** T36 — Export a mix · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -154,21 +154,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 - **Context:** First check whether `react-native-audio-api` offers a low-latency live input node for
   monitoring; if not, monitoring needs native work: say so before coding.
 
-### T41 — Recently Deleted
-
-- **Status:** ready
-- **Session:** Sonnet · medium effort · plan mode on
-- **Goal:** Deleting an idea or folder is recoverable for 30 days.
-- **Done when:**
-  - [ ] Migration: `deleted_at` on `projects` and `folders`. Delete (row, "⋯", select mode, folders) moves
-        items to a Recently Deleted row at the bottom of the Ideas root; confirmations say so.
-  - [ ] Recently Deleted lists items with days left; Restore (back to the original folder, or the root if it's
-        gone) and Delete Now (rows + files, with a confirmation); select mode for several.
-  - [ ] Items older than 30 days are purged at launch. Search, Favorites and folder counts skip deleted items;
-        Settings → Storage counts them separately.
-  - [ ] Unit tests: restore targets, purge, counts.
-- **Context:** `deleteProject` deletes rows + files today; it becomes the purge step.
-
 ### T7 — Background recording & interruptions
 
 - **Status:** ready
@@ -192,6 +177,10 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 Run these with the next build on real phones (T7 needs one anyway, or before a release; see the `release`
 skill). Fix or ticket what fails, then delete the line.
 
+- Recently Deleted (T41): delete a folder holding ideas and a subfolder, restore it (contents come back); delete
+  an idea out of a folder, then the folder, then restore the idea (lands at the root); Delete Now frees the audio
+  (Settings → Storage); Android: the screen's Select / Select All header and the long-press sheet. The 30-day
+  purge was only unit-tested.
 - Ideas folders (T19) on Android: the long-press menu bottom sheet (`useActionMenu`), the select-mode bar at the
   bottom of the screen, header Select / Sort / "+" and the Select All / Done header in select mode.
 - Android preview APK installs; an OTA update (`npm run update:preview`) published after the builds arrives on
@@ -361,6 +350,12 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T41 — Recently Deleted — 2026-11-15 — soft delete (`deleted_at` on `projects` and `folders`, migration v13): `deleteItems`
+  stamps a folder's whole subtree with one shared time; `recently-deleted.ts` (pure rules: nested vs top-level,
+  restore destination, days left), `trash-repo.ts` (list, restore to the original folder or root, Delete Now,
+  `purgeExpired` at launch from `_layout.tsx`, deleted bytes); Recently Deleted screen with select mode and a root
+  row (shown only when non-empty); lists, search, Favorites and counts skip deleted items; Settings → Storage
+  counts them separately. Simulator: delete, row, screen, Restore (light); dark mode, folders and Android not seen
 - T42 — Shelve Speaker mode — 2026-11-14 — `SPEAKER_MODE_ENABLED = false` in `@/lib/echo-canceller` hides the
   Settings section and forces `useSpeakerRecording().clean` false (saved `speakerMode: true` ignored); silent
   recording unaffected; code kept, docs and a Backlog line say how to bring it back. Unit tests only: the
@@ -370,7 +365,7 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   `folder-tree.ts` (subtree search with folder paths, Recent counts activity inside folders, delete counts, move
   validation); star by swipe right / long-press / idea "⋯"; "+" New Idea / New Folder; Move to… sheet
   (`move-to.tsx`); reusable select mode (`use-selection.ts`, `selection-bar.tsx`: iOS bottom toolbar) with Move /
-  Delete through `deleteItems` in `folders-repo.ts` (T41 changes that); `useActionMenu` for long-press menus.
+  Delete through `deleteItems` in `folders-repo.ts` (a soft delete since T41); `useActionMenu` for long-press menus.
   Simulator light + dark; Android untested
 - T20 — Pitch reference keyboard — 2026-11-14 — keyboard button in the strip opens a short sheet
   (`src/features/keyboard/pitch-keyboard-sheet.tsx`): as many white keys as fit (≥ 40 pt, one octave + on a

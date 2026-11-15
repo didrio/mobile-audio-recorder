@@ -41,6 +41,7 @@ export function testProject(tracks: ProjectTrack[], sections: Section[] = []): P
     name: 'Idea 1',
     createdAt: 0,
     updatedAt: 0,
+    deletedAt: null,
     duration,
     armedTrackId: tracks[0]?.id ?? null,
     preRoll: false,

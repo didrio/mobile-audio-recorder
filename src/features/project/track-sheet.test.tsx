@@ -52,6 +52,7 @@ const project = (tracks: Project['tracks']): Project => ({
   notes: '',
   folderId: null,
   favorite: false,
+  deletedAt: null,
   createdAt: 0,
   updatedAt: 0,
   duration: 1,

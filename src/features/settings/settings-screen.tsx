@@ -18,7 +18,7 @@ import { formatBytes } from '@/features/projects/ideas-list';
 import { formatDb } from '@/features/timeline/fader-math';
 import { VolumeSlider } from '@/features/timeline/volume-slider';
 import { appInfo, runtimeLabels } from '@/lib/app-info';
-import { isEchoCancellerAvailable } from '@/lib/echo-canceller';
+import { SPEAKER_MODE_ENABLED, isEchoCancellerAvailable } from '@/lib/echo-canceller';
 import { makeStyles, useTheme } from '@/theme';
 
 import { useAppearanceStore, type AppearancePreference } from './appearance-store';
@@ -133,7 +133,7 @@ export function SettingsScreen() {
         />
       </ListSection>
 
-      {isEchoCancellerAvailable ? (
+      {SPEAKER_MODE_ENABLED && isEchoCancellerAvailable ? (
         <ListSection
           title="Speaker mode"
           footer="Record without headphones: after you stop, the song and the click that came from the speaker are removed from the new take. The original recording is kept. Headphones still give the cleanest takes.">

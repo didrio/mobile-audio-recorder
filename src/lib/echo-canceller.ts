@@ -3,7 +3,15 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
 /**
  * The local native module in `modules/echo-canceller` (iOS only for now): removes the known backing
  * from a take recorded from the speaker. See `modules/echo-canceller/cpp/echo_cancel.h`.
+ *
+ * SHELVED (T42, 2026-11-14): Speaker mode is turned off everywhere behind `SPEAKER_MODE_ENABLED`, not
+ * removed. The module, this wrapper, the cleaning path in `use-transport.ts` and the settings fields
+ * all stay. To bring it back on iOS, set the constant to `true`. Android needs the module ported first
+ * (see "Bring back Speaker mode" in TICKETS.md).
  */
+
+/** The one switch for Speaker mode: `false` hides it in Settings and no take is ever cleaned. */
+export const SPEAKER_MODE_ENABLED = false;
 
 export type EchoPlan = {
   /** Windows of take files (absolute plain paths) as they played, placed in the recorded file. */

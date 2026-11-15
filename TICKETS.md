@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T42 — Shelve Speaker mode · Sonnet · medium effort · plan mode off
+**Next:** T41 — Recently Deleted · Sonnet · medium effort · plan mode on
 
 ## In progress
 
@@ -56,36 +56,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   Backlog). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
-
-### T42 — Shelve Speaker mode
-
-- **Status:** ready
-- **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** Speaker mode (T21's echo cancellation of takes recorded without headphones) was an iOS experiment
-  and is turned off for now on every platform, while staying easy to bring back.
-- **Done when:**
-  - [ ] One switch turns the feature on or off: a `SPEAKER_MODE_ENABLED = false` constant (e.g. in
-        `@/lib/echo-canceller`) with a comment saying it's shelved, not removed, and how to turn it back on.
-  - [ ] With it off: Settings → Recording no longer shows Speaker mode or its Cleanup strength
-        (`settings-screen.tsx`), and `useSpeakerRecording().clean` is always false
-        (`src/features/project/use-speaker-mode.ts`), so a persisted `speakerMode: true` from an earlier build
-        is ignored and no take is cleaned. The "Use Visual" hint (`visualHint` in `project-screen.tsx`) follows
-        from `clean` and disappears with it.
-  - [ ] Silent recording (T34) works exactly as before: it shares `speakerModeApplies` and
-        `useSpeakerRecording`, but not the new switch.
-  - [ ] Kept as is: `modules/echo-canceller` (C core, Swift wrapper, desktop tests), `@/lib/echo-canceller`,
-        `echo-reference.ts`, the cleaning path in `use-transport.ts` / `take-files.ts`, and the store fields
-        (`speakerMode`, `cleanupStrength`). Flipping the constant is all it takes to get it back on iOS.
-  - [ ] Future agents know: `AGENTS.md` (project map line for `modules/`), `docs/decisions.md` (Speaker mode
-        row) and the header of `@/lib/echo-canceller` say it's shelved and behind the switch. Remove the
-        Speaker mode Device checks line, and the "Use Visual" sentence in the Visual metronome line.
-        Add a Backlog line "Bring back Speaker mode" that keeps the Android plan: CMake builds
-        `cpp/echo_cancel.c` (`dr_wav.h` is header-only), a JNI function and a Kotlin `EchoCancellerModule`
-        with the same `cleanTake` as the Swift one, and `expo-module.config.json` lists `android`.
-  - [ ] Tests: the settings screen hides the section, and `clean` is false with the switch off even when
-        `speakerMode` is persisted true. Settings screenshot, light and dark.
-- **Context:** JS only, so a preview OTA update reaches the installed builds. The native module stays in the
-  build (it costs nothing when unused). Shelved on 2026-11-14 at the user's request.
 
 ### T36 — Export a mix
 
@@ -248,7 +218,6 @@ skill). Fix or ticket what fails, then delete the line.
   click land together, the flash reads in peripheral vision, numbers are legible. Early/late → tune
   `DISPLAY_LEAD_SECONDS` / `FLASH_SECONDS` / `LIT_REST_OPACITY` in `src/features/project/beat-display.tsx`
   (a bigger `BEAT_DISPLAY_HEIGHT` if too small). With pre-roll, the run-up counts in on the blocks before 0:00.
-  Speaker mode without headphones: the "Use Visual" line shows when armed and idle; Visual records no click.
 - Mixer: drag a volume while playing (smooth, no clicks), mute/solo during playback and during an overdub
   (backing changes, the take doesn't).
 - Reorder: grip lights up at once, haptic after the hold, other lanes glide, auto-scroll near the edges with
@@ -270,9 +239,6 @@ skill). Fix or ticket what fails, then delete the line.
   groups) sound distinct; pre-roll with the metronome on counts in whole bars, also from 0:00 (clicks before
   0:00); clicks keep going past the last clip while recording, and on an empty idea; toggling it and moving the
   volume slider while playing apply at once without stutter. Clicks at very low volume / loudness vs. takes.
-- Speaker mode (T21, iPhone dev build): clap test of a cleaned take (does it still line up?), cleaning time
-  on a 2–3 minute take, Light vs Strong on guitar; recording with headphones connected keeps the take
-  untouched (no "Cleaning up take…").
 - Silent recording (T34, iPhone, no headphones): Settings → Silent while recording on. Pre-roll on: the
   run-up plays, then silence; the take has no backing or click at its start (listen to its first 0.2 s solo).
   Pre-roll off: nothing plays at all. Record while playing: the punch comes a beat later, take clean. Play
@@ -367,6 +333,12 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
     what you played or learning a part.
   - Quick capture from the lock screen, Control Center or a home-screen widget: start recording a new idea in
     one tap (native work, needs a dev build).
+- Bring back Speaker mode (shelved in T42): set `SPEAKER_MODE_ENABLED = true` in `@/lib/echo-canceller` for iOS
+  (then run the old checks: clap test of a cleaned take, cleaning time on a 2–3 minute take, Light vs Strong on
+  guitar, headphones leave the take untouched, the "Use Visual" hint when armed without headphones). Android
+  needs the module ported: CMake builds `cpp/echo_cancel.c` (`dr_wav.h` is header-only), a JNI function and a
+  Kotlin `EchoCancellerModule` with the same `cleanTake` as the Swift one, and `expo-module.config.json` lists
+  `android`.
 - Simple effects per track (reverb, EQ) via the audio graph.
 - Backup / sync (iCloud Drive, Google Drive) — the data model uses UUIDs and relative paths to make this possible.
 - iOS Live Activity while recording (lock screen timer + stop).
@@ -389,6 +361,10 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T42 — Shelve Speaker mode — 2026-11-14 — `SPEAKER_MODE_ENABLED = false` in `@/lib/echo-canceller` hides the
+  Settings section and forces `useSpeakerRecording().clean` false (saved `speakerMode: true` ignored); silent
+  recording unaffected; code kept, docs and a Backlog line say how to bring it back. Unit tests only: the
+  Settings screenshots weren't verified (the simulator ran an old bundle)
 - T19 — Folders & favorites — 2026-11-14 — `folders` table + `projects.folder_id` (SET NULL safety net) and
   `favorite` (migration v12); one `IdeasListScreen` for the root, `folder/[id]` and `favorites`, derived by pure
   `folder-tree.ts` (subtree search with folder paths, Recent counts activity inside folders, delete counts, move

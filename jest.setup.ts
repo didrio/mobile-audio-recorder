@@ -33,6 +33,8 @@ jest.mock('expo-haptics', () => ({
 // The audio engine's native module: the library ships its own Jest mock.
 // The Speaker mode native module (iOS dev/preview builds): available, and cleaning succeeds.
 jest.mock('@/lib/echo-canceller', () => ({
+  __esModule: true,
+  SPEAKER_MODE_ENABLED: true,
   isEchoCancellerAvailable: true,
   cleanTake: jest.fn(() =>
     Promise.resolve({ delayMs: 12, delayConfidence: 40, reductionDb: 28, seconds: 3.5 }),

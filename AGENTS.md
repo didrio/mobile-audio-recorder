@@ -105,7 +105,7 @@ src/
 assets/                   App icon (assets/app.icon = iOS 26 Icon Composer), Android adaptive icon, splash
                           (+ images/variants/: labelled DEV / PREVIEW icons, picked in app.config.ts)
 modules/                  Local Expo modules (native code). echo-canceller: Speaker mode's C core + Swift wrapper
-                          (iOS only for now); desktop test: node modules/echo-canceller/cpp/tests/run.mjs
+                          (iOS only for now; SHELVED, off behind `SPEAKER_MODE_ENABLED` in `@/lib/echo-canceller`); desktop test: node modules/echo-canceller/cpp/tests/run.mjs
 .maestro/                 E2E flows (YAML) + subflows/
 scripts/                  doctor, setup-mac.sh, screenshot, e2e, ota-check, new-app, create-app, sync-base (Node, no deps);
                           lib/ (identity, devices), templates/TICKETS.md (fresh backlog for new apps)

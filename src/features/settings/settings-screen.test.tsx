@@ -4,6 +4,7 @@ import type { ReactElement } from 'react';
 import { Appearance } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import * as echoCanceller from '@/lib/echo-canceller';
 import { storage } from '@/lib/storage';
 
 import { useAppearanceStore } from './appearance-store';
@@ -51,6 +52,16 @@ describe('SettingsScreen', () => {
       speakerMode: false,
       cleanupStrength: 'light',
     });
+  });
+
+  it('hides Speaker mode while it is shelved', async () => {
+    const shelved = jest.replaceProperty(echoCanceller, 'SPEAKER_MODE_ENABLED', false);
+    useRecordingSettingsStore.setState({ speakerMode: true });
+    await render(<SettingsScreen />);
+    shelved.restore();
+
+    expect(screen.queryByRole('switch', { name: 'Speaker mode' })).not.toBeOnTheScreen();
+    expect(screen.queryByRole('radiogroup', { name: 'Cleanup strength' })).not.toBeOnTheScreen();
   });
 
   it('shows the current appearance preference', async () => {

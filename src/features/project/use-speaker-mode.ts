@@ -1,6 +1,6 @@
 import { useHeadphones, speakerModeApplies } from '@/features/audio/audio-route';
 import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
-import { isEchoCancellerAvailable } from '@/lib/echo-canceller';
+import { SPEAKER_MODE_ENABLED, isEchoCancellerAvailable } from '@/lib/echo-canceller';
 
 export type SpeakerRecording = {
   /**
@@ -23,6 +23,10 @@ export function useSpeakerRecording(): SpeakerRecording {
   const silent = speakerModeApplies(silentRecording, headphones);
   return {
     silent,
-    clean: isEchoCancellerAvailable && speakerModeApplies(speakerMode, headphones) && !silent,
+    clean:
+      SPEAKER_MODE_ENABLED &&
+      isEchoCancellerAvailable &&
+      speakerModeApplies(speakerMode, headphones) &&
+      !silent,
   };
 }

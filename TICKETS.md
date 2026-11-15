@@ -93,6 +93,51 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   `AudioRecorder.consumeLastRecordingResult()` recovers a recording the system stopped. iOS has no recording
   notification from the library (Live Activity idea is in Backlog).
 
+### T43 — Vertical timeline (experimental)
+
+- **Status:** ready
+- **Session:** Opus · extra high effort · plan mode on
+- **Goal:** An experimental Settings toggle that turns the idea editor vertical: time runs top→bottom, tracks
+  are side-by-side columns, the playhead moves down. All behavior stays the same. It's there to try out and
+  tweak, not to replace the horizontal editor.
+- **Done when:**
+  - [ ] Settings → new "Experimental" section → "Vertical timeline" switch (off by default, persisted). Opening
+        an idea uses the chosen layout. The horizontal editor is unchanged when it's off.
+  - [ ] Layout: ruler and section rail run down the left edge. Track header (grab handle + name pill, arm, M/S
+        badges) sits in a row along the top. Up to 4 lanes fill the width. With more tracks, lanes scroll
+        sideways, with the floating "N tracks ←/→" indicators (today's above/below ones turned sideways).
+        "+ New Track" is a column after the last lane.
+  - [ ] Clips, waveforms (drawn along the vertical time axis), grid, sections, loop region, punch notch, live
+        recording take and playhead all draw rotated. Follow-playhead scrolls down. Pinch zooms time
+        vertically.
+  - [ ] The interaction model works the same along the new axes: tap select, drag/trim/resize, long-press
+        pickup, tap empty space or ruler to seek, section labels, loop edges, snap, auto-scroll at the
+        edges, long-press reorder of tracks (now left/right). Undo/redo is unaffected (it's the same edits).
+  - [ ] Mixer, action bars, status strip and transport have a decided vertical placement (UI calls below),
+        reviewed with the user from simulator screenshots. Light + dark.
+  - [ ] Unit tests for the axis-swapped math. Existing timeline tests still pass.
+- **Context:** Tried early on and found confusing for first-time users. Now that most features exist, the
+  user wants it as a toggle to find a version that works. Most ideas have 2–3 tracks (instrument + vocal,
+  maybe bass or a backing vocal), so 4 columns covers the usual case and shows about twice the time.
+  - Code: `src/features/timeline/timeline.tsx` (~1.9k lines: Skia drawing + all gestures),
+    `timeline-math.ts` (`timeToPoint`/`pointToTime`, `LANE_HEIGHT`, `hiddenLanes`/`pageScroll` for the
+    off-screen indicators), `lane-overlay.tsx` (name pills, indicators, New Track row), `track-column.tsx`
+    (handles, mixer, reorder), `clip-edit-math.ts` / `section-math.ts` / `reorder-math.ts` / `grid-math.ts`
+    (hit-testing in 1-D time + lane index, mostly axis-agnostic already). Screen composition is in
+    `src/features/project/project-screen.tsx`.
+  - Approach to weigh in plan mode: put one orientation/axis mapping (time axis ↔ lane axis → x/y) in the
+    timeline and route drawing and hit-testing through it. Don't fork `timeline.tsx` into a second copy that
+    drifts. If the refactor alone is a session, split: (a) axis refactor + vertical drawing/playback/scroll,
+    (b) vertical gestures + editing.
+  - Setting: a small persisted zustand store like `src/features/settings/recording-settings-store.ts`
+    (`zustandStorage`), shown in `settings-screen.tsx` (Speaker mode's "(experimental)" row is the
+    precedent).
+  - UI calls to make (and show the user): lane width with 1–3 tracks (fill the width, or stay at ¼ and leave
+    room?); where the mixer opens (a row expanding down under the header vs. a sheet); clip/section action bar
+    position (beside the item instead of above); ruler label format in a narrow column; whether the status
+    strip and transport stay as they are.
+  - Portrait only, as everywhere. Check Android's opaque header padding (Gotchas) if the header row changes.
+
 ## Device checks
 
 Run these with the next build on real phones (T7 needs one anyway, or before a release; see the `release`

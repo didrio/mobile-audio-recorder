@@ -17,7 +17,7 @@ import type { AndroidHeaderMenuProps } from './android-header-menu';
 /**
  * A header button with a Material dropdown (`@expo/ui`): an icon, or a title with a drop-down arrow.
  * The trigger is an RN Pressable so it matches the other header buttons. iOS uses
- * `Stack.Toolbar.Menu` (or the idea's SwiftUI title menu) instead.
+ * `Stack.Toolbar.Menu` (or a SwiftUI title menu) instead.
  */
 export function AndroidHeaderMenu({ label, icon, title, items }: AndroidHeaderMenuProps) {
   const styles = useStyles();

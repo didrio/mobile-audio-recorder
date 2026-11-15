@@ -11,7 +11,7 @@ export type HeaderMenuItem = {
 
 export type AndroidHeaderMenuProps = {
   label: string;
-  /** An icon button, or with `title`, the title text and a drop-down arrow (an idea's title menu). */
+  /** An icon button, or with `title`, the title text and a drop-down arrow (a title menu). */
   icon?: IconName;
   title?: string;
   items: HeaderMenuItem[];

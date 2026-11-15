@@ -42,7 +42,7 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   (T17) · Snap (T31) · meter). Compact transport. "+ New Track" is a row after the last lane, not a header
   button. Sheets over the idea that need the playhead (notes, clip options) reach the transport through
   `src/features/project/transport-link.ts`.
-- **Header of an idea**: Undo · Redo · "⋯" (Idea settings, Notes, Duplicate, Delete, Favorite). The menu has disabled
+- **Header of an idea**: Undo · Redo · "⋯" (Idea settings, Notes, Export… (T36), Duplicate, Delete, Favorite). The menu has disabled
   placeholders: items in `src/features/project/idea-menu-items.ts`, iOS `Stack.Toolbar.Menu` in
   `project-screen.tsx`, Android `@expo/ui` Compose dropdown via `src/components/android-header-menu.android.tsx`. Enable an item
   by giving it an action in `project-screen.tsx` (`menuActions`; Duplicate and Delete are live from T10).
@@ -51,8 +51,9 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   of the rows it touches, `edit-changes.ts`), applied with `executeEdit()` from `editor-store.ts`. One gesture =
   one `executeEdit` at its end (live values during a drag go through shared values). A new table (sections,
   idea settings) needs a `Change` variant, `applyToProject` and `saveChanges` support.
-- **Arming**: a toggle, one armed track at a time (multi-arm deferred to Backlog: one phone mic would only
-  record the same audio onto each track). Nothing armed → Record grayed out.
+- **Arming**: a toggle, one armed track at a time (one phone mic would only record the same audio onto each
+  track; arming several tracks for an audio interface's separate inputs is "Multi-input recording" in
+  Backlog, after T39). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
 
@@ -82,7 +83,132 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   `ideas-list.ts`, shown as a snippet after the date in `idea-row.tsx`); keep that working in folders and
   Favorites. The idea's "⋯" Favorite placeholder is in `idea-menu-items.ts` / `menuActions` in
   `project-screen.tsx`. The Ideas stack is `src/app/(tabs)/(home)/`. `deleteProject` deletes rows + files; T10's list code (`ideas-list.ts` sort/filter, `idea-row.tsx`, `idea-actions.ts`, `rename-idea-dialog.tsx`) is meant to be reused for a folder's contents; deleting a
-  folder must do that for every idea under it. A "Recently Deleted" safety net is in Backlog.
+  folder must do that for every idea under it. Build select mode so it can be reused: T37 adds batch export
+  to it and T41 (Recently Deleted) changes what Delete does.
+
+### T36 — Export a mix
+
+- **Status:** ready (after T19)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Share an idea as one audio file to anywhere: Messages, AirDrop, Files, Drive, email.
+- **Done when:**
+  - [ ] "Export…" in the idea's "⋯" menu (new item in `idea-menu-items.ts`) and on the Ideas row (swipe action
+        and long-press menu) opens an export sheet.
+  - [ ] Range: Whole idea (0:00 to the end of the last clip, fade tails included), Loop region (when the idea
+        has one), or one section (picker).
+  - [ ] Format: **M4A** (small, for sending; the default) or **WAV** (lossless, 24-bit, the idea's sample rate).
+  - [ ] Rendered offline (`OfflineAudioContext`) by the **same scheduling code as playback**: refactor the
+        engine so clip/envelope scheduling builds onto any `BaseAudioContext`, so the export can't drift from
+        what Play sounds like. Track volume/mute/solo (`trackOutputGain` in `mixer.ts`), clip gain and fades
+        (`envelopePoints` in `clip-envelope.ts`). Metronome and keyboard left out; an "Include click" toggle
+        (off by default) adds the metronome.
+  - [ ] Never clips: Normalize toggle (peak to −1 dBFS, on by default); with it off, the sheet warns when the
+        mix would clip.
+  - [ ] File named `<Idea name>.m4a` (optional "Add BPM to name", remembered), shared with `expo-sharing` (the
+        share sheet covers AirDrop, Messages, Save to Files, Drive, email). Progress with Cancel for long
+        renders; temp files cleaned up.
+  - [ ] Unit tests: range math, WAV encoder, file naming, the offline schedule matching playback's.
+- **Context:** `react-native-audio-api` has `OfflineAudioContext` but no encoder for a rendered buffer
+  (`AudioFileUtils` only concatenates and probes). WAV: a small JS encoder. M4A: a native encode function
+  (iOS `AVAudioFile`/`AVAssetWriter`, Android `MediaCodec` + `MediaMuxer`) in a local Expo module under
+  `modules/` (like `echo-canceller`). That and `expo-sharing` need a new dev build: tell the user before
+  coding. Takes are mono today; T39 adds stereo takes, so keep the render's channel count general.
+
+### T37 — Stems & batch export
+
+- **Status:** ready (after T36)
+- **Session:** Sonnet · high effort · plan mode off
+- **Goal:** Hand an idea to a DAW or a producer as separate tracks that line up, and export many ideas at once.
+- **Done when:**
+  - [ ] The export sheet gets Mix / **Stems**. Stems: one file per track, all starting at the range start and
+        all the same length, so they line up when dropped into any DAW. Named `01 Vocals.wav` (numbered by
+        track order, duplicate names kept distinct). "Apply track volume" toggle (on); muted tracks skipped
+        unless "Include muted" is on. Same formats as T36.
+  - [ ] Optional extras: a click-track stem, the mix itself, and **Tempo & markers (MIDI)**: a tiny Standard
+        MIDI File with tempo, time signature and the sections as markers, which Logic, Ableton and others
+        import to line up a session. Plus an `info.txt` (BPM, time signature, sample rate, sections with
+        times, the idea's notes).
+  - [ ] Delivered as one `<Idea> – stems.zip` (pure-JS zip such as `fflate`) or as separate files (toggle).
+  - [ ] Batch: in T19's select mode, Export puts the mixes of several ideas into one zip.
+  - [ ] Unit tests: stem alignment and length, the MIDI file's bytes, zip contents and names.
+- **Context:** Builds on T36's offline render and sheet.
+
+### T38 — Inputs, Bluetooth & latency per route
+
+- **Status:** ready
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Record from whatever is plugged in or paired (built-in mic, headset, USB audio interface, AirPods),
+  see which input is in use, and keep levels and timing right on each.
+- **Done when:**
+  - [ ] The current input shows in Settings → Recording and as a small label by the meter while armed. A
+        picker sheet lists inputs (`AudioManager.getDevicesInfo` / `setInputDevice`, which also switches
+        mid-recording). The choice is remembered by device id and falls back to the default when that device
+        is gone; route changes update the label live.
+  - [ ] Bluetooth: "Use the phone's mic with Bluetooth headphones" (on by default) keeps AirPods in
+        high-quality playback (A2DP). Off: record with the headset's mic (call quality, `allowBluetoothHFP`),
+        with a one-line explanation of the trade-off.
+  - [ ] **Latency offset per output route** (speaker, wired, Bluetooth, USB) instead of the single offset in
+        `recording-settings-store.ts`; the old value migrates to the current route. Settings shows which route
+        is being tuned.
+  - [ ] Clip indicator on the meter (red peak hold) and a "Too loud" hint while armed.
+  - [ ] Input gain slider where the hardware allows it (iOS `AVAudioSession.isInputGainSettable` /
+        `setInputGain` via a local module), hidden elsewhere.
+  - [ ] Recording bit depth: 16-bit / 24-bit (`bitDepth` in the recorder options).
+  - [ ] Unit tests: route classification, offset lookup, the settings migration.
+- **Context:** The iOS session is set in `audio-engine.ts` (`setSystemOptions`: `playAndRecord`,
+  `defaultToSpeaker`, `allowBluetoothA2DP`). Native input gain needs a new dev build. Run the existing Device
+  checks for Bluetooth and overdub latency with it.
+
+### T39 — Hear yourself & stereo inputs
+
+- **Status:** ready (after T38)
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Hear your own input in headphones while recording, and record stereo or one chosen channel from an
+  audio interface.
+- **Done when:**
+  - [ ] "Hear yourself" toggle (status strip or the armed track's controls) with a level slider. Only offered
+        with headphones or an interface output, never on the speaker (feedback); a note to leave it off when
+        the interface does direct monitoring. Its latency is measured and shown.
+  - [ ] With a 2+ channel input: Mono (input 1), Mono (input 2) or Stereo (1+2) per armed track.
+        `takes.channels` (migration). Playback, the waveform (combined peaks), Speaker mode, split/trim and the
+        T36/T37 export all handle stereo takes.
+  - [ ] Device checks lines for both.
+- **Context:** First check whether `react-native-audio-api` offers a low-latency live input node for
+  monitoring; if not, monitoring needs native work: say so before coding. Recording several interface inputs
+  onto several tracks in one pass stays in Backlog (Multi-input recording) and builds on this.
+
+### T40 — Import audio
+
+- **Status:** ready (after T39, so imports keep stereo)
+- **Session:** Opus · medium effort · plan mode on
+- **Goal:** Bring outside audio in: an old voice memo, a backing track, a beat someone sent.
+- **Done when:**
+  - [ ] Ideas "+" → Import Audio (a new idea named after the file). In an idea: import onto a new track at the
+        playhead. Files come from `expo-document-picker` (Files, iCloud Drive, Drive…).
+  - [ ] WAV, AIFF, M4A/AAC, MP3, FLAC and CAF decoded with `decodeAudioData` and written as a normal immutable
+        WAV take at the engine's sample rate (stereo kept). Progress for long files; a clear message for
+        unsupported ones.
+  - [ ] "Open in Audio Recorder" from other apps' share sheets: audio document types in `app.json` (iOS
+        document types, Android intent filters) import as a new idea.
+  - [ ] Unit tests for the import pipeline (naming, take rows, clip placement).
+- **Context:** Imported audio is just another take (`db.ts`), so clips, trim, fades and export work on it.
+  Native config → new build. A share extension (the app in the share sheet's app row, e.g. from Voice Memos)
+  is heavier and in Backlog.
+
+### T41 — Recently Deleted
+
+- **Status:** ready (after T19)
+- **Session:** Sonnet · medium effort · plan mode on
+- **Goal:** Deleting an idea or folder is recoverable for 30 days.
+- **Done when:**
+  - [ ] Migration: `deleted_at` on `projects` and `folders`. Delete (row, "⋯", select mode, folders) moves
+        items to a Recently Deleted row at the bottom of the Ideas root; confirmations say so.
+  - [ ] Recently Deleted lists items with days left; Restore (back to the original folder, or the root if it's
+        gone) and Delete Now (rows + files, with a confirmation); select mode for several.
+  - [ ] Items older than 30 days are purged at launch. Search, Favorites and folder counts skip deleted items;
+        Settings → Storage counts them separately.
+  - [ ] Unit tests: restore targets, purge, counts.
+- **Context:** `deleteProject` deletes rows + files today; it becomes the purge step.
 
 ### T7 — Background recording & interruptions
 
@@ -245,10 +371,6 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   and again, keeping passes as alternate takes (badge + picker), comping one take from several passes, looping
   a clip or section directly, a punch-out end point. Clips are already windows onto immutable takes (`db.ts`),
   so alternates need no new files.
-- Export & share (deferred): mixdown via `OfflineAudioContext` + a JS WAV encoder, shared with `expo-sharing`;
-  consider per-track stems from 0:00 for rebuilding in a DAW. Must match playback (track volume/mute/solo via
-  `trackOutputGain` in `mixer.ts`, clip gain/fades from T16 via `envelopePoints` in `clip-envelope.ts`) and leave
-  out the metronome and keyboard.
 - Track colors (picked in the track sheet, used for clips and the name pill).
 - Track column border weight (open, from T28): vertical edges are 1 pt (mixer toggle, each track cell in
   `track-column.tsx`), every horizontal divider is a hairline (lane separators in `timeline.tsx`, the "New
@@ -257,10 +379,14 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - Quantize clips to the tempo grid (T9 is done: `project.bpm`, `grid-math.ts`; clips only snap while dragging).
 - Pitch correction for vocal takes (the library's `createBufferSource({ pitchCorrection })` is for playback-rate
   changes, not tuning; would need a native DSP library).
-- Input monitoring through headphones; input gain; input device picker (`AudioManager.getDevicesInfo`). With a
-  multi-input audio interface: arm several tracks at once, each recording its own input.
-- Recently Deleted: soft-delete ideas and folders, keep them 30 days, restore from a "Recently Deleted" folder
-  (after T19).
+- Multi-input recording (after T39): with a multi-input audio interface, arm several tracks at once, each
+  recording its own input channel in one pass (a band or a mic'd guitar + vocal).
+- Output route picker (an AirPlay-style route button in the idea) and sending the click only to an
+  interface's headphone output.
+- Import from other apps' share row: a share extension so Voice Memos etc. can send straight to the app
+  (T40 covers Files and "Open in"); importing the audio track of a video.
+- Project file sharing (asked 2026-11-14: not now): an idea or folder as one file another phone running the
+  app opens as an editable idea; the same format would give a library backup. Audio export is T36/T37.
 - Quick listen: play an idea from the Ideas list without opening it, with a scrubber under the row (reuse
   `play()` from `audio-engine.ts`; only one idea plays at a time).
 - First-class chord progressions per section (chord picker, chord symbols drawn on the section rail). Revisit

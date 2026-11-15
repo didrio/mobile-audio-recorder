@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T45 — Settings where they're used · Sonnet · low effort · plan mode off
+**Next:** T7 — Background recording & interruptions · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -59,27 +59,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   Backlog). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
-
-### T45 — Settings where they're used
-
-- **Status:** ready
-- **Session:** Sonnet · low effort · plan mode off
-- **Goal:** The last two app settings you'd change while working in an idea sit where you use them, not only in
-  the Settings tab (follow-up to T44's "put each setting where it's used").
-- **Done when:**
-  - [ ] The pitch keyboard sheet (`src/features/keyboard/pitch-keyboard-sheet.tsx`) has its own volume slider,
-        the same `useKeyboardSettingsStore` value as Settings → Pitch keyboard (one store, so they always agree).
-        Reuse `VolumeSlider` + `formatDb` like `settings-screen.tsx` (drag shows live, saved on release).
-  - [ ] Long-pressing the Pre-roll button above the transport (`preRollToggle` in
-        `src/features/project/project-screen.tsx`, a `StripToggle`) offers the pre-roll length: seconds when the
-        idea's grid is off (`PRE_ROLL_SECONDS_OPTIONS`), bars when it's on (`PRE_ROLL_BARS_OPTIONS`), checkmark on
-        the current one; tap still toggles. iOS: a native menu (the `@expo/ui` SwiftUI `Menu` with
-        `onPrimaryAction` = tap toggles, long-press = menu, like `idea-title-menu.tsx`) or `useActionMenu`
-        (`src/components/action-menu.tsx`); pick what looks native in a screenshot. Settings → Pre-roll stays.
-  - [ ] Tests for both (keyboard sheet test, project-screen test), `npm run check`, simulator light + dark.
-- **Context:** Agreed with the user in T44. Keep the Settings tab rows; these are extra entry points to the same
-  stores (`recording-settings-store.ts`, `keyboard-settings-store.ts`). Watch the SwiftUI-in-RN sizing gotcha
-  from T44: a SwiftUI `Host` placed in a native header needs an explicit size.
 
 ### T7 — Background recording & interruptions
 

@@ -4,19 +4,34 @@ import type { ReactElement } from 'react';
 import { Appearance } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { useAudioRouteStore } from '@/features/audio/audio-route-store';
 import * as echoCanceller from '@/lib/echo-canceller';
 import { storage } from '@/lib/storage';
 
 import { useAppearanceStore } from './appearance-store';
+import { useInputDevicesStore } from './input-devices-store';
 import { useKeyboardSettingsStore } from './keyboard-settings-store';
 import { useRecordingSettingsStore } from './recording-settings-store';
 import { SettingsScreen } from './settings-screen';
 
-jest.mock('expo-router', () => ({ useFocusEffect: jest.fn() }));
+const mockPush = jest.fn();
+jest.mock('expo-router', () => ({
+  useFocusEffect: jest.fn(),
+  useRouter: () => ({ push: mockPush }),
+}));
 jest.mock('@/features/audio/take-files', () => ({ recordingsSizeBytes: () => 5 * 1024 * 1024 }));
 jest.mock('@/features/projects/trash-repo', () => ({
   deletedRecordingsBytes: () => Promise.resolve(1024 * 1024),
 }));
+
+const devices = {
+  availableInputs: [],
+  availableOutputs: [],
+  currentInputs: [],
+  currentOutputs: [],
+};
+const airPods = { id: 'bt-1', name: 'AirPods Pro', category: 'BluetoothA2DPOutput' };
+const scarlett = { id: 'usb-1', name: 'Scarlett 2i2', category: 'USBAudio' };
 
 const render = (element: ReactElement) =>
   rntlRender(
@@ -49,8 +64,16 @@ describe('SettingsScreen', () => {
 
   beforeEach(() => {
     useAppearanceStore.setState({ preference: 'system' });
+    useAudioRouteStore.setState({
+      devices,
+      inputInfo: { channelCount: 1, gainSettable: false, gain: 1 },
+    });
+    useInputDevicesStore.setState({ preferredInput: null, channelByDevice: {}, gainByDevice: {} });
+    mockPush.mockClear();
     useRecordingSettingsStore.setState({
-      latencyOffsetMs: 0,
+      latencyOffsetsMs: { speaker: 0, wired: 0, bluetooth: 0, usb: 0 },
+      bluetoothPhoneMic: true,
+      bitDepth: 24,
       preRollSeconds: 2,
       preRollBars: 1,
       speakerMode: false,
@@ -97,11 +120,76 @@ describe('SettingsScreen', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Decrease latency offset' }));
 
     expect(screen.getByText('5 ms')).toBeOnTheScreen();
-    expect(storage.getString('settings.recording')).toContain('"latencyOffsetMs":5');
+    expect(useRecordingSettingsStore.getState().latencyOffsetsMs.speaker).toBe(5);
+    expect(storage.getString('settings.recording')).toContain('"speaker":5');
+  });
+
+  it("tunes the latency offset of the output that's playing", async () => {
+    useAudioRouteStore.setState({ devices: { ...devices, currentOutputs: [airPods] } });
+    useRecordingSettingsStore.setState({
+      latencyOffsetsMs: { speaker: 0, wired: 0, bluetooth: 120, usb: 0 },
+    });
+    await render(<SettingsScreen />);
+
+    expect(screen.getByText('For Bluetooth')).toBeOnTheScreen();
+    expect(screen.getByText('120 ms')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: 'Increase latency offset' }));
+    expect(useRecordingSettingsStore.getState().latencyOffsetsMs).toEqual({
+      speaker: 0,
+      wired: 0,
+      bluetooth: 125,
+      usb: 0,
+    });
+  });
+
+  it('shows the current input (with its channel) and output, and opens the input picker', async () => {
+    useAudioRouteStore.setState({
+      devices: { ...devices, currentInputs: [scarlett], currentOutputs: [airPods] },
+      inputInfo: { channelCount: 2, gainSettable: false, gain: 1 },
+    });
+    useInputDevicesStore.setState({ channelByDevice: { 'USBAudio:Scarlett 2i2': 1 } });
+    await render(<SettingsScreen />);
+
+    expect(screen.getByText('Scarlett 2i2 · Input 2')).toBeOnTheScreen();
+    expect(screen.getByText('AirPods Pro')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: /Input/ }));
+    expect(mockPush).toHaveBeenCalledWith('/settings/input');
+  });
+
+  it('names the remembered input before iOS reports one', async () => {
+    useAudioRouteStore.setState({ devices });
+    useInputDevicesStore.setState({ preferredInput: scarlett });
+    await render(<SettingsScreen />);
+    expect(screen.getByText('Scarlett 2i2')).toBeOnTheScreen();
+  });
+
+  it('switches the Bluetooth mic setting and explains the trade-off', async () => {
+    await render(<SettingsScreen />);
+    const toggle = screen.getByRole('switch', {
+      name: "Use the phone's mic with Bluetooth headphones",
+    });
+    expect(toggle).toBeChecked();
+
+    await fireEvent(toggle, 'valueChange', false);
+
+    expect(useRecordingSettingsStore.getState().bluetoothPhoneMic).toBe(false);
+    expect(screen.getByText(/drops to call quality/)).toBeOnTheScreen();
+  });
+
+  it('changes the recording bit depth', async () => {
+    await render(<SettingsScreen />);
+    expect(screen.getByRole('radio', { name: '24-bit' })).toBeChecked();
+
+    await fireEvent.press(screen.getByRole('radio', { name: '16-bit' }));
+
+    expect(useRecordingSettingsStore.getState().bitDepth).toBe(16);
+    expect(storage.getString('settings.recording')).toContain('"bitDepth":16');
   });
 
   it('stops at the latency offset limits', async () => {
-    useRecordingSettingsStore.setState({ latencyOffsetMs: -200 });
+    useRecordingSettingsStore.setState({
+      latencyOffsetsMs: { speaker: -200, wired: 0, bluetooth: 0, usb: 0 },
+    });
     await render(<SettingsScreen />);
 
     expect(screen.getByRole('button', { name: 'Decrease latency offset' })).toBeDisabled();

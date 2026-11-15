@@ -13,6 +13,26 @@ import { dragPosition, formatDb, gainToPosition, positionToGain, stepGain } from
 
 const THUMB_SIZE = 16;
 
+/** How a slider maps its value to the thumb position, steps it for screen readers and names it. */
+export type SliderScale = {
+  toPosition: (value: number) => number;
+  fromPosition: (position: number) => number;
+  /** The value `steps` screen-reader steps away (negative: down). */
+  step: (value: number, steps: number) => number;
+  format: (value: number) => string;
+  /** Double-tap goes back to this value; `undefined`: double-tap does nothing. */
+  reset?: number;
+};
+
+/** Track volume: dB fader curve, 1 dB steps, double-tap back to 0 dB. */
+export const FADER_SCALE: SliderScale = {
+  toPosition: gainToPosition,
+  fromPosition: positionToGain,
+  step: stepGain,
+  format: formatDb,
+  reset: 1,
+};
+
 /**
  * A compact horizontal track-volume slider. Dragging moves the thumb **relative** to where it was
  * (over `FADER_DRAG_RANGE`, a bit longer than the slider, for precision), wherever the finger starts
@@ -25,6 +45,7 @@ export function VolumeSlider({
   label,
   gain,
   dimmed = false,
+  scale = FADER_SCALE,
   onDrag,
   onRelease,
 }: {
@@ -34,6 +55,8 @@ export function VolumeSlider({
   gain: number;
   /** The track is silent (muted or not soloed): drawn faded, still adjustable. */
   dimmed?: boolean;
+  /** Another value scale (e.g. input gain, 0–1 linear); the track-volume fader by default. */
+  scale?: SliderScale;
   onDrag: (gain: number) => void;
   onRelease: (gain: number) => void;
 }) {
@@ -47,11 +70,11 @@ export function VolumeSlider({
     activeOffsetX: [-4, 4],
     failOffsetY: [-16, 16],
     onActivate: () => {
-      startPosition.current = gainToPosition(gain);
+      startPosition.current = scale.toPosition(gain);
       lastGain.current = gain;
     },
     onUpdate: (event) => {
-      const next = positionToGain(dragPosition(startPosition.current, event.translationX));
+      const next = scale.fromPosition(dragPosition(startPosition.current, event.translationX));
       if (next === lastGain.current) return;
       lastGain.current = next;
       onDrag(next);
@@ -64,14 +87,15 @@ export function VolumeSlider({
     runOnJS: true,
     numberOfTaps: 2,
     onActivate: () => {
-      onDrag(1);
-      onRelease(1);
+      if (scale.reset === undefined) return;
+      onDrag(scale.reset);
+      onRelease(scale.reset);
     },
   });
   const gesture = useSimultaneousGestures(pan, doubleTap);
 
   const travel = Math.max(0, width - THUMB_SIZE);
-  const thumbLeft = gainToPosition(gain) * travel;
+  const thumbLeft = scale.toPosition(gain) * travel;
 
   return (
     <GestureDetector gesture={gesture}>
@@ -81,11 +105,11 @@ export function VolumeSlider({
         accessible
         accessibilityRole="adjustable"
         accessibilityLabel={label}
-        accessibilityValue={{ text: formatDb(gain) }}
+        accessibilityValue={{ text: scale.format(gain) }}
         accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
         onAccessibilityAction={(event) => {
           const step = event.nativeEvent.actionName === 'increment' ? 1 : -1;
-          onRelease(stepGain(gain, step));
+          onRelease(scale.step(gain, step));
         }}
         onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
         <View style={styles.track} />

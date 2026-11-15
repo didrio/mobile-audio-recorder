@@ -50,6 +50,15 @@ jest.mock('@/lib/audio-export', () => ({
   shareFiles: jest.fn(() => Promise.resolve()),
 }));
 
+// The inputs native module (T38): one mono input, gain not settable, no route button.
+jest.mock('@/lib/audio-input', () => ({
+  __esModule: true,
+  isAudioInputAvailable: true,
+  getInputInfo: jest.fn(() => Promise.resolve({ channelCount: 1, gainSettable: false, gain: 1 })),
+  setInputGain: jest.fn(() => Promise.resolve(false)),
+  extractChannel: jest.fn(() => Promise.resolve()),
+}));
+
 jest.mock('expo-sharing', () => ({
   isAvailableAsync: jest.fn(() => Promise.resolve(true)),
   shareAsync: jest.fn(() => Promise.resolve()),
@@ -69,8 +78,9 @@ jest.mock('react-native-audio-api', () => {
     ),
     setSystemOptions: jest.fn(),
     setAudioSessionActivity: jest.fn(() => Promise.resolve()),
+    setInputDevice: jest.fn(() => Promise.resolve()),
   });
-  return audioMock;
+  return { BitDepth: { Bit16: 0, Bit24: 1, Bit32: 2 }, ...audioMock };
 });
 
 // expo-crypto's native UUID generator isn't available in Jest; produce unique, valid-looking IDs.

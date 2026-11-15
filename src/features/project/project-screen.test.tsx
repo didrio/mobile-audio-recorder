@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, userEvent } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
-import { AudioManager } from 'react-native-audio-api';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import {
@@ -18,6 +17,7 @@ import {
   stopPlayback,
   type FinishedRecording,
 } from '@/features/audio/audio-engine';
+import { useAudioRouteStore } from '@/features/audio/audio-route-store';
 import { discardRecordedFile, storeRecordedTake } from '@/features/audio/take-files';
 import type { Meter } from '@/features/audio/tempo';
 import {
@@ -33,7 +33,9 @@ import {
   setSnap,
   type Project,
 } from '@/features/projects/projects-repo';
+import { useInputDevicesStore } from '@/features/settings/input-devices-store';
 import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
+import { extractChannel } from '@/lib/audio-input';
 import { cleanTake } from '@/lib/echo-canceller';
 
 import { ProjectScreen } from './project-screen';
@@ -123,6 +125,10 @@ jest.mock('@/features/audio/audio-engine', () => ({
   decodeTake: jest.fn(),
   stopPlayback: jest.fn(),
   forgetTakes: jest.fn(),
+  MONO_INPUT: { channels: 1, channel: 0 },
+  configureSession: jest.fn(),
+  setInputPreference: jest.fn(() => Promise.resolve()),
+  applyInputPreference: jest.fn(() => Promise.resolve(null)),
 }));
 
 // The Skia timeline can't render in Jest; a stand-in shows the project and exposes seeking, arming,
@@ -325,13 +331,19 @@ const METER: Meter = { bpm: 120, beatsPerBar: 4, beatUnit: 4 };
 
 describe('ProjectScreen', () => {
   beforeEach(() => {
+    // The speaker playing, a plain mono mic (the root layout keeps this store fresh in the app).
+    useAudioRouteStore.setState({
+      devices: { availableInputs: [], availableOutputs: [], currentInputs: [], currentOutputs: [] },
+      inputInfo: { channelCount: 1, gainSettable: false, gain: 1 },
+    });
+    useInputDevicesStore.setState({ preferredInput: null, channelByDevice: {}, gainByDevice: {} });
     jest.mocked(getProject).mockResolvedValue(project);
     jest.mocked(saveChanges).mockResolvedValue();
     jest.mocked(deleteUnusedTakes).mockResolvedValue([]);
     jest.mocked(playbackPosition).mockReturnValue(0);
     jest.mocked(playbackAnchor).mockReturnValue(null);
     useRecordingSettingsStore.setState({
-      latencyOffsetMs: 0,
+      latencyOffsetsMs: { speaker: 0, wired: 0, bluetooth: 0, usb: 0 },
       preRollSeconds: 2,
       preRollBars: 1,
       speakerMode: false,
@@ -364,6 +376,8 @@ describe('ProjectScreen', () => {
     duration = 3.5,
     startedAtMs = 0,
     backing = null as FinishedRecording['backing'],
+    channels = 1,
+    channel = 0,
   } = {}) {
     jest.mocked(ensureRecordPermission).mockResolvedValue(true);
     jest.mocked(startRecording).mockResolvedValue({
@@ -374,7 +388,8 @@ describe('ProjectScreen', () => {
           path: '/cache/take.wav',
           duration,
           sampleRate: 48000,
-          channels: 1,
+          channels,
+          channel,
           alignment,
           backing,
         }),
@@ -389,7 +404,8 @@ describe('ProjectScreen', () => {
     await screen.findByText('Timeline of Chorus riff');
     expect(screen.getByRole('button', { name: 'Arm Track 1' })).toBeSelected();
     expect(screen.getByRole('button', { name: 'Record' })).toBeEnabled();
-    expect(setMetering).toHaveBeenLastCalledWith(expect.any(Function)); // armed: meter listens
+    // Armed: the meter listens to the current input (a plain mono mic here).
+    expect(setMetering).toHaveBeenLastCalledWith(expect.any(Function), { channels: 1, channel: 0 });
 
     await user.press(screen.getByRole('button', { name: 'Arm Track 1' }));
 
@@ -441,6 +457,81 @@ describe('ProjectScreen', () => {
     );
     // Back to where recording started.
     expect(screen.getByText('0:05.0')).toBeOnTheScreen();
+  });
+
+  it('records every channel of a two-input interface and keeps the chosen one, at the chosen bit depth', async () => {
+    const scarlett = { id: 'usb-1', name: 'Scarlett 2i2', category: 'USBAudio' };
+    useAudioRouteStore.setState({
+      devices: {
+        availableInputs: [scarlett],
+        availableOutputs: [],
+        currentInputs: [scarlett],
+        currentOutputs: [{ id: 'usb-out', name: 'Scarlett 2i2', category: 'USBAudio' }],
+      },
+      inputInfo: { channelCount: 2, gainSettable: false, gain: 1 },
+    });
+    useInputDevicesStore.setState({ channelByDevice: { 'USBAudio:Scarlett 2i2': 1 } });
+    useRecordingSettingsStore.setState({ bitDepth: 16 });
+    jest.mocked(getProject).mockResolvedValue(twoTracks);
+    mockRecording({ channels: 2, channel: 1 });
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Arm Track 2' }));
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+    expect(startRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ input: { channels: 2, channel: 1 }, bitDepth: 16 }),
+    );
+    await user.press(await screen.findByRole('button', { name: 'Stop recording' }));
+    await screen.findByRole('button', { name: 'Record' });
+
+    expect(extractChannel).toHaveBeenCalledWith(
+      '/cache/take.wav',
+      expect.stringContaining('-mono.wav'),
+      1,
+    );
+    expect(discardRecordedFile).toHaveBeenCalledWith('/cache/take.wav');
+    expect(storeRecordedTake).toHaveBeenCalledWith(
+      expect.stringContaining('-mono.wav'),
+      'p1',
+      expect.any(String),
+    );
+    expect(saveChanges).toHaveBeenCalledWith(
+      'p1',
+      expect.any(Array),
+      expect.objectContaining({ channels: 1 }),
+    );
+  });
+
+  it('lines up takes with the latency offset of the output that was playing', async () => {
+    useAudioRouteStore.setState({
+      devices: {
+        availableInputs: [],
+        availableOutputs: [],
+        currentInputs: [],
+        currentOutputs: [{ id: 'bt', name: 'AirPods', category: 'BluetoothA2DPOutput' }],
+      },
+    });
+    useRecordingSettingsStore.setState({
+      latencyOffsetsMs: { speaker: 0, wired: 0, bluetooth: 50, usb: 0 },
+    });
+    jest.mocked(getProject).mockResolvedValue(twoTracks);
+    mockRecording();
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Arm Track 2' }));
+    await user.press(screen.getByRole('button', { name: 'Seek to 0:05' }));
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+    await user.press(await screen.findByRole('button', { name: 'Stop recording' }));
+    await screen.findByRole('button', { name: 'Record' });
+
+    // 5.05 s lined up without an offset (see above), 50 ms earlier with Bluetooth's.
+    expect(saveChanges).toHaveBeenCalledWith(
+      'p1',
+      [expect.objectContaining({ after: expect.objectContaining({ start: expect.closeTo(5) }) })],
+      expect.anything(),
+    );
   });
 
   it('in speaker mode, removes what the speaker played from the take and keeps the raw recording', async () => {
@@ -502,11 +593,13 @@ describe('ProjectScreen', () => {
 
   it('in speaker mode with headphones connected, keeps the take as recorded', async () => {
     useRecordingSettingsStore.setState({ speakerMode: true });
-    jest.mocked(AudioManager.getDevicesInfo).mockResolvedValueOnce({
-      availableInputs: [],
-      availableOutputs: [],
-      currentInputs: [],
-      currentOutputs: [{ id: 'h', name: 'Headphones', category: 'Headphones' }],
+    useAudioRouteStore.setState({
+      devices: {
+        availableInputs: [],
+        availableOutputs: [],
+        currentInputs: [],
+        currentOutputs: [{ id: 'h', name: 'Headphones', category: 'Headphones' }],
+      },
     });
     jest.mocked(getProject).mockResolvedValue(twoTracks);
     mockRecording({
@@ -880,11 +973,13 @@ describe('ProjectScreen', () => {
 
   it('silent recording does nothing with headphones connected', async () => {
     useRecordingSettingsStore.setState({ silentRecording: true });
-    jest.mocked(AudioManager.getDevicesInfo).mockResolvedValueOnce({
-      availableInputs: [],
-      availableOutputs: [],
-      currentInputs: [],
-      currentOutputs: [{ id: 'h', name: 'Headphones', category: 'Headphones' }],
+    useAudioRouteStore.setState({
+      devices: {
+        availableInputs: [],
+        availableOutputs: [],
+        currentInputs: [],
+        currentOutputs: [{ id: 'h', name: 'Headphones', category: 'Headphones' }],
+      },
     });
     jest.mocked(getProject).mockResolvedValue({ ...project, preRoll: true });
     mockRecording({ from: 3, startedAtMs: performance.now() + 60_000 });

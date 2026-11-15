@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T38 — Inputs, outputs, Bluetooth & latency per route · Opus · high effort · plan mode on
+**Next:** T39 — Hear yourself · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -57,44 +57,9 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
 
-### T38 — Inputs, outputs, Bluetooth & latency per route
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Record from whatever is plugged in or paired (built-in mic, headset, USB audio interface, AirPods)
-  and listen on whatever output you choose. **One input at a time**: the user picks a source, the app doesn't
-  record several at once. Keep levels and timing right on each.
-- **Done when:**
-  - [ ] The current input shows in Settings → Recording and as a small label by the meter while armed. A
-        picker sheet lists inputs (`AudioManager.getDevicesInfo` / `setInputDevice`, which also switches
-        mid-recording). The choice is remembered by device id and falls back to the default when that device
-        is gone; route changes update the label live.
-  - [ ] Input channel: when the chosen input has 2+ channels (a two-input interface), pick which one the take
-        records (Input 1 / Input 2; remembered per device). Otherwise a guitar plugged into input 2 records
-        silence. Takes stay mono.
-  - [ ] Output: the current output shows next to the input (speaker, headphones, AirPods, interface). On iOS,
-        the system route button (`AVRoutePickerView`, a small native view) switches it. On Android, show what
-        the platform reports (the library's `currentOutputs` is empty there, so it may need `AudioManager`
-        device callbacks) and leave switching to the system.
-  - [ ] Bluetooth: "Use the phone's mic with Bluetooth headphones" (on by default) keeps AirPods in
-        high-quality playback (A2DP). Off: record with the headset's mic (call quality, `allowBluetoothHFP`),
-        with a one-line explanation of the trade-off.
-  - [ ] **Latency offset per output route** (speaker, wired, Bluetooth, USB) instead of the single offset in
-        `recording-settings-store.ts`; the old value migrates to the current route. Settings shows which route
-        is being tuned.
-  - [ ] Clip indicator on the meter (red peak hold) and a "Too loud" hint while armed.
-  - [ ] Input gain slider where the hardware allows it (iOS `AVAudioSession.isInputGainSettable` /
-        `setInputGain` via a local module), hidden elsewhere.
-  - [ ] Recording bit depth: 16-bit / 24-bit (`bitDepth` in the recorder options).
-  - [ ] Unit tests: route classification, offset lookup, the settings migration.
-- **Context:** The iOS session is set in `audio-engine.ts` (`setSystemOptions`: `playAndRecord`,
-  `defaultToSpeaker`, `allowBluetoothA2DP`). Native input gain and the route button need a new dev build. Run
-  the existing Device checks for Bluetooth and overdub latency with it. Recording several inputs at once, and
-  stereo takes, are Backlog (decided 2026-11-14: not needed for scratch ideas yet).
-
 ### T39 — Hear yourself
 
-- **Status:** ready (after T38)
+- **Status:** ready
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Hear your own input in headphones while recording (input monitoring), as an option.
 - **Done when:**
@@ -105,7 +70,10 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   - [ ] What you hear never ends up in the take, and monitoring follows the input chosen in T38.
   - [ ] A Device checks line (latency feel with wired headphones vs. Bluetooth, no feedback on the speaker).
 - **Context:** First check whether `react-native-audio-api` offers a low-latency live input node for
-  monitoring; if not, monitoring needs native work: say so before coding.
+  monitoring; if not, monitoring needs native work: say so before coding. From T38: the chosen input and
+  channel are `currentInputSelection()` in `src/features/audio/audio-route-store.ts` (a multi-channel input is
+  opened whole; pick `channel`), headphones vs speaker is `useHeadphones()` / `currentOutputRoute()` there, and
+  native input work can go in `modules/audio-input` (iOS `AVAudioSession`).
 
 ### T7 — Background recording & interruptions
 
@@ -129,6 +97,19 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 
 Run these with the next build on real phones (T7 needs one anyway, or before a release; see the `release`
 skill). Fix or ticket what fails, then delete the line.
+
+- Inputs & outputs (T38), needs a new build (local module `audio-input`): Settings → Recording → Input lists the
+  mic, a wired headset and a USB interface; picking the interface sticks after unplug/replug (Automatic records
+  while it's out, also mid-take: the take keeps going). Two-input interface: guitar in input 2, Channel "Input 2"
+  → the take has the guitar at full level and nothing from input 1; the meter follows input 2. AirPods with
+  "Phone's mic with Bluetooth" on: playback stays high quality, the phone mic records; off: the AirPods mic
+  records (call quality, or high quality on iOS 26 with recent AirPods) and the footer explains it. The route
+  button next to Output switches speaker ↔ AirPods and the label follows. Input gain slider on the built-in mic
+  (shown only when iOS allows it) changes the level and is back after relaunch. Latency: clap test per route
+  (speaker, wired, Bluetooth, USB), the "For …" label shows the route being tuned, and an old offset moved to
+  the route used first. Clip: clap loud into the mic while armed and while recording, the meter turns red with
+  the mark at the end for ~1.5 s. A 16-bit take plays, trims and exports. Android (never run): the input list,
+  Output name by priority, channel extraction in Kotlin.
 
 - Export (T36/T37), needs a new build (local module `audio-export`, expo-sharing): on an iPhone, send an M4A mix
   by Messages and AirDrop, Save to Files, open it in another app; a stems zip opens in Files and its stems line
@@ -311,6 +292,17 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T38 — Inputs, outputs, Bluetooth & latency per route — 2026-11-15 — everything in Settings (the user's call;
+  the editor only gets a red clip hold on its meter, `clip-hold.ts`, no "Too loud" text): Recording → Input
+  screen (`input-screen.tsx`: Automatic or a device, remembered by id then name+category in
+  `input-devices-store.ts`, fallback while unplugged; Channel Input 1…N for multi-channel inputs; Input gain
+  where iOS allows), Output name + iOS `AVRoutePickerView`, Bit depth 16/24, "Phone's mic with Bluetooth" (off:
+  `allowBluetoothHFP` + iOS 26 `bluetoothHighQualityRecording`), latency offset per output route (persist v2
+  migration, old value claimed by the first route seen). Live route in `audio-route-store.ts` (synced from the
+  root layout); pure rules in `audio-route.ts`. Multi-channel takes are recorded whole and the chosen channel
+  extracted to mono after Stop by the new local module `modules/audio-input` (also channel count, gain, route
+  button). New iOS dev build; simulator light + dark (Settings, Input picker, a take); Maestro skipped
+  (NTKDaemon), Android not run
 - T37 — Stems & batch export — 2026-11-15 — export sheet Mix / Stems: one file per track over the same range
   (`planExport` in `export-plan.ts`: numbered `01 Vocals.m4a`, de-duplicated names, muted skipped unless asked,
   "Apply track volume"), extras click track / the mix / "Tempo & markers" (`tempo-midi.ts`: format 0 SMF,
@@ -337,44 +329,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   `purgeExpired` at launch from `_layout.tsx`, deleted bytes); Recently Deleted screen with select mode and a root
   row (shown only when non-empty); lists, search, Favorites and counts skip deleted items; Settings → Storage
   counts them separately. Simulator: delete, row, screen, Restore (light); dark mode, folders and Android not seen
-- T42 — Shelve Speaker mode — 2026-11-14 — `SPEAKER_MODE_ENABLED = false` in `@/lib/echo-canceller` hides the
-  Settings section and forces `useSpeakerRecording().clean` false (saved `speakerMode: true` ignored); silent
-  recording unaffected; code kept, docs and a Backlog line say how to bring it back. Unit tests only: the
-  Settings screenshots weren't verified (the simulator ran an old bundle)
-- T19 — Folders & favorites — 2026-11-14 — `folders` table + `projects.folder_id` (SET NULL safety net) and
-  `favorite` (migration v12); one `IdeasListScreen` for the root, `folder/[id]` and `favorites`, derived by pure
-  `folder-tree.ts` (subtree search with folder paths, Recent counts activity inside folders, delete counts, move
-  validation); star by swipe right / long-press / idea "⋯"; "+" New Idea / New Folder; Move to… sheet
-  (`move-to.tsx`); reusable select mode (`use-selection.ts`, `selection-bar.tsx`: iOS bottom toolbar) with Move /
-  Delete through `deleteItems` in `folders-repo.ts` (a soft delete since T41); `useActionMenu` for long-press menus.
-  Simulator light + dark; Android untested
-- T20 — Pitch reference keyboard — 2026-11-14 — keyboard button in the strip opens a short sheet
-  (`src/features/keyboard/pitch-keyboard-sheet.tsx`): as many white keys as fit (≥ 40 pt, one octave + on a
-  phone), octave buttons (start remembered), one manual multi-touch gesture follows every finger (chords,
-  glissando), held notes named; tone synthesized in the engine (`startNote` / `stopNote`: sine partials,
-  attack/decay/release, own bus, `prepareKeyboard` on open); note math in `pitch.ts`; Settings → Pitch keyboard
-  volume (`keyboard-settings-store.ts`). Simulator light + dark; never heard
-- T16 — Clip options — 2026-11-14 — "Options" in the clip action bar opens a sheet (gain slider, fade in/out
-  presets, Restore full take where it fits, Delete), each one undo step, playback picks it up
-  (`transport-link.ts` `replay`); `clips.gain/fade_in/fade_out` (migration v11, copied by Duplicate); engine
-  plays every clip through its own envelope `GainNode` (`clip-envelope.ts`: gain, fades, 3 ms declick except at
-  seamless split joints); split/overlap cuts drop fades on new edges; waveform scales with clip gain, fade
-  corners drawn. Simulator light; never heard
-- T24 — Idea notes — 2026-11-14 — Notes button in the strip (dot when there are notes) and in "⋯" open a sheet
-  (`idea-notes-sheet.tsx`): edit with Insert time (`[1:23]` at the cursor), read mode with time stamps as links
-  that seek (also while playing, via `transport-link.ts`); `projects.notes` (migration v10), saved debounced and
-  on close, not undoable, copied by Duplicate; Ideas search also matches notes and shows the snippet. Seen on the
-  simulator (search snippet: unit tests only)
-- T18 — Section labels — 2026-11-14 — colored rail above the ruler (`section-rail.ts`, `section-math.ts`);
-  tap empty rail → picker (`new-section.tsx` sheet: 6 presets numbered when repeated, Custom name + palette),
-  8 bars / 15 s cut at the next section; tap a section → playhead to its start + action bar (Rename via the
-  shared `RenameDialog`, inline Color swatches, Notes sheet `section-notes/[id]`, Delete); move / resize /
-  long-press reuse the clip drag state (`dragKind`), stop at neighbors, whole bars with grid + Snap; all undoable
-  (`sections` table, migration v9, `Change` variant), copied by Duplicate; palette tokens with a contrast test.
-  Simulator light + dark; device check pending
-- T26 — Loop region — 2026-11-14 — Loop toggle left of the transport (saved per idea with its region,
-  migration v8, not undoable, copied by Duplicate; first turn-on makes 8 s / 2 bars at the playhead); ruler
-  band + handle tabs (faint with Loop off), handles hit-tested before scrub, snap to bars with the grid;
-  gapless looped playback: clips rescheduled per pass ~1 s ahead with 5 ms crossfades at cuts, clicks follow
-  the wrap (`loop-math.ts`, engine `scheduleLoop`); Record while looping stops the loop and records straight
-  through. Simulator light + dark; not heard on a device

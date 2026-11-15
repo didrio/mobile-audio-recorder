@@ -2,6 +2,47 @@
 
 Oldest finished tickets, moved out of `TICKETS.md` to keep it lean. Newest first.
 
+- T42 — Shelve Speaker mode — 2026-11-14 — `SPEAKER_MODE_ENABLED = false` in `@/lib/echo-canceller` hides the
+  Settings section and forces `useSpeakerRecording().clean` false (saved `speakerMode: true` ignored); silent
+  recording unaffected; code kept, docs and a Backlog line say how to bring it back. Unit tests only: the
+  Settings screenshots weren't verified (the simulator ran an old bundle)
+- T19 — Folders & favorites — 2026-11-14 — `folders` table + `projects.folder_id` (SET NULL safety net) and
+  `favorite` (migration v12); one `IdeasListScreen` for the root, `folder/[id]` and `favorites`, derived by pure
+  `folder-tree.ts` (subtree search with folder paths, Recent counts activity inside folders, delete counts, move
+  validation); star by swipe right / long-press / idea "⋯"; "+" New Idea / New Folder; Move to… sheet
+  (`move-to.tsx`); reusable select mode (`use-selection.ts`, `selection-bar.tsx`: iOS bottom toolbar) with Move /
+  Delete through `deleteItems` in `folders-repo.ts` (a soft delete since T41); `useActionMenu` for long-press menus.
+  Simulator light + dark; Android untested
+- T20 — Pitch reference keyboard — 2026-11-14 — keyboard button in the strip opens a short sheet
+  (`src/features/keyboard/pitch-keyboard-sheet.tsx`): as many white keys as fit (≥ 40 pt, one octave + on a
+  phone), octave buttons (start remembered), one manual multi-touch gesture follows every finger (chords,
+  glissando), held notes named; tone synthesized in the engine (`startNote` / `stopNote`: sine partials,
+  attack/decay/release, own bus, `prepareKeyboard` on open); note math in `pitch.ts`; Settings → Pitch keyboard
+  volume (`keyboard-settings-store.ts`). Simulator light + dark; never heard
+- T16 — Clip options — 2026-11-14 — "Options" in the clip action bar opens a sheet (gain slider, fade in/out
+  presets, Restore full take where it fits, Delete), each one undo step, playback picks it up
+  (`transport-link.ts` `replay`); `clips.gain/fade_in/fade_out` (migration v11, copied by Duplicate); engine
+  plays every clip through its own envelope `GainNode` (`clip-envelope.ts`: gain, fades, 3 ms declick except at
+  seamless split joints); split/overlap cuts drop fades on new edges; waveform scales with clip gain, fade
+  corners drawn. Simulator light; never heard
+- T24 — Idea notes — 2026-11-14 — Notes button in the strip (dot when there are notes) and in "⋯" open a sheet
+  (`idea-notes-sheet.tsx`): edit with Insert time (`[1:23]` at the cursor), read mode with time stamps as links
+  that seek (also while playing, via `transport-link.ts`); `projects.notes` (migration v10), saved debounced and
+  on close, not undoable, copied by Duplicate; Ideas search also matches notes and shows the snippet. Seen on the
+  simulator (search snippet: unit tests only)
+- T18 — Section labels — 2026-11-14 — colored rail above the ruler (`section-rail.ts`, `section-math.ts`);
+  tap empty rail → picker (`new-section.tsx` sheet: 6 presets numbered when repeated, Custom name + palette),
+  8 bars / 15 s cut at the next section; tap a section → playhead to its start + action bar (Rename via the
+  shared `RenameDialog`, inline Color swatches, Notes sheet `section-notes/[id]`, Delete); move / resize /
+  long-press reuse the clip drag state (`dragKind`), stop at neighbors, whole bars with grid + Snap; all undoable
+  (`sections` table, migration v9, `Change` variant), copied by Duplicate; palette tokens with a contrast test.
+  Simulator light + dark; device check pending
+- T26 — Loop region — 2026-11-14 — Loop toggle left of the transport (saved per idea with its region,
+  migration v8, not undoable, copied by Duplicate; first turn-on makes 8 s / 2 bars at the playhead); ruler
+  band + handle tabs (faint with Loop off), handles hit-tested before scrub, snap to bars with the grid;
+  gapless looped playback: clips rescheduled per pass ~1 s ahead with 5 ms crossfades at cuts, clicks follow
+  the wrap (`loop-math.ts`, engine `scheduleLoop`); Record while looping stops the loop and records straight
+  through. Simulator light + dark; not heard on a device
 - T35 — Live waveform in step with the take during pre-roll — 2026-11-14 — `drawLivePeaks` anchors bars at the
   take file's start (`peaksStart`, before the punch with pre-roll) instead of the punch; the index/x math is in
   `livePeakRange` / `livePeakPoint` (`timeline-math.ts`, unit tests). Seen on the simulator

@@ -1,0 +1,6 @@
+{
+  "name": "audio-input",
+  "version": "1.0.0",
+  "description": "Input channel count, input gain, mono channel extraction and the iOS output route picker.",
+  "private": true
+}

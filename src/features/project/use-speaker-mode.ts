@@ -1,4 +1,5 @@
-import { useHeadphones, speakerModeApplies } from '@/features/audio/audio-route';
+import { speakerModeApplies } from '@/features/audio/audio-route';
+import { useHeadphones } from '@/features/audio/audio-route-store';
 import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
 import { SPEAKER_MODE_ENABLED, isEchoCancellerAvailable } from '@/lib/echo-canceller';
 

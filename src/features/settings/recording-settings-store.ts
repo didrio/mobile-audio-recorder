@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
+import { OUTPUT_ROUTES, type OutputRoute } from '@/features/audio/audio-route';
 import { zustandStorage } from '@/lib/storage';
 
 export const LATENCY_OFFSET_MIN_MS = -200;
@@ -16,17 +17,40 @@ export type PreRollBars = (typeof PRE_ROLL_BARS_OPTIONS)[number];
 /** `light`: echo cancellation only. `strong`: plus residual echo suppression (can dull the take). */
 export type CleanupStrength = 'light' | 'strong';
 
+/** Bit depth of recorded takes (WAV). 24-bit leaves headroom; 16-bit makes files a third smaller. */
+export const RECORDING_BIT_DEPTHS = [16, 24] as const;
+export type RecordingBitDepth = (typeof RECORDING_BIT_DEPTHS)[number];
+
+export type LatencyOffsets = Record<OutputRoute, number>;
+
 function clampLatencyOffset(value: number): number {
   return Math.min(LATENCY_OFFSET_MAX_MS, Math.max(LATENCY_OFFSET_MIN_MS, Math.round(value)));
 }
 
+const NO_OFFSETS: LatencyOffsets = { speaker: 0, wired: 0, bluetooth: 0, usb: 0 };
+
 type RecordingSettingsState = {
   /**
-   * Extra latency compensation for overdubs, in milliseconds, on top of what the platform reports.
-   * Positive moves new takes earlier (use it when overdubs sound late).
+   * Extra latency compensation for overdubs per output route (T38), in milliseconds, on top of what
+   * the platform reports. Positive moves new takes earlier (use it when overdubs sound late).
    */
-  latencyOffsetMs: number;
-  setLatencyOffsetMs: (value: number) => void;
+  latencyOffsetsMs: LatencyOffsets;
+  setLatencyOffsetMs: (route: OutputRoute, value: number) => void;
+  /**
+   * The single offset from before T38, waiting for the first output route the app sees (it was tuned
+   * on whatever the phone used then); `null` once claimed or when it was 0.
+   */
+  legacyLatencyOffsetMs: number | null;
+  /** Gives the pre-T38 offset to `route`, once. */
+  claimLegacyOffset: (route: OutputRoute) => void;
+  /**
+   * With Bluetooth headphones, record from the phone's mic so they stay in high-quality playback
+   * (A2DP). Off: the headset's mic records, and playback drops to call quality (HFP).
+   */
+  bluetoothPhoneMic: boolean;
+  setBluetoothPhoneMic: (value: boolean) => void;
+  bitDepth: RecordingBitDepth;
+  setBitDepth: (value: RecordingBitDepth) => void;
   /**
    * Speaker mode: takes recorded without headphones get the backing (other tracks and the click, heard
    * from the speaker) removed after Stop, by echo cancellation against the known mix. The raw take is
@@ -54,8 +78,28 @@ type RecordingSettingsState = {
 export const useRecordingSettingsStore = create<RecordingSettingsState>()(
   persist(
     (set) => ({
-      latencyOffsetMs: 0,
-      setLatencyOffsetMs: (value) => set({ latencyOffsetMs: clampLatencyOffset(value) }),
+      latencyOffsetsMs: NO_OFFSETS,
+      setLatencyOffsetMs: (route, value) =>
+        set((state) => ({
+          latencyOffsetsMs: { ...state.latencyOffsetsMs, [route]: clampLatencyOffset(value) },
+        })),
+      legacyLatencyOffsetMs: null,
+      claimLegacyOffset: (route) =>
+        set((state) =>
+          state.legacyLatencyOffsetMs === null
+            ? state
+            : {
+                latencyOffsetsMs: {
+                  ...state.latencyOffsetsMs,
+                  [route]: clampLatencyOffset(state.legacyLatencyOffsetMs),
+                },
+                legacyLatencyOffsetMs: null,
+              },
+        ),
+      bluetoothPhoneMic: true,
+      setBluetoothPhoneMic: (value) => set({ bluetoothPhoneMic: value }),
+      bitDepth: 24,
+      setBitDepth: (value) => set({ bitDepth: value }),
       speakerMode: false,
       silentRecording: false,
       setSilentRecording: (value) => set({ silentRecording: value }),
@@ -69,11 +113,16 @@ export const useRecordingSettingsStore = create<RecordingSettingsState>()(
     }),
     {
       name: 'settings.recording',
-      // New keys get their defaults from the shallow merge, so adding settings needs no migration.
-      version: 1,
+      // New keys get their defaults from the shallow merge, so adding settings needs no migration;
+      // changing one does (`migrateRecordingSettings`).
+      version: 2,
       storage: createJSONStorage(() => zustandStorage),
+      migrate: (persisted, version) => migrateRecordingSettings(persisted, version) as never,
       partialize: (state) => ({
-        latencyOffsetMs: state.latencyOffsetMs,
+        latencyOffsetsMs: state.latencyOffsetsMs,
+        legacyLatencyOffsetMs: state.legacyLatencyOffsetMs,
+        bluetoothPhoneMic: state.bluetoothPhoneMic,
+        bitDepth: state.bitDepth,
         speakerMode: state.speakerMode,
         silentRecording: state.silentRecording,
         cleanupStrength: state.cleanupStrength,
@@ -83,3 +132,31 @@ export const useRecordingSettingsStore = create<RecordingSettingsState>()(
     },
   ),
 );
+
+/** The latency offset for takes recorded while playing to `route`. */
+export function latencyOffsetFor(
+  state: Pick<RecordingSettingsState, 'latencyOffsetsMs'>,
+  route: OutputRoute,
+): number {
+  return state.latencyOffsetsMs[route] ?? 0;
+}
+
+/**
+ * Persisted settings from an older version. v1 → v2 (T38): the single `latencyOffsetMs` became one
+ * offset per output route; a non-zero old value waits in `legacyLatencyOffsetMs` for the first route
+ * the app sees (the one it was most likely tuned on).
+ */
+export function migrateRecordingSettings(persisted: unknown, version: number): unknown {
+  if (typeof persisted !== 'object' || persisted === null) return persisted;
+  if (version >= 2) return persisted;
+  const { latencyOffsetMs, ...rest } = persisted as { latencyOffsetMs?: unknown };
+  const legacy =
+    typeof latencyOffsetMs === 'number' && latencyOffsetMs !== 0
+      ? clampLatencyOffset(latencyOffsetMs)
+      : null;
+  return {
+    ...rest,
+    latencyOffsetsMs: Object.fromEntries(OUTPUT_ROUTES.map((route) => [route, 0])),
+    legacyLatencyOffsetMs: legacy,
+  };
+}

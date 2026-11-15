@@ -53,8 +53,10 @@ export type ListRowProps = {
   icon?: IconName;
   /** The icon's color; `primary` by default. */
   iconColor?: ColorName;
-  /** Makes the row pressable and shows a chevron. */
+  /** Makes the row pressable and shows a chevron (unless `chevron` is false). */
   onPress?: () => void;
+  /** Whether a pressable row shows its chevron; false for choices in a list (a checkmark instead). */
+  chevron?: boolean;
   /** Long-press handler (e.g. open a context menu). Only used together with `onPress`. */
   onLongPress?: () => void;
   /** Custom trailing element (switch, badge…). Replaces `value`. */
@@ -73,6 +75,7 @@ export function ListRow({
   icon,
   iconColor = 'primary',
   onPress,
+  chevron = true,
   onLongPress,
   accessory,
   selected,
@@ -106,7 +109,7 @@ export function ListRow({
             {value}
           </Text>
         ) : null)}
-      {onPress ? (
+      {onPress && chevron ? (
         <Icon
           name={{ ios: 'chevron.right', android: 'chevron_right' }}
           size={14}

@@ -5,8 +5,8 @@ import * as echoCanceller from '@/lib/echo-canceller';
 
 import { useSpeakerRecording } from './use-speaker-mode';
 
-jest.mock('@/features/audio/audio-route', () => ({
-  ...jest.requireActual('@/features/audio/audio-route'),
+jest.mock('@/features/audio/audio-route-store', () => ({
+  ...jest.requireActual('@/features/audio/audio-route-store'),
   useHeadphones: () => false,
 }));
 

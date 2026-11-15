@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { AppProviders } from '@/components/app-providers';
 import { ErrorScreen } from '@/components/error-screen';
 import { forgetTakes } from '@/features/audio/audio-engine';
+import { useAudioRouteSync } from '@/features/audio/audio-route-store';
 import { clearExportFiles } from '@/features/export/export-runner';
 import { projectKeys } from '@/features/projects/queries';
 import { purgeExpired } from '@/features/projects/trash-repo';
@@ -22,6 +23,8 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
+  // Inputs and outputs (T38): the live route, and the input / Bluetooth choices from Settings.
+  useAudioRouteSync();
   // Recently Deleted (T41): items older than 30 days are deleted for good at launch.
   useEffect(() => {
     // Export's temporary files left behind if the app quit mid-export.

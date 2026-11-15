@@ -21,6 +21,9 @@ import {
   type PlayableClip,
   type RecordingPlayback,
 } from '@/features/audio/audio-engine';
+import type { OutputRoute } from '@/features/audio/audio-route';
+import { currentInputSelection, currentOutputRoute } from '@/features/audio/audio-route-store';
+import { useClipHold } from '@/features/audio/clip-hold';
 import { echoPlan } from '@/features/audio/echo-reference';
 import { loopedPosition, loopStartPosition } from '@/features/audio/loop-math';
 import { clickVolume } from '@/features/audio/metronome';
@@ -42,9 +45,13 @@ import {
 } from '@/features/audio/take-files';
 import { preRollLength } from '@/features/audio/tempo';
 import type { Project } from '@/features/projects/projects-repo';
-import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
+import {
+  latencyOffsetFor,
+  useRecordingSettingsStore,
+} from '@/features/settings/recording-settings-store';
 import { prefetchTakePeaks } from '@/features/timeline/use-take-peaks';
 import { createLivePeaks, LIVE_PEAKS_PER_SECOND } from '@/features/timeline/waveform-peaks';
+import { extractChannel } from '@/lib/audio-input';
 import { cleanTake } from '@/lib/echo-canceller';
 
 import { recordTake, useEditorStore } from './editor-store';
@@ -116,6 +123,7 @@ export function useTransport(
   const [status, setStatus] = useState<TransportStatus>('idle');
   const [position, setPosition] = useState(0);
   const [level, setLevel] = useState(0);
+  const clip = useClipHold();
   /** Recording, but still in the run-up before the punch point (judged before clamping at 0:00). */
   const [preRolling, setPreRolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +156,8 @@ export function useTransport(
     punch: number;
     /** Speaker mode applied when Record was pressed: remove the backing after Stop. */
     clean: boolean;
+    /** The output route when Record was pressed: its latency offset lines the take up. */
+    route: OutputRoute;
   } | null>(null);
 
   const isRecording = status === 'recording';
@@ -229,9 +239,10 @@ export function useTransport(
     const active = recordingRef.current;
     if (!active) return;
     recordingRef.current = null;
-    const recorded = await active.recording.stop();
+    const stopped = await active.recording.stop();
     anchor.set(null);
-    const { latencyOffsetMs } = useRecordingSettingsStore.getState();
+    const latencyOffsetMs = latencyOffsetFor(useRecordingSettingsStore.getState(), active.route);
+    const recorded = await keepInputChannel(stopped, active.takeId);
     const placement = placeTake({
       fileStart: fileStartPosition(active.playbackFrom, recorded.alignment, latencyOffsetMs / 1000),
       floor: active.floor,
@@ -261,6 +272,29 @@ export function useTransport(
     });
     // Waveform for the new take; failures surface later as a clip without a waveform.
     void prefetchTakePeaks(queryClient, path).catch(() => {});
+  };
+
+  /**
+   * A take recorded from a multi-channel input (an interface) becomes the chosen channel alone, as a
+   * mono file. If that fails the take is kept with every channel (it plays as their mix), with a note.
+   */
+  const keepInputChannel = async (
+    recorded: FinishedRecording,
+    takeId: string,
+  ): Promise<FinishedRecording> => {
+    if (recorded.channels <= 1) return recorded;
+    const outputPath = cacheFilePath(`${takeId}-mono.wav`);
+    try {
+      await extractChannel(plainPath(recorded.path), outputPath, recorded.channel);
+      discardRecordedFile(recorded.path);
+      return { ...recorded, path: outputPath, channels: 1, channel: 0 };
+    } catch (cause) {
+      discardRecordedFile(outputPath);
+      setError(
+        `Couldn't keep only Input ${recorded.channel + 1} (${messageOf(cause, 'unknown error')}).`,
+      );
+      return recorded;
+    }
   };
 
   /**
@@ -364,11 +398,17 @@ export function useTransport(
       let loudest = 0;
       livePeaks.set([]);
       livePeak.set(0);
+      const route = currentOutputRoute();
+      const { bitDepth } = useRecordingSettingsStore.getState();
       const recording = await startRecording({
         fileName: takeId,
         playback,
+        input: currentInputSelection(),
+        bitDepth,
         onBuffer: (samples, sampleRate) => {
-          setLevel(peakLevel(samples));
+          const peak = peakLevel(samples);
+          setLevel(peak);
+          clip.report(peak);
           const pairs = peaks.push(samples, sampleRate);
           if (pairs.length === 0) return;
           const before = loudest;
@@ -388,7 +428,7 @@ export function useTransport(
         // Punch where requested, unless the file doesn't reach back that far (a recorder that
         // started late, or on the fly); the armed track goes silent exactly there. Silent
         // recording fades everything out just before it.
-        const { latencyOffsetMs } = useRecordingSettingsStore.getState();
+        const latencyOffsetMs = latencyOffsetFor(useRecordingSettingsStore.getState(), route);
         const alignment = await recording.whenStarted();
         peaksStart = fileStartPosition(playbackFrom, alignment, latencyOffsetMs / 1000);
         const now = playbackPosition() ?? anchorPosition(recording.anchor);
@@ -408,6 +448,7 @@ export function useTransport(
         floor: punchIn ? punch : 0,
         punch,
         clean,
+        route,
       };
       if (!onTheFly) {
         playhead.set(displayPosition(playbackFrom));
@@ -440,6 +481,7 @@ export function useTransport(
     setPreRolling(false);
     livePeaks.set([]);
     setLevel(0);
+    clip.reset();
     setStatus('idle');
   };
 
@@ -525,6 +567,8 @@ export function useTransport(
     /** Recording silently (T34), run-up included: the visual beat should show. */
     isSilentRecording: isRecording && silentTake,
     level,
+    /** The input clipped in the last moment (the meter shows red). */
+    clipped: clip.clipped,
     error,
     playhead,
     /** Timeline time heard now, before 0:00 too (a run-up); `null` when stopped. UI thread. */

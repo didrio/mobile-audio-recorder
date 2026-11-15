@@ -119,8 +119,10 @@ export function ProjectScreen() {
   // The meter listens to the mic only while a track is armed and this screen is the one showing
   // (the track sheet on top, or another screen, releases it); recording feeds the meter itself.
   const focused = useIsFocused();
-  const inputLevel = useInputMeter(!!armedTrack && isIdle && focused);
-  const meterLevel = isRecording ? transport.level : inputLevel;
+  const inputMeter = useInputMeter(!!armedTrack && isIdle && focused);
+  const meterLevel = isRecording ? transport.level : inputMeter.level;
+  // Red with a peak-hold mark at the end while the input clips (T38).
+  const meterClipped = isRecording ? transport.clipped : inputMeter.clipped;
   const addTrackDisabled = !project || !isIdle;
   const undoDisabled = !isIdle || !canUndo;
   const redoDisabled = !isIdle || !canRedo;
@@ -237,7 +239,14 @@ export function ProjectScreen() {
         onPress={() => void toggleSnap()}
       />
       <View style={styles.meter} accessibilityElementsHidden importantForAccessibility="no">
-        <View style={[styles.meterFill, { width: `${Math.round(meterLevel * 100)}%` }]} />
+        <View
+          style={[
+            styles.meterFill,
+            meterClipped && styles.meterFillClipped,
+            { width: `${Math.round(meterLevel * 100)}%` },
+          ]}
+        />
+        {meterClipped ? <View style={styles.meterClip} /> : null}
       </View>
     </View>
   );
@@ -756,6 +765,15 @@ const useStyles = makeStyles((t) => ({
     overflow: 'hidden',
   },
   meterFill: { height: '100%', backgroundColor: t.colors.success },
+  meterFillClipped: { backgroundColor: t.colors.danger },
+  meterClip: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: 0,
+    width: 4,
+    backgroundColor: t.colors.danger,
+  },
   timeline: { flex: 1 },
   message: { flex: 1, justifyContent: 'center', padding: t.spacing.lg },
   transport: {

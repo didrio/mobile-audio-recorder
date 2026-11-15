@@ -56,6 +56,12 @@
  *   JS and UI threads) when timeline position `from` is heard, so the UI can animate the playhead
  *   per frame without calling into the engine.
  *
+ * - Inputs (T38): `configureSession` picks the Bluetooth trade-off (phone mic + high-quality
+ *   headphones, or the headset's mic), `setInputPreference` the input (re-applied on every session
+ *   activation and route change; the system default while the device is gone). A multi-channel input
+ *   records all its channels (`InputSelection`; the recorder would average them into mono), the
+ *   meter and live waveform read the chosen one, and the caller extracts it after Stop.
+ *
  * Needs a development build (not in Expo Go). Native config: the `react-native-audio-api` plugin in
  * `app.json` (microphone permission, background audio, Android foreground service).
  */
@@ -63,12 +69,15 @@ import {
   AudioContext,
   AudioManager,
   AudioRecorder,
+  BitDepth,
   FileDirectory,
   FileFormat,
   FilePreset,
   type AudioBuffer,
   type AudioBufferSourceNode,
+  type AudioDevicesInfo,
   type AudioNode,
+  type IOSOption,
   type GainNode,
   type OscillatorNode,
   type PeriodicWave,
@@ -80,6 +89,7 @@ import {
   startClips,
   trackGainNode as graphTrackGain,
 } from './audio-graph';
+import { currentInput, resolvePreferredInput, type DeviceRef } from './audio-route';
 import { seamlessEdges } from './clip-envelope';
 import { clipPieces, loopedPosition, loopSegments, type LoopRegion } from './loop-math';
 import { clicksBetween } from './metronome';
@@ -88,7 +98,13 @@ import { takeFilePath } from './take-files';
 import type { Meter } from './tempo';
 
 const RECORDING_PRESET = FilePreset.Lossless;
-const RECORDING_CHANNELS = 1;
+
+/**
+ * The input channels a recording or the meter opens (`channels`: all the input has) and the one
+ * that is the take (`channel`, 0-based). A plain mic is `{ channels: 1, channel: 0 }`.
+ */
+export type InputSelection = { channels: number; channel: number };
+export const MONO_INPUT: InputSelection = { channels: 1, channel: 0 };
 /** Small lead time so every source is scheduled before the first one has to sound. */
 const SCHEDULE_AHEAD_SECONDS = 0.05;
 /** How long and how often the recorder's start is measured against the context clock. */
@@ -100,7 +116,10 @@ export type RecordedTake = {
   path: string;
   duration: number;
   sampleRate: number;
+  /** Channels in the file: more than 1 when the input had several (extract `channel`). */
   channels: number;
+  /** The input channel that is the take (0-based). */
+  channel: number;
 };
 
 export type FinishedRecording = RecordedTake & {
@@ -241,16 +260,80 @@ function getContext(): AudioContext {
   return context;
 }
 
+let sessionOptions: IOSOption[] = ['defaultToSpeaker', 'allowBluetoothA2DP'];
+let preferredInput: DeviceRef | null = null;
+
+function applySystemOptions() {
+  AudioManager.setSystemOptions({
+    ios: { category: 'playAndRecord', mode: 'default', options: sessionOptions },
+  });
+}
+
+/**
+ * Bluetooth headphones (T38): with `bluetoothPhoneMic` the phone's mic records and they stay in
+ * high-quality playback (A2DP); without it the headset's mic records (HFP: call quality, or the
+ * high-quality Bluetooth recording of iOS 26 where the headphones support it). Applies at once to an
+ * active session.
+ */
+export function configureSession(options: { bluetoothPhoneMic: boolean }) {
+  sessionOptions = options.bluetoothPhoneMic
+    ? ['defaultToSpeaker', 'allowBluetoothA2DP']
+    : [
+        'defaultToSpeaker',
+        'allowBluetoothA2DP',
+        'allowBluetoothHFP',
+        'bluetoothHighQualityRecording',
+      ];
+  applySystemOptions();
+}
+
+/**
+ * The input to record from (`null`: the system chooses). Applied now and again whenever the session
+ * activates or the route changes (`applyInputPreference`), so a device that comes back is picked.
+ */
+export async function setInputPreference(device: DeviceRef | null): Promise<void> {
+  const cleared = preferredInput !== null && device === null;
+  preferredInput = device;
+  if (cleared) {
+    await AudioManager.setInputDevice('default').catch(() => {});
+    return;
+  }
+  await applyInputPreference();
+}
+
+/**
+ * Selects the preferred input when it's connected and not already the current one. Returns the
+ * devices it saw (so a caller refreshing the route doesn't ask twice).
+ */
+export async function applyInputPreference(): Promise<AudioDevicesInfo | null> {
+  if (!preferredInput) return null;
+  try {
+    const info = await AudioManager.getDevicesInfo();
+    const target = resolvePreferredInput(info.availableInputs, preferredInput);
+    if (target && currentInput(info)?.id !== target.id) {
+      await AudioManager.setInputDevice(target.id);
+      return await AudioManager.getDevicesInfo();
+    }
+    return info;
+  } catch {
+    // The device went away in between: the system default records.
+    return null;
+  }
+}
+
 /** Play and record at the same time, through the speaker (not the earpiece) or Bluetooth. */
 async function activateSession() {
-  AudioManager.setSystemOptions({
-    ios: {
-      category: 'playAndRecord',
-      mode: 'default',
-      options: ['defaultToSpeaker', 'allowBluetoothA2DP'],
-    },
-  });
+  applySystemOptions();
   await AudioManager.setAudioSessionActivity(true);
+  if (preferredInput) await applyInputPreference();
+}
+
+/**
+ * Activates the session so the inputs can be listed and picked (Settings → Input). iOS only lists
+ * inputs for a session that can record.
+ */
+export async function prepareAudioSession(): Promise<void> {
+  await activateSession();
 }
 
 export async function ensureRecordPermission(): Promise<boolean> {
@@ -274,36 +357,50 @@ let meterQueue: Promise<void> = Promise.resolve();
  */
 export function setMetering(
   onBuffer: ((samples: Float32Array, sampleRate: number) => void) | null,
+  input: InputSelection = MONO_INPUT,
 ): Promise<void> {
   meterQueue = meterQueue
     .then(async () => {
-      if (onBuffer) await beginMetering(onBuffer);
+      if (onBuffer) await beginMetering(onBuffer, input);
       else await endMetering();
     })
     .catch(() => {});
   return meterQueue;
 }
 
-async function beginMetering(onBuffer: (samples: Float32Array, sampleRate: number) => void) {
+async function beginMetering(
+  onBuffer: (samples: Float32Array, sampleRate: number) => void,
+  input: InputSelection,
+) {
   if (metering || !(await hasRecordPermission())) return;
   await activateSession();
   const activeRecorder = (recorder ??= new AudioRecorder());
   if (activeRecorder.isRecording()) return;
   await activeRecorder.disableFileOutput();
-  activeRecorder.onAudioReady(
-    {
-      sampleRate: AudioManager.getDevicePreferredSampleRate(),
-      bufferLength: 2048,
-      channelCount: 1,
-    },
-    ({ buffer }) => onBuffer(buffer.getChannelData(0), buffer.sampleRate),
-  );
+  listenToInput(activeRecorder, input, onBuffer);
   const started = await activeRecorder.start();
   if (started.status === 'error') {
     activeRecorder.clearOnAudioReady();
     throw new Error(started.message);
   }
   metering = true;
+}
+
+/** Feeds `onBuffer` the chosen channel of every input buffer. */
+function listenToInput(
+  activeRecorder: AudioRecorder,
+  input: InputSelection,
+  onBuffer: (samples: Float32Array, sampleRate: number) => void,
+) {
+  const channel = Math.min(input.channel, input.channels - 1);
+  activeRecorder.onAudioReady(
+    {
+      sampleRate: AudioManager.getDevicePreferredSampleRate(),
+      bufferLength: 2048,
+      channelCount: input.channels,
+    },
+    ({ buffer }) => onBuffer(buffer.getChannelData(channel), buffer.sampleRate),
+  );
 }
 
 async function endMetering() {
@@ -318,9 +415,14 @@ export async function startRecording(options: {
   fileName: string;
   /** What plays while recording (see `RecordingPlayback`). */
   playback: RecordingPlayback;
-  /** Every input buffer, mono samples in -1…1. */
+  /** Every input buffer: the chosen channel's samples in -1…1. */
   onBuffer?: (samples: Float32Array, sampleRate: number) => void;
+  /** Which input channels to record (default: mono). */
+  input?: InputSelection;
+  /** WAV bit depth of the take (default 24). */
+  bitDepth?: 16 | 24;
 }): Promise<ActiveRecording> {
+  const input = options.input ?? MONO_INPUT;
   // The meter uses the same recorder; close it before anything is scheduled.
   await setMetering(null);
   let from: number;
@@ -350,23 +452,16 @@ export async function startRecording(options: {
 
   activeRecorder.enableFileOutput({
     format: FileFormat.Wav,
-    preset: RECORDING_PRESET,
-    channelCount: RECORDING_CHANNELS,
+    preset:
+      options.bitDepth === 16
+        ? { ...RECORDING_PRESET, bitDepth: BitDepth.Bit16 }
+        : RECORDING_PRESET,
+    channelCount: input.channels,
     directory: FileDirectory.Cache,
     fileName: options.fileName,
   });
 
-  const { onBuffer } = options;
-  if (onBuffer) {
-    activeRecorder.onAudioReady(
-      {
-        sampleRate: AudioManager.getDevicePreferredSampleRate(),
-        bufferLength: 2048,
-        channelCount: 1,
-      },
-      ({ buffer }) => onBuffer(buffer.getChannelData(0), buffer.sampleRate),
-    );
-  }
+  if (options.onBuffer) listenToInput(activeRecorder, input, options.onBuffer);
 
   const started = await activeRecorder.start();
   if (started.status === 'error') {
@@ -441,7 +536,8 @@ export async function startRecording(options: {
         path,
         duration: result.duration,
         sampleRate: RECORDING_PRESET.sampleRate,
-        channels: RECORDING_CHANNELS,
+        channels: input.channels,
+        channel: Math.min(input.channel, input.channels - 1),
         alignment: alignment(),
         backing,
       };

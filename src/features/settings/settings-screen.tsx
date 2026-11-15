@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, Switch, View } from 'react-native';
 
@@ -13,6 +13,18 @@ import {
   Text,
   type IconName,
 } from '@/components/ui';
+import {
+  currentInput,
+  currentOutput,
+  deviceKey,
+  inputChannel,
+  inputLabel,
+  inputName,
+  OUTPUT_ROUTE_LABELS,
+  outputLabel,
+} from '@/features/audio/audio-route';
+import { currentOutputRoute, useAudioRouteStore } from '@/features/audio/audio-route-store';
+import { RoutePickerButton } from '@/features/audio/route-picker-button';
 import { recordingsSizeBytes } from '@/features/audio/take-files';
 import { formatBytes } from '@/features/projects/ideas-list';
 import { deletedRecordingsBytes } from '@/features/projects/trash-repo';
@@ -23,6 +35,7 @@ import { SPEAKER_MODE_ENABLED, isEchoCancellerAvailable } from '@/lib/echo-cance
 import { makeStyles, useTheme } from '@/theme';
 
 import { useAppearanceStore, type AppearancePreference } from './appearance-store';
+import { useInputDevicesStore } from './input-devices-store';
 import { useKeyboardSettingsStore } from './keyboard-settings-store';
 import {
   LATENCY_OFFSET_MAX_MS,
@@ -30,8 +43,10 @@ import {
   LATENCY_OFFSET_STEP_MS,
   PRE_ROLL_BARS_OPTIONS,
   PRE_ROLL_SECONDS_OPTIONS,
+  RECORDING_BIT_DEPTHS,
   useRecordingSettingsStore,
   type CleanupStrength,
+  type RecordingBitDepth,
   type PreRollBars,
   type PreRollSeconds,
 } from './recording-settings-store';
@@ -45,6 +60,11 @@ const appearanceOptions = [
 const preRollOptions = PRE_ROLL_SECONDS_OPTIONS.map((seconds) => ({
   value: String(seconds),
   label: `${seconds} s`,
+}));
+
+const bitDepthOptions = RECORDING_BIT_DEPTHS.map((bits) => ({
+  value: String(bits),
+  label: `${bits}-bit`,
 }));
 
 const cleanupOptions = [
@@ -61,8 +81,29 @@ export function SettingsScreen() {
   const styles = useStyles();
   const preference = useAppearanceStore((state) => state.preference);
   const setPreference = useAppearanceStore((state) => state.setPreference);
-  const latencyOffsetMs = useRecordingSettingsStore((state) => state.latencyOffsetMs);
+  const router = useRouter();
+  const latencyOffsetsMs = useRecordingSettingsStore((state) => state.latencyOffsetsMs);
   const setLatencyOffsetMs = useRecordingSettingsStore((state) => state.setLatencyOffsetMs);
+  const bluetoothPhoneMic = useRecordingSettingsStore((state) => state.bluetoothPhoneMic);
+  const setBluetoothPhoneMic = useRecordingSettingsStore((state) => state.setBluetoothPhoneMic);
+  const bitDepth = useRecordingSettingsStore((state) => state.bitDepth);
+  const setBitDepth = useRecordingSettingsStore((state) => state.setBitDepth);
+  const routeState = useAudioRouteStore((state) => state);
+  const preferredInput = useInputDevicesStore((state) => state.preferredInput);
+  const channelByDevice = useInputDevicesStore((state) => state.channelByDevice);
+  const route = currentOutputRoute(routeState);
+  const input = currentInput(routeState.devices);
+  const { channelCount } = routeState.inputInfo;
+  // iOS reports the input only once the app has used audio; until then, name the remembered choice.
+  const inputValue = input
+    ? inputLabel(
+        inputName(input),
+        inputChannel(channelByDevice[deviceKey(input)], channelCount),
+        channelCount,
+      )
+    : preferredInput
+      ? inputName(preferredInput)
+      : 'Automatic';
   const speakerMode = useRecordingSettingsStore((state) => state.speakerMode);
   const setSpeakerMode = useRecordingSettingsStore((state) => state.setSpeakerMode);
   const silentRecording = useRecordingSettingsStore((state) => state.silentRecording);
@@ -113,14 +154,64 @@ export function SettingsScreen() {
         </View>
       </ListSection>
 
+      <ListSection title="Recording" footer="24-bit leaves more room before a loud take clips.">
+        <ListRow title="Input" value={inputValue} onPress={() => router.push('/settings/input')} />
+        <ListRow
+          title="Output"
+          accessory={
+            <View style={styles.outputValue}>
+              <Text color="textSecondary" numberOfLines={1} style={styles.outputName}>
+                {outputLabel(currentOutput(routeState.devices))}
+              </Text>
+              <RoutePickerButton />
+            </View>
+          }
+        />
+        <View style={styles.segmentRow}>
+          <Text variant="footnote" color="textSecondary">
+            Bit depth
+          </Text>
+          <SegmentedControl
+            accessibilityLabel="Bit depth"
+            options={bitDepthOptions}
+            value={String(bitDepth)}
+            onChange={(value) => {
+              const bits = RECORDING_BIT_DEPTHS.find((option) => String(option) === value);
+              if (bits) setBitDepth(bits as RecordingBitDepth);
+            }}
+          />
+        </View>
+      </ListSection>
+
       <ListSection
-        title="Recording"
-        footer="Lines up takes recorded over other tracks, on top of the latency your device reports. If new takes sound late, increase it; early, decrease it.">
+        title="Bluetooth"
+        footer={
+          bluetoothPhoneMic
+            ? "Bluetooth headphones stay in high-quality sound while the phone's mic records."
+            : "The headphones' mic records, but playback in them drops to call quality while it does."
+        }>
+        <ListRow
+          title="Phone's mic with Bluetooth"
+          accessory={
+            <Switch
+              accessibilityLabel="Use the phone's mic with Bluetooth headphones"
+              value={bluetoothPhoneMic}
+              onValueChange={setBluetoothPhoneMic}
+              trackColor={{ true: theme.colors.primary }}
+            />
+          }
+        />
+      </ListSection>
+
+      <ListSection
+        title="Latency"
+        footer="Lines up takes recorded over other tracks, on top of the latency your device reports. Each output (speaker, wired, Bluetooth, USB) keeps its own: this one is for what's playing now. If new takes sound late, increase it; early, decrease it.">
         <LatencyRow
           title="Latency offset"
+          subtitle={`For ${OUTPUT_ROUTE_LABELS[route]}`}
           name="Latency offset"
-          value={latencyOffsetMs}
-          onChange={setLatencyOffsetMs}
+          value={latencyOffsetsMs[route]}
+          onChange={(value) => setLatencyOffsetMs(route, value)}
         />
       </ListSection>
 
@@ -266,11 +357,13 @@ export function SettingsScreen() {
 /** A latency offset with − and + buttons, in `LATENCY_OFFSET_STEP_MS` steps. */
 function LatencyRow({
   title,
+  subtitle,
   name,
   value,
   onChange,
 }: {
   title: string;
+  subtitle?: string;
   /** Spoken name, e.g. "Latency offset" ("Decrease latency offset", "Latency offset 20 milliseconds"). */
   name: string;
   value: number;
@@ -280,6 +373,7 @@ function LatencyRow({
   return (
     <ListRow
       title={title}
+      subtitle={subtitle}
       accessory={
         <View style={styles.stepper}>
           <StepButton
@@ -341,6 +435,14 @@ function StepButton({
 
 const useStyles = makeStyles((t) => ({
   segmentRow: { padding: t.spacing.md, gap: t.spacing.xs },
+  outputValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: t.spacing.xs,
+    marginLeft: 'auto',
+    flexShrink: 1,
+  },
+  outputName: { flexShrink: 1 },
   volumeRow: {
     flexDirection: 'row',
     alignItems: 'center',

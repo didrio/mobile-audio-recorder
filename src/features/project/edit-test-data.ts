@@ -56,6 +56,8 @@ export function testProject(tracks: ProjectTrack[], sections: Section[] = []): P
     loopRegion: null,
     sections,
     notes: '',
+    folderId: null,
+    favorite: false,
     takes: {},
     tracks,
   };

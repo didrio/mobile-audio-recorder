@@ -31,6 +31,10 @@ export type ProjectSummary = {
   duration: number;
   /** The idea's notes (T24); '' when there are none. The Ideas search looks in them too. */
   notes: string;
+  /** The folder it lives in (T19); `null` = the Ideas root. */
+  folderId: string | null;
+  /** Starred: listed in Favorites too (T19). */
+  favorite: boolean;
 };
 
 export type Track = {
@@ -134,6 +138,8 @@ type ProjectRow = {
   loop_start: number | null;
   loop_end: number | null;
   notes: string;
+  folder_id: string | null;
+  favorite: number;
   duration: number;
 };
 type TrackRow = {
@@ -178,7 +184,7 @@ type ClipRow = {
 const PROJECT_COLUMNS = `
   p.id, p.name, p.created_at, p.updated_at, p.armed_track_id, p.pre_roll, p.snap,
   p.bpm, p.beats_per_bar, p.beat_unit, p.grid, p.metronome, p.metronome_volume,
-  p.metronome_output, p.loop_on, p.loop_start, p.loop_end, p.notes,
+  p.metronome_output, p.loop_on, p.loop_start, p.loop_end, p.notes, p.folder_id, p.favorite,
   COALESCE((
     SELECT MAX(c.start + c.duration) FROM clips c JOIN tracks t ON t.id = c.track_id
     WHERE t.project_id = p.id
@@ -192,6 +198,8 @@ function toSummary(row: ProjectRow): ProjectSummary {
     updatedAt: row.updated_at,
     duration: row.duration,
     notes: row.notes,
+    folderId: row.folder_id,
+    favorite: row.favorite === 1,
   };
 }
 
@@ -346,11 +354,12 @@ export async function setProjectNotes(projectId: string, notes: string): Promise
 /**
  * Creates a project with one empty track, armed. Without a name it's called "Idea N". `grid` is
  * whether the bar/beat grid shows from the start: off for quick capture, on for a deliberate blank idea.
+ * `folderId` is the folder it goes in (T19); none = the Ideas root.
  */
 export async function createProject(
-  options: { name?: string; grid?: boolean } = {},
+  options: { name?: string; grid?: boolean; folderId?: string | null } = {},
 ): Promise<ProjectSummary> {
-  const { name, grid = false } = options;
+  const { name, grid = false, folderId = null } = options;
   const db = await getDb();
   const now = Date.now();
   const id = randomUUID();
@@ -363,12 +372,13 @@ export async function createProject(
 
   await db.withExclusiveTransactionAsync(async (tx) => {
     await tx.runAsync(
-      'INSERT INTO projects (id, name, created_at, updated_at, grid) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO projects (id, name, created_at, updated_at, grid, folder_id) VALUES (?, ?, ?, ?, ?, ?)',
       id,
       projectName,
       now,
       now,
       grid ? 1 : 0,
+      folderId,
     );
     await tx.runAsync(
       'INSERT INTO tracks (id, project_id, position, name) VALUES (?, ?, 0, ?)',
@@ -379,7 +389,16 @@ export async function createProject(
     await tx.runAsync('UPDATE projects SET armed_track_id = ? WHERE id = ?', firstTrackId, id);
   });
 
-  return { id, name: projectName, createdAt: now, updatedAt: now, duration: 0, notes: '' };
+  return {
+    id,
+    name: projectName,
+    createdAt: now,
+    updatedAt: now,
+    duration: 0,
+    notes: '',
+    folderId,
+    favorite: false,
+  };
 }
 
 /** Renames an idea (blank names are ignored). Counts as an edit, so it moves up in "Recent". */
@@ -395,9 +414,20 @@ export async function renameProject(id: string, name: string): Promise<void> {
   );
 }
 
+/** Stars or unstars ideas (T19). Not an edit: `updated_at` stays, so "Recent" doesn't reshuffle. */
+export async function setFavorite(ids: readonly string[], favorite: boolean): Promise<void> {
+  if (ids.length === 0) return;
+  const db = await getDb();
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    for (const id of ids) {
+      await tx.runAsync('UPDATE projects SET favorite = ? WHERE id = ?', favorite ? 1 : 0, id);
+    }
+  });
+}
+
 /**
  * Copies an idea: new rows with new IDs and its own copy of every take file, so deleting one idea never
- * affects the other. Named "<name> copy". Returns `null` if the idea no longer exists.
+ * affects the other. Named "<name> copy", in the same folder, not starred. Returns `null` if the idea no longer exists.
  */
 export async function duplicateProject(id: string): Promise<ProjectSummary | null> {
   const source = await getProject(id);
@@ -423,8 +453,8 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
     await db.withExclusiveTransactionAsync(async (tx) => {
       await tx.runAsync(
         `INSERT INTO projects (id, name, created_at, updated_at, pre_roll, snap, bpm, beats_per_bar, beat_unit, grid,
-           metronome, metronome_volume, metronome_output, loop_on, loop_start, loop_end, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           metronome, metronome_volume, metronome_output, loop_on, loop_start, loop_end, notes, folder_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         newId,
         name,
         now,
@@ -442,6 +472,7 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
         source.loopRegion?.start ?? null,
         source.loopRegion?.end ?? null,
         source.notes,
+        source.folderId,
       );
       for (const track of source.tracks) {
         await tx.runAsync(
@@ -519,6 +550,8 @@ export async function duplicateProject(id: string): Promise<ProjectSummary | nul
     updatedAt: now,
     duration: source.duration,
     notes: source.notes,
+    folderId: source.folderId,
+    favorite: false,
   };
 }
 

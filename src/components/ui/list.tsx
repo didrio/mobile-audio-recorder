@@ -1,7 +1,7 @@
 import { Children, Fragment, isValidElement, type ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 
-import { makeStyles } from '@/theme';
+import { makeStyles, type ColorName } from '@/theme';
 
 import { Icon, type IconName } from './icon';
 import { Text } from './text';
@@ -51,12 +51,16 @@ export type ListRowProps = {
   /** Secondary text shown on the right (e.g. a current value). */
   value?: string | null;
   icon?: IconName;
+  /** The icon's color; `primary` by default. */
+  iconColor?: ColorName;
   /** Makes the row pressable and shows a chevron. */
   onPress?: () => void;
   /** Long-press handler (e.g. open a context menu). Only used together with `onPress`. */
   onLongPress?: () => void;
   /** Custom trailing element (switch, badge…). Replaces `value`. */
   accessory?: ReactNode;
+  /** In a select mode: whether the row is picked (for screen readers). */
+  selected?: boolean;
   /** Allow long-press to copy the value (useful for IDs). */
   selectable?: boolean;
   testID?: string;
@@ -67,16 +71,18 @@ export function ListRow({
   subtitle,
   value,
   icon,
+  iconColor = 'primary',
   onPress,
   onLongPress,
   accessory,
+  selected,
   selectable,
   testID,
 }: ListRowProps) {
   const styles = useStyles();
   const content = (
     <>
-      {icon ? <Icon name={icon} size={20} color="primary" /> : null}
+      {icon ? <Icon name={icon} size={20} color={iconColor} /> : null}
       {subtitle ? (
         <View style={styles.rowTexts}>
           <Text numberOfLines={1}>{title}</Text>
@@ -120,6 +126,7 @@ export function ListRow({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={selected === undefined ? undefined : { selected }}
       onPress={onPress}
       onLongPress={onLongPress}
       testID={testID}

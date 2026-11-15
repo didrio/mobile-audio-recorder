@@ -82,6 +82,14 @@ export default function RootLayout() {
             sheetGrabberVisible: true,
           }}
         />
+        <Stack.Screen
+          name="move-to"
+          options={{
+            presentation: 'formSheet',
+            sheetAllowedDetents: [0.6, 0.9],
+            sheetGrabberVisible: true,
+          }}
+        />
         <Stack.Screen name="+not-found" options={{ headerShown: true, title: 'Not found' }} />
       </Stack>
     </AppProviders>

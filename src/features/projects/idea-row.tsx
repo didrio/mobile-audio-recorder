@@ -4,13 +4,14 @@ import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
 
-import { Icon, ListRow, Text, type IconName } from '@/components/ui';
+import { Icon, ListRow, Text } from '@/components/ui';
 import { formatDuration } from '@/features/audio/format-time';
 import { makeStyles } from '@/theme';
 
-import type { IdeaAction } from './idea-actions';
+import { ROW_ACTIONS, type IdeaAction } from './idea-actions';
 import { formatIdeaDate } from './ideas-list';
 import type { ProjectSummary } from './projects-repo';
+import { SwipeActions } from './swipe-actions';
 
 type Props = {
   idea: ProjectSummary;
@@ -18,67 +19,95 @@ type Props = {
   dateKind: 'updated' | 'created';
   /** While searching: the bit of the notes that matched (`notesMatch`), shown after the date. */
   match?: string | null;
+  /** The folder it lives in ("Demos › Rough"), shown while searching and in Favorites. */
+  path?: string | null;
+  /** Select mode: `undefined` = not selecting; tapping toggles instead of opening. */
+  selected?: boolean;
   onOpen: () => void;
   onAction: (action: IdeaAction) => void;
   onLongPress: () => void;
 };
 
-const ACTIONS: {
-  action: IdeaAction;
-  label: string;
-  icon: IconName;
-  tone: 'neutral' | 'primary' | 'danger';
-}[] = [
-  { action: 'rename', label: 'Rename', icon: { ios: 'pencil', android: 'edit' }, tone: 'neutral' },
-  {
-    action: 'duplicate',
-    label: 'Duplicate',
-    icon: { ios: 'plus.square.on.square', android: 'content_copy' },
-    tone: 'primary',
-  },
-  { action: 'delete', label: 'Delete', icon: { ios: 'trash', android: 'delete' }, tone: 'danger' },
-];
-
-/** One idea in the list: tap to open, swipe left for Rename / Duplicate / Delete, long-press for the same menu. */
-export function IdeaRow({ idea, dateKind, match, onOpen, onAction, onLongPress }: Props) {
+/**
+ * One idea in the list: tap to open, swipe left for Rename / Duplicate / Delete, swipe right to star it,
+ * long-press for the full menu. A star by the length marks a favorite.
+ */
+export function IdeaRow({
+  idea,
+  dateKind,
+  match,
+  path,
+  selected,
+  onOpen,
+  onAction,
+  onLongPress,
+}: Props) {
   const styles = useStyles();
   const swipeable = useRef<SwipeableMethods>(null);
   const date = formatIdeaDate(dateKind === 'created' ? idea.createdAt : idea.updatedAt);
+  const subtitle = [date, path, match].filter(Boolean).join(' · ');
+  const selecting = selected !== undefined;
+  const run = (action: IdeaAction) => {
+    swipeable.current?.close();
+    onAction(action);
+  };
 
   return (
     <ReanimatedSwipeable
       ref={swipeable}
+      enabled={!selecting}
+      overshootLeft={false}
       overshootRight={false}
+      leftThreshold={40}
       rightThreshold={40}
       childrenContainerStyle={styles.content}
+      renderLeftActions={() => (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${idea.favorite ? 'Unfavorite' : 'Favorite'} ${idea.name}`}
+          onPress={() => run('favorite')}
+          style={styles.favoriteAction}>
+          <Icon
+            name={
+              idea.favorite
+                ? { ios: 'star.slash', android: 'star_border' }
+                : { ios: 'star.fill', android: 'star' }
+            }
+            size={20}
+            color="onPrimary"
+          />
+          <Text variant="footnote" color="onPrimary">
+            {idea.favorite ? 'Unfavorite' : 'Favorite'}
+          </Text>
+        </Pressable>
+      )}
       renderRightActions={() => (
-        <View style={styles.actions}>
-          {ACTIONS.map(({ action, label, icon, tone }) => (
-            <Pressable
-              key={action}
-              accessibilityRole="button"
-              accessibilityLabel={`${label} ${idea.name}`}
-              onPress={() => {
-                swipeable.current?.close();
-                onAction(action);
-              }}
-              style={[
-                styles.action,
-                tone === 'danger' && styles.actionDanger,
-                tone === 'primary' && styles.actionPrimary,
-              ]}>
-              <Icon name={icon} size={20} color="onPrimary" />
-              <Text variant="footnote" color="onPrimary">
-                {label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <SwipeActions name={idea.name} actions={ROW_ACTIONS} onAction={run} />
       )}>
       <ListRow
         title={idea.name}
-        subtitle={match ? `${date} · ${match}` : date}
-        value={formatDuration(idea.duration)}
+        subtitle={subtitle}
+        icon={
+          selecting
+            ? selected
+              ? { ios: 'checkmark.circle.fill', android: 'check_circle' }
+              : { ios: 'circle', android: 'radio_button_unchecked' }
+            : undefined
+        }
+        selected={selected}
+        accessory={
+          <View style={styles.trailing}>
+            {idea.favorite ? (
+              <Icon
+                name={{ ios: 'star.fill', android: 'star' }}
+                size={12}
+                color="favorite"
+                accessibilityLabel="Favorite"
+              />
+            ) : null}
+            <Text color="textSecondary">{formatDuration(idea.duration)}</Text>
+          </View>
+        }
         onPress={onOpen}
         onLongPress={onLongPress}
       />
@@ -88,14 +117,18 @@ export function IdeaRow({ idea, dateKind, match, onOpen, onAction, onLongPress }
 
 const useStyles = makeStyles((t) => ({
   content: { backgroundColor: t.colors.surface },
-  actions: { flexDirection: 'row' },
-  action: {
-    width: 76,
+  trailing: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: t.spacing.xs,
+  },
+  favoriteAction: {
+    width: 88,
     alignItems: 'center',
     justifyContent: 'center',
     gap: t.spacing.xs,
-    backgroundColor: t.colors.textSecondary,
+    backgroundColor: t.colors.favorite,
   },
-  actionPrimary: { backgroundColor: t.colors.primary },
-  actionDanger: { backgroundColor: t.colors.danger },
 }));

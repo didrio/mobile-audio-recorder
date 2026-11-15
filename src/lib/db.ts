@@ -1,5 +1,5 @@
 /**
- * The app's SQLite database (projects, tracks, takes, clips, sections).
+ * The app's SQLite database (folders, projects, tracks, takes, clips, sections).
  *
  * One shared connection, opened lazily and migrated before first use. It's a plain promise rather than
  * `SQLiteProvider` because the audio flow writes to it outside React.
@@ -14,6 +14,11 @@
  *   `color` key (`@/features/project/sections`) and a free-text `notes`. They never overlap.
  * - `projects.notes` (T24) is the idea's free-text notes. Saved on its own (`setProjectNotes`), not an undo
  *   step: the text field has its own undo.
+ * - `folders` (T19) nest without a depth limit (`parent_id` NULL = the Ideas root; deleting a folder
+ *   cascades to its subfolders). `projects.folder_id` (NULL = root) uses ON DELETE SET NULL as a safety
+ *   net: real folder deletion (`deleteItems` in `folders-repo.ts`) removes the ideas and their files
+ *   first, and a cascade would drop idea rows but leave their audio behind. `projects.favorite` stars an
+ *   idea wherever it lives; starring and moving don't touch `updated_at`.
  * - The open idea is edited through the editor store (`@/features/project/editor-store`): edits are
  *   snapshots of the track/clip/section rows they touch, applied in memory and written with `saveChanges`
  *   (`projects-repo.ts`). Undo history lives only while the idea is open, so takes no clip uses are
@@ -24,7 +29,7 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 
 const DATABASE_NAME = 'audio-recorder.db';
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 
 let database: Promise<SQLiteDatabase> | null = null;
 
@@ -165,6 +170,22 @@ async function migrate(db: SQLiteDatabase) {
         ALTER TABLE clips ADD COLUMN gain REAL NOT NULL DEFAULT 1;
         ALTER TABLE clips ADD COLUMN fade_in REAL NOT NULL DEFAULT 0;
         ALTER TABLE clips ADD COLUMN fade_out REAL NOT NULL DEFAULT 0;
+      `);
+    }
+    if (version < 12) {
+      // Folders and favorites (T19).
+      await tx.execAsync(`
+        CREATE TABLE folders (
+          id TEXT PRIMARY KEY NOT NULL,
+          parent_id TEXT REFERENCES folders(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX folders_parent ON folders(parent_id);
+        ALTER TABLE projects ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL;
+        ALTER TABLE projects ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
+        CREATE INDEX projects_folder ON projects(folder_id);
       `);
     }
     await tx.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);

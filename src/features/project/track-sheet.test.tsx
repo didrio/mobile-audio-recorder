@@ -50,6 +50,8 @@ const project = (tracks: Project['tracks']): Project => ({
   id: 'p1',
   name: 'Chorus riff',
   notes: '',
+  folderId: null,
+  favorite: false,
   createdAt: 0,
   updatedAt: 0,
   duration: 1,

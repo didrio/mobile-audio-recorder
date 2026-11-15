@@ -12,6 +12,8 @@ type Props = {
   /** Accessibility label of the name field, e.g. "Idea name". */
   inputLabel: string;
   maxLength?: number;
+  /** The confirm button's title; "Save" by default ("Create" for a new item). */
+  submitLabel?: string;
   onSubmit: (id: string, name: string) => void;
   onCancel: () => void;
 };
@@ -30,6 +32,7 @@ function Body({
   title,
   inputLabel,
   maxLength,
+  submitLabel = 'Save',
   onSubmit,
   onCancel,
 }: Omit<Props, 'item'> & { item: { id: string; name: string } }) {
@@ -62,7 +65,7 @@ function Body({
         />
         <View style={styles.buttons}>
           <Button title="Cancel" variant="plain" onPress={onCancel} />
-          <Button title="Save" disabled={!canSave} onPress={save} />
+          <Button title={submitLabel} disabled={!canSave} onPress={save} />
         </View>
       </View>
     </KeyboardAvoidingView>

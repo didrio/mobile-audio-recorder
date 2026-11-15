@@ -14,6 +14,8 @@ const idea = (
   updatedAt,
   duration: 0,
   notes,
+  folderId: null,
+  favorite: false,
 });
 
 const ideas = [

@@ -1,8 +1,8 @@
 import type { IconName } from '@/components/ui';
 
 /**
- * The idea's "⋯" header menu. Idea settings (T9), Notes (T24), Duplicate and Delete (T10) are live;
- * Favorite is a placeholder (shown disabled) until T19.
+ * The idea's "⋯" header menu: Idea settings (T9), Notes (T24), Duplicate and Delete (T10), Favorite (T19;
+ * shown as "Unfavorite" with a filled star once starred, in `project-screen.tsx`).
  */
 export type IdeaMenuItemId = 'settings' | 'notes' | 'duplicate' | 'favorite' | 'delete';
 

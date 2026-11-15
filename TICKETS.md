@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T19 — Folders & favorites · Opus · high effort · plan mode on
+**Next:** T42 — Shelve Speaker mode · Sonnet · medium effort · plan mode off
 
 ## In progress
 
@@ -57,35 +57,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
 
-### T19 — Folders & favorites
-
-- **Status:** ready (after T10)
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** The Ideas tab works like a simple file system: nested folders, favorites, moving things around.
-- **Done when:**
-  - [ ] Migration: `folders` table (id, parent_id nullable → root, name, created_at, updated_at, cascade on
-        delete), `projects.folder_id` (null = root), `projects.favorite`.
-  - [ ] A `folder/[id]` route in the Ideas stack reuses the list screen for a folder's contents. Back goes up a
-        level. No depth limit.
-  - [ ] Root shows a Favorites row pinned at the top (a virtual folder with every starred idea, wherever it
-        lives), then folders, then ideas. Folders always list before ideas, and T10's sort applies within
-        each.
-  - [ ] Star/unstar from the row's swipe action, the long-press menu and the idea's "⋯" menu. Starring doesn't
-        move the idea.
-  - [ ] "+" menu: New Idea (created in the current folder), New Folder. Rename folder; delete folder with a
-        confirmation that gives counts ("Delete 'Demos' and its 2 folders and 9 ideas?"), deleting its
-        contents and their files.
-  - [ ] "Move to…" on ideas and folders: folder picker sheet (a folder can't be moved into itself or a
-        subfolder of itself). Select mode (Edit) for moving or deleting several at once.
-  - [ ] Search spans every folder and shows each result's folder path.
-  - [ ] Unit tests for the tree logic (descendants, move validation, delete counts).
-- **Context:** The Ideas search already matches idea notes too (T24: `filterIdeas`, `notesMatch` in
-  `ideas-list.ts`, shown as a snippet after the date in `idea-row.tsx`); keep that working in folders and
-  Favorites. The idea's "⋯" Favorite placeholder is in `idea-menu-items.ts` / `menuActions` in
-  `project-screen.tsx`. The Ideas stack is `src/app/(tabs)/(home)/`. `deleteProject` deletes rows + files; T10's list code (`ideas-list.ts` sort/filter, `idea-row.tsx`, `idea-actions.ts`, `rename-idea-dialog.tsx`) is meant to be reused for a folder's contents; deleting a
-  folder must do that for every idea under it. Build select mode so it can be reused: T37 adds batch export
-  to it and T41 (Recently Deleted) changes what Delete does.
-
 ### T42 — Shelve Speaker mode
 
 - **Status:** ready
@@ -118,7 +89,7 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 
 ### T36 — Export a mix
 
-- **Status:** ready (after T19)
+- **Status:** ready
 - **Session:** Opus · high effort · plan mode on
 - **Goal:** Share an idea as one audio file to anywhere: Messages, AirDrop, Files, Drive, email.
 - **Done when:**
@@ -215,7 +186,7 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 
 ### T41 — Recently Deleted
 
-- **Status:** ready (after T19)
+- **Status:** ready
 - **Session:** Sonnet · medium effort · plan mode on
 - **Goal:** Deleting an idea or folder is recoverable for 30 days.
 - **Done when:**
@@ -251,6 +222,8 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 Run these with the next build on real phones (T7 needs one anyway, or before a release; see the `release`
 skill). Fix or ticket what fails, then delete the line.
 
+- Ideas folders (T19) on Android: the long-press menu bottom sheet (`useActionMenu`), the select-mode bar at the
+  bottom of the screen, header Select / Sort / "+" and the Select All / Done header in select mode.
 - Android preview APK installs; an OTA update (`npm run update:preview`) published after the builds arrives on
   both phones (Settings → Update shows an update ID after two cold starts).
 - Recording: mic permission prompt, speaker vs. earpiece routing, Bluetooth headphones.
@@ -346,6 +319,9 @@ skill). Fix or ticket what fails, then delete the line.
 
 Ideas that aren't ready to work on yet. Promote them to "Up next" with full detail when they are.
 
+- Folder polish (from T19, after trying it): a "⋯" in a folder's header to rename / move / delete the folder
+  you're in; New Folder inside the Move sheet; Favorite / Unfavorite as a select-mode action. All in
+  `projects-screen.tsx` / `move-to-screen.tsx`.
 - Loop region polish (from T26, decide after trying it on a phone): the lane tint is drawn under clips, so on
   a full lane it's barely visible (tint over the clips, or dim outside the region instead?); the start handle
   covers the playhead's ruler handle when both sit at the region start (handles win; the default region starts
@@ -413,6 +389,13 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T19 — Folders & favorites — 2026-11-14 — `folders` table + `projects.folder_id` (SET NULL safety net) and
+  `favorite` (migration v12); one `IdeasListScreen` for the root, `folder/[id]` and `favorites`, derived by pure
+  `folder-tree.ts` (subtree search with folder paths, Recent counts activity inside folders, delete counts, move
+  validation); star by swipe right / long-press / idea "⋯"; "+" New Idea / New Folder; Move to… sheet
+  (`move-to.tsx`); reusable select mode (`use-selection.ts`, `selection-bar.tsx`: iOS bottom toolbar) with Move /
+  Delete through `deleteItems` in `folders-repo.ts` (T41 changes that); `useActionMenu` for long-press menus.
+  Simulator light + dark; Android untested
 - T20 — Pitch reference keyboard — 2026-11-14 — keyboard button in the strip opens a short sheet
   (`src/features/keyboard/pitch-keyboard-sheet.tsx`): as many white keys as fit (≥ 40 pt, one octave + on a
   phone), octave buttons (start remembered), one manual multi-touch gesture follows every finger (chords,

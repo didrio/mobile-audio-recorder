@@ -55,6 +55,8 @@ export const lightColors = {
   onMute: '#FFFFFF',
   solo: '#F5B800',
   onSolo: '#000000',
+  /** Ideas list (T19): the star of a favorite idea, and the swipe action that stars it. */
+  favorite: '#F5A300',
   /** Visual metronome: the lit downbeat (other beats light in `text`), and its number. */
   downbeat: '#1FA34A',
   onDownbeat: '#FFFFFF',
@@ -108,6 +110,7 @@ export const darkColors: ThemeColors = {
   onMute: '#FFFFFF',
   solo: '#FFD60A',
   onSolo: '#000000',
+  favorite: '#FFC21A',
   downbeat: '#30D158',
   onDownbeat: '#000000',
   sectionRed: '#A8322A',

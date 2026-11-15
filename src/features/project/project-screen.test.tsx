@@ -23,8 +23,10 @@ import type { Meter } from '@/features/audio/tempo';
 import {
   deleteUnusedTakes,
   getProject,
+  listProjects,
   saveChanges,
   setArmedTrack,
+  setFavorite,
   setLoop,
   setMetronome as saveMetronome,
   setPreRoll,
@@ -224,12 +226,15 @@ jest.mock('@/features/projects/projects-repo', () => ({
   listProjects: jest.fn(),
   createProject: jest.fn(),
   deleteProject: jest.fn(),
+  setFavorite: jest.fn(() => Promise.resolve()),
 }));
 
 const project: Project = {
   id: 'p1',
   name: 'Chorus riff',
   notes: '',
+  folderId: null,
+  favorite: false,
   createdAt: 0,
   updatedAt: 0,
   duration: 12,
@@ -332,6 +337,7 @@ describe('ProjectScreen', () => {
       silentRecording: false,
       cleanupStrength: 'light',
     });
+    jest.mocked(listProjects).mockResolvedValue([]);
     mockPush.mockClear();
   });
 
@@ -935,15 +941,28 @@ describe('ProjectScreen', () => {
     expect(saveChanges).toHaveBeenCalledTimes(5);
   });
 
-  it('has a "More" menu: Idea settings, Duplicate and Delete work, Favorite is a placeholder', async () => {
+  it('has a "More" menu: Idea settings, Duplicate, Favorite and Delete work', async () => {
+    jest.mocked(listProjects).mockResolvedValue([{ ...project, favorite: false }]);
+    const user = userEvent.setup();
     await renderScreen();
 
     await screen.findByText('Timeline of Chorus riff');
     expect(screen.getByText('More')).toBeOnTheScreen();
     expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeEnabled();
     expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeEnabled();
-    expect(screen.getByRole('menuitem', { name: 'Favorite' })).toBeDisabled();
     expect(screen.getByRole('menuitem', { name: 'Idea settings' })).toBeEnabled();
+
+    await user.press(await screen.findByRole('menuitem', { name: 'Favorite' }));
+    expect(setFavorite).toHaveBeenCalledWith(['p1'], true);
+  });
+
+  it('offers Unfavorite for a starred idea', async () => {
+    jest.mocked(listProjects).mockResolvedValue([{ ...project, favorite: true }]);
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('menuitem', { name: 'Unfavorite' }));
+    expect(setFavorite).toHaveBeenCalledWith(['p1'], false);
   });
 
   it('opens the idea settings sheet from the menu', async () => {

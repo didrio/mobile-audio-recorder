@@ -12,7 +12,12 @@ import { setTrackGain } from '@/features/audio/audio-engine';
 import { formatTimecode } from '@/features/audio/format-time';
 import { showsBeats } from '@/features/audio/metronome';
 import { confirmDeleteIdea } from '@/features/projects/idea-actions';
-import { useDeleteProject, useDuplicateProject } from '@/features/projects/queries';
+import {
+  useDeleteProject,
+  useDuplicateProject,
+  useIsFavorite,
+  useSetFavorite,
+} from '@/features/projects/queries';
 import { Timeline, type ClipEditing, type SectionEditing } from '@/features/timeline/timeline';
 import { makeStyles, useTheme } from '@/theme';
 
@@ -62,8 +67,8 @@ import { useTransport } from './use-transport';
  * playing punches in on the fly; with pre-roll on, Record starts with a run-up (`use-transport.ts`). The app is portrait-only
  * (`orientation` in app.json), so there is no landscape layout. One track is
  * armed: Record records onto it while the others play. Tracks are added from the timeline's
- * "+ New Track" row. The header has Undo, Redo (enabled only while idle) and "⋯" (Idea settings, Notes, Duplicate, Delete;
- * Favorite is a placeholder until T19). The strip's Notes button (dot = has notes) opens the idea notes sheet (T24),
+ * "+ New Track" row. The header has Undo, Redo (enabled only while idle) and "⋯" (Idea settings, Notes, Duplicate,
+ * Favorite / Unfavorite (T19), Delete). The strip's Notes button (dot = has notes) opens the idea notes sheet (T24),
  * the keyboard button the pitch reference keyboard (T20). The idea itself lives in the editor store (`editor-store.ts`), open while this screen is.
  */
 export function ProjectScreen() {
@@ -150,9 +155,16 @@ export function ProjectScreen() {
     if (track) setTrackGain(trackId, trackOutputGain({ ...track, volume }, hasSolo(tracks)));
   };
 
-  // The "⋯" menu: Favorite is the only item that doesn't do anything yet (T19); it stays disabled.
+  // The "⋯" menu. Starring isn't an undoable edit: it's read from and written to the Ideas list.
   const duplicateProject = useDuplicateProject();
   const deleteProject = useDeleteProject();
+  const isFavorite = useIsFavorite(params.id).data ?? false;
+  const setFavorite = useSetFavorite();
+  const menuItems = IDEA_MENU_ITEMS.map((item) =>
+    item.id === 'favorite' && isFavorite
+      ? { ...item, label: 'Unfavorite', icon: { ...item.icon, ios: 'star.fill' as const } }
+      : item,
+  );
   const openNotes = () => router.push({ pathname: '/idea-notes/[id]', params: { id: params.id } });
   const menuActions: Partial<Record<IdeaMenuItemId, () => void>> = {
     settings: () => router.push({ pathname: '/idea-settings/[id]', params: { id: params.id } }),
@@ -164,6 +176,7 @@ export function ProjectScreen() {
         },
       });
     },
+    favorite: () => setFavorite.mutate({ ids: [params.id], favorite: !isFavorite }),
     delete: () => {
       if (!project) return;
       confirmDeleteIdea(project.name, () => {
@@ -456,7 +469,7 @@ export function ProjectScreen() {
                 <AndroidHeaderMenu
                   label="More"
                   icon={{ ios: 'ellipsis', android: 'more_vert' }}
-                  items={IDEA_MENU_ITEMS.map((item) => ({
+                  items={menuItems.map((item) => ({
                     label: item.label,
                     disabled: !menuEnabled(item.id),
                     onPress: menuActions[item.id],
@@ -484,9 +497,9 @@ export function ProjectScreen() {
             Redo
           </Stack.Toolbar.Button>
           <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="More">
-            {IDEA_MENU_ITEMS.map((item) => (
+            {menuItems.map((item) => (
               <Stack.Toolbar.MenuAction
-                key={item.label}
+                key={item.id}
                 icon={item.icon.ios}
                 destructive={item.destructive}
                 disabled={!menuEnabled(item.id)}

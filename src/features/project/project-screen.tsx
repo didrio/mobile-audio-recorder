@@ -169,6 +169,7 @@ export function ProjectScreen() {
   const menuActions: Partial<Record<IdeaMenuItemId, () => void>> = {
     settings: () => router.push({ pathname: '/idea-settings/[id]', params: { id: params.id } }),
     notes: openNotes,
+    export: () => router.push({ pathname: '/export/[id]', params: { id: params.id } }),
     duplicate: () => {
       duplicateProject.mutate(params.id, {
         onSuccess: (copy) => {

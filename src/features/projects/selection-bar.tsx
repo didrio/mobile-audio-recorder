@@ -14,7 +14,7 @@ export type SelectionAction = {
 };
 
 /**
- * Select mode's actions (Move, Delete; T37 adds Export): the native bottom toolbar on iOS, a plain bar at
+ * Select mode's actions (Export, Move, Delete): the native bottom toolbar on iOS, a plain bar at
  * the bottom of the screen on Android (where the tab bar takes its own space).
  */
 export function SelectionBar({ actions }: { actions: SelectionAction[] }) {

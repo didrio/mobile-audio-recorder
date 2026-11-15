@@ -12,6 +12,7 @@ import { makeStyles } from '@/theme';
 import { FolderRow } from './folder-row';
 import {
   deleteMessage,
+  folderSubtree,
   formatFolderPath,
   itemCount,
   scopeContents,
@@ -161,7 +162,9 @@ export function IdeasListScreen({ scope }: { scope: IdeasScope }) {
     const items = { ideaIds: [idea.id], folderIds: [] };
     if (action === 'favorite') setFavorite.mutate({ ids: [idea.id], favorite: !idea.favorite });
     else if (action === 'rename') setRenaming({ kind: 'idea', id: idea.id, name: idea.name });
-    else if (action === 'duplicate') duplicateProject.mutate(idea.id);
+    else if (action === 'export') {
+      router.push({ pathname: '/export/[id]', params: { id: idea.id } });
+    } else if (action === 'duplicate') duplicateProject.mutate(idea.id);
     else if (action === 'move') openMove(items);
     else if (action === 'select') selection.start({ kind: 'idea', id: idea.id });
     else askDelete(items);
@@ -185,7 +188,28 @@ export function IdeasListScreen({ scope }: { scope: IdeasScope }) {
   const toggleAll = () =>
     selection.setAll(allSelected ? { ideaIds: [], folderIds: [] } : visibleSelection);
 
+  // Batch export: the picked ideas and every idea inside the picked folders.
+  const exportIds = (() => {
+    const { ideaIds, folderIds } = selection.selection;
+    if (folderIds.length === 0 || !allIdeas || !allFolders) return ideaIds;
+    const folderSet = folderSubtree(allFolders, folderIds);
+    const inFolders = allIdeas
+      .filter((idea) => idea.folderId != null && folderSet.has(idea.folderId))
+      .map((idea) => idea.id);
+    return [...new Set([...ideaIds, ...inFolders])];
+  })();
+
   const selectionActions: SelectionAction[] = [
+    {
+      id: 'export',
+      label: 'Export',
+      icon: { ios: 'square.and.arrow.up', android: 'ios_share' },
+      disabled: exportIds.length === 0,
+      onPress: () => {
+        router.push({ pathname: '/export-batch', params: { ids: exportIds.join(',') } });
+        selection.done();
+      },
+    },
     {
       id: 'move',
       label: 'Move',

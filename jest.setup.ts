@@ -41,6 +41,20 @@ jest.mock('@/lib/echo-canceller', () => ({
   ),
 }));
 
+// The Export native module (M4A encoding, multi-file share): available, and both succeed.
+jest.mock('@/lib/audio-export', () => ({
+  __esModule: true,
+  isAudioExportAvailable: true,
+  M4A_BIT_RATE: 160000,
+  encodeM4A: jest.fn(() => Promise.resolve()),
+  shareFiles: jest.fn(() => Promise.resolve()),
+}));
+
+jest.mock('expo-sharing', () => ({
+  isAvailableAsync: jest.fn(() => Promise.resolve(true)),
+  shareAsync: jest.fn(() => Promise.resolve()),
+}));
+
 // The library's mock lacks the device queries; no headphones unless a test says otherwise.
 jest.mock('react-native-audio-api', () => {
   const audioMock = jest.requireActual('react-native-audio-api/mock');

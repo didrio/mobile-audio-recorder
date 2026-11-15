@@ -1,0 +1,6 @@
+{
+  "name": "audio-export",
+  "version": "1.0.0",
+  "description": "Encodes exported mixes and stems to M4A (AAC) and shares several files at once.",
+  "private": true
+}

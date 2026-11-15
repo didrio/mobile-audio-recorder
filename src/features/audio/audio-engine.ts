@@ -1,6 +1,7 @@
 /**
- * The app's audio engine: the only module that talks to `react-native-audio-api` (Web Audio API).
- * Features and tests use these functions, never the library directly.
+ * The app's audio engine: with `audio-graph.ts` (the graph both share) and `offline-render.ts`
+ * (Export), the only modules that talk to `react-native-audio-api` (Web Audio API). Features and
+ * tests use these functions, never the library directly.
  *
  * - Recording: `AudioRecorder` writes a lossless mono WAV to the cache; the caller moves it into the
  *   project (see `take-files.ts`). `onBuffer` gets every input buffer (level meter, live waveform).
@@ -20,6 +21,8 @@
  *   its timeline position: source → clip gain → track gain → master gain → speakers. Decoded takes are
  *   cached. The clip gain node plays the clip's envelope (T16, `clip-envelope.ts`): its gain, fades, and
  *   a few-millisecond declick on every edge, except where a split left two pieces of a take back to back.
+ *   The graph is built by `audio-graph.ts`, which Export renders with too (T36), so a mix file
+ *   sounds exactly like Play.
  * - Mixer: `setTrackGain` keeps each track's gain (track volume; later × mute/solo). Playback builds
  *   one `GainNode` per track from it, and changes apply live (short ramp) to the playing graph,
  *   including the backing playback while recording.
@@ -65,14 +68,21 @@ import {
   FilePreset,
   type AudioBuffer,
   type AudioBufferSourceNode,
+  type AudioNode,
   type GainNode,
   type OscillatorNode,
   type PeriodicWave,
 } from 'react-native-audio-api';
 
-import { envelopePoints, seamlessEdges } from './clip-envelope';
+import {
+  connectClipGain,
+  startClick,
+  startClips,
+  trackGainNode as graphTrackGain,
+} from './audio-graph';
+import { seamlessEdges } from './clip-envelope';
 import { clipPieces, loopedPosition, loopSegments, type LoopRegion } from './loop-math';
-import { clicksBetween, clickSamples, type ClickAccent } from './metronome';
+import { clicksBetween } from './metronome';
 import type { TakeAlignment } from './take-alignment';
 import { takeFilePath } from './take-files';
 import type { Meter } from './tempo';
@@ -169,8 +179,6 @@ const LOOP_LOOKAHEAD_SECONDS = 1;
 
 export type MetronomeConfig = { meter: Meter; volume: number };
 let metronome: MetronomeConfig | null = null;
-/** Click sounds, made once per accent at the context's sample rate. */
-const clickBuffers = new Map<ClickAccent, AudioBuffer>();
 
 type ClickScheduler = {
   /** Every click goes through this gain (the metronome volume) to the playback output. */
@@ -513,24 +521,19 @@ export async function play(
   master.connect(ctx.destination);
   const startedAt = ctx.currentTime + SCHEDULE_AHEAD_SECONDS;
   const startedAtMs = performance.now() + (SCHEDULE_AHEAD_SECONDS + outputLatency(ctx)) * 1000;
-  let end = 0;
 
   const tracks = new Map<string, GainNode>();
   const trackGain = (trackId: string) => trackGainNode(ctx, tracks, master, trackId);
 
-  // A loop's passes are scheduled by the tick; straight playback starts every clip now.
-  const sources = (region ? [] : audible).map((clip, index) => {
-    const skipped = Math.max(0, from - clip.start);
-    const source = ctx.createBufferSource();
-    source.buffer = buffers[index] ?? null;
-    const at = startedAt + Math.max(0, clip.start - from);
-    source.connect(
-      clipGainNode(ctx, clip, skipped, clip.duration - skipped, at, trackGain(clip.trackId)),
-    );
-    source.start(at, clip.offset + skipped, clip.duration - skipped);
-    end = Math.max(end, clip.start + clip.duration - from);
-    return source;
-  });
+  // A loop's passes are scheduled by the tick; straight playback starts every clip now, through the
+  // same graph code as an export (`audio-graph.ts`).
+  const { sources, end } = startClips(
+    ctx,
+    region ? [] : audible.map((clip, index) => ({ ...clip, buffer: buffers[index] ?? null })),
+    from,
+    startedAt,
+    trackGain,
+  );
 
   const clickGain = ctx.createGain();
   clickGain.gain.value = metronome?.volume ?? 1;
@@ -576,42 +579,14 @@ export async function play(
   tick(current);
 }
 
-/**
- * The clip's own gain node (T16), connected to `output`: plays its envelope (`clip-envelope.ts`) for
- * `length` seconds from `from` seconds into the clip, starting at context time `at`.
- */
-function clipGainNode(
-  ctx: AudioContext,
-  clip: ScheduledClip,
-  from: number,
-  length: number,
-  at: number,
-  output: GainNode,
-): GainNode {
-  const node = ctx.createGain();
-  const [first, ...rest] = envelopePoints(clip, from, length);
-  node.gain.value = first?.value ?? clip.gain;
-  node.gain.setValueAtTime(node.gain.value, at);
-  for (const point of rest) node.gain.linearRampToValueAtTime(point.value, at + point.time);
-  node.connect(output);
-  return node;
-}
-
-/** One gain per track, made on first use at the track's current gain. */
+/** One gain per track, made on first use at the track's current gain (`setTrackGain`). */
 function trackGainNode(
   ctx: AudioContext,
   tracks: Map<string, GainNode>,
-  output: GainNode,
+  output: AudioNode,
   trackId: string,
 ): GainNode {
-  let node = tracks.get(trackId);
-  if (!node) {
-    node = ctx.createGain();
-    node.gain.value = trackGains.get(trackId) ?? 1;
-    node.connect(output);
-    tracks.set(trackId, node);
-  }
-  return node;
+  return graphTrackGain(ctx, tracks, output, trackId, trackGains.get(trackId) ?? 1);
 }
 
 function tick(current: NonNullable<typeof playback>) {
@@ -638,7 +613,7 @@ function scheduleLoop(current: NonNullable<typeof playback>) {
       if (late >= piece.duration) continue;
       const source = ctx.createBufferSource();
       source.buffer = piece.clip.buffer;
-      const track = clipGainNode(
+      const track = connectClipGain(
         ctx,
         piece.clip,
         piece.offset + late - piece.clip.offset,
@@ -688,11 +663,7 @@ function scheduleClicks(current: NonNullable<typeof playback>) {
       const b = Math.min(segment.end, segment.start + (until - segment.elapsed));
       for (const click of clicksBetween(metronome.meter, a, b)) {
         const at = current.startedAt + segment.elapsed + (click.position - segment.start);
-        const source = ctx.createBufferSource();
-        source.buffer = clickBuffer(ctx, click.accent);
-        source.connect(clicks.gain);
-        source.start(at);
-        clicks.sources.push({ source, at });
+        clicks.sources.push({ source: startClick(ctx, click.accent, at, clicks.gain), at });
       }
     }
     clicks.scheduledUntil = until;
@@ -717,17 +688,6 @@ function cancelClicks(current: NonNullable<typeof playback>) {
   }
   current.clicks.sources = current.clicks.sources.filter(({ at }) => at <= now);
   current.clicks.scheduledUntil = now - current.startedAt;
-}
-
-function clickBuffer(ctx: AudioContext, accent: ClickAccent): AudioBuffer {
-  let buffer = clickBuffers.get(accent);
-  if (!buffer || buffer.sampleRate !== ctx.sampleRate) {
-    const samples = clickSamples(accent, ctx.sampleRate);
-    buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
-    buffer.copyToChannel(samples, 0);
-    clickBuffers.set(accent, buffer);
-  }
-  return buffer;
 }
 
 /**

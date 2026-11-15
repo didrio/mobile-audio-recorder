@@ -455,6 +455,7 @@ describe('IdeasListScreen', () => {
     expect(options.options).toEqual([
       'Favorite',
       'Rename',
+      'Export…',
       'Duplicate',
       'Move to…',
       'Select',
@@ -465,6 +466,38 @@ describe('IdeasListScreen', () => {
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/move-to',
       params: { ideas: 'a', folders: '' },
+    });
+  });
+
+  it('opens the export sheet from an idea’s long-press menu', async () => {
+    seedTree();
+    const sheet = jest
+      .spyOn(ActionSheetIOS, 'showActionSheetWithOptions')
+      .mockImplementation(() => {});
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.longPress(await screen.findByRole('button', { name: /^Chorus riff/ }));
+    const [options, choose] = sheet.mock.calls[0]!;
+    choose(options.options.indexOf('Export…'));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/export/[id]', params: { id: 'a' } });
+  });
+
+  it('exports the picked ideas and the ideas inside picked folders', async () => {
+    seedTree();
+    const user = userEvent.setup();
+    await renderScreen();
+    await screen.findByText('Chorus riff');
+
+    await user.press(screen.getByRole('button', { name: 'Select' }));
+    expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled();
+    await user.press(screen.getByRole('button', { name: /^Chorus riff/ }));
+    await user.press(screen.getByRole('button', { name: 'Demos 2' }));
+    await user.press(screen.getByRole('button', { name: 'Export' }));
+
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/export-batch',
+      params: { ids: 'a,b,c' },
     });
   });
 });

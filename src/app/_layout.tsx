@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { AppProviders } from '@/components/app-providers';
 import { ErrorScreen } from '@/components/error-screen';
 import { forgetTakes } from '@/features/audio/audio-engine';
+import { clearExportFiles } from '@/features/export/export-runner';
 import { projectKeys } from '@/features/projects/queries';
 import { purgeExpired } from '@/features/projects/trash-repo';
 import { initAppearance } from '@/features/settings/appearance-store';
@@ -23,6 +24,8 @@ export const unstable_settings = {
 export default function RootLayout() {
   // Recently Deleted (T41): items older than 30 days are deleted for good at launch.
   useEffect(() => {
+    // Export's temporary files left behind if the app quit mid-export.
+    clearExportFiles();
     purgeExpired()
       .then((takePaths) => {
         if (takePaths.length === 0) return;
@@ -103,6 +106,22 @@ export default function RootLayout() {
           options={{
             presentation: 'formSheet',
             sheetAllowedDetents: [0.6, 0.9],
+            sheetGrabberVisible: true,
+          }}
+        />
+        <Stack.Screen
+          name="export/[id]"
+          options={{
+            presentation: 'formSheet',
+            sheetAllowedDetents: [0.9],
+            sheetGrabberVisible: true,
+          }}
+        />
+        <Stack.Screen
+          name="export-batch"
+          options={{
+            presentation: 'formSheet',
+            sheetAllowedDetents: [0.9],
             sheetGrabberVisible: true,
           }}
         />

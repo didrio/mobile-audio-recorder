@@ -1,6 +1,7 @@
 import { NativeTabs } from 'expo-router/native-tabs';
 import { Platform } from 'react-native';
 
+import { useTabBarStore } from '@/features/projects/tab-bar-store';
 import { useTheme } from '@/theme';
 
 /**
@@ -13,8 +14,11 @@ import { useTheme } from '@/theme';
 export default function TabsLayout() {
   const theme = useTheme();
   const isAndroid = Platform.OS === 'android';
+  // iOS: hidden in the Ideas list's select mode, so its bottom toolbar gets the full width.
+  const hidden = useTabBarStore((state) => state.hidden) && !isAndroid;
   return (
     <NativeTabs
+      hidden={hidden}
       tintColor={theme.colors.primary}
       backgroundColor={isAndroid ? theme.colors.background : undefined}
       indicatorColor={isAndroid ? theme.colors.surfacePressed : undefined}>

@@ -1,18 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { ItemSelection } from './folder-tree';
+import { setTabBarHidden } from './tab-bar-store';
 
 export type ItemKind = 'idea' | 'folder';
 
 const EMPTY: ItemSelection = { ideaIds: [], folderIds: [] };
 
 /**
- * Select mode for the Ideas list (T19): which ideas and folders are picked. Its actions (Move, Delete;
- * Export in T37) come from the screen, so later tickets add or change them without touching this.
+ * Select mode for the Ideas list (T19): which ideas and folders are picked. Its actions (Export, Move,
+ * Delete) come from the screen, so later tickets add or change them without touching this. The tab
+ * bar hides while selecting (`tab-bar-store.ts`).
  */
 export function useSelection() {
   const [selecting, setSelecting] = useState(false);
   const [selection, setSelection] = useState<ItemSelection>(EMPTY);
+
+  useEffect(() => {
+    setTabBarHidden(selecting);
+    return () => setTabBarHidden(false);
+  }, [selecting]);
 
   const key = (kind: ItemKind) => (kind === 'idea' ? 'ideaIds' : 'folderIds');
   const isSelected = (kind: ItemKind, id: string) => selection[key(kind)].includes(id);

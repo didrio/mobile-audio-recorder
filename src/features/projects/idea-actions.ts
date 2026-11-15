@@ -3,7 +3,8 @@ import { Alert } from 'react-native';
 import type { ActionMenuItem } from '@/components/action-menu';
 import type { IconName } from '@/components/ui';
 
-export type IdeaAction = 'favorite' | 'rename' | 'duplicate' | 'move' | 'select' | 'delete';
+export type IdeaAction =
+  'favorite' | 'rename' | 'export' | 'duplicate' | 'move' | 'select' | 'delete';
 export type FolderAction = 'rename' | 'move' | 'select' | 'delete';
 
 export type RowAction<A extends string> = {
@@ -28,12 +29,18 @@ const DELETE = {
 
 /** An idea row's trailing swipe actions (swiping the other way stars it). */
 export const ROW_ACTIONS: RowAction<IdeaAction>[] = [
+  {
+    action: 'export',
+    label: 'Export',
+    icon: { ios: 'square.and.arrow.up', android: 'ios_share' },
+    tone: 'primary',
+  },
   RENAME,
   {
     action: 'duplicate',
     label: 'Duplicate',
     icon: { ios: 'plus.square.on.square', android: 'content_copy' },
-    tone: 'primary',
+    tone: 'neutral',
   },
   DELETE,
 ];
@@ -49,6 +56,7 @@ export function ideaMenuItems(
   return [
     { label: favorite ? 'Unfavorite' : 'Favorite', onPress: () => onSelect('favorite') },
     { label: 'Rename', onPress: () => onSelect('rename') },
+    { label: 'Export…', onPress: () => onSelect('export') },
     { label: 'Duplicate', onPress: () => onSelect('duplicate') },
     { label: 'Move to…', onPress: () => onSelect('move') },
     { label: 'Select', onPress: () => onSelect('select') },

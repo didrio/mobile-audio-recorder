@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T36 — Export a mix · Opus · high effort · plan mode on
+**Next:** T38 — Inputs, outputs, Bluetooth & latency per route · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -56,53 +56,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   Backlog). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
-
-### T36 — Export a mix
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Share an idea as one audio file to anywhere: Messages, AirDrop, Files, Drive, email.
-- **Done when:**
-  - [ ] "Export…" in the idea's "⋯" menu (new item in `idea-menu-items.ts`) and on the Ideas row (swipe action
-        and long-press menu) opens an export sheet.
-  - [ ] Range: Whole idea (0:00 to the end of the last clip, fade tails included), Loop region (when the idea
-        has one), or one section (picker).
-  - [ ] Format: **M4A** (small, for sending; the default) or **WAV** (lossless, 24-bit, the idea's sample rate).
-  - [ ] Rendered offline (`OfflineAudioContext`) by the **same scheduling code as playback**: refactor the
-        engine so clip/envelope scheduling builds onto any `BaseAudioContext`, so the export can't drift from
-        what Play sounds like. Track volume/mute/solo (`trackOutputGain` in `mixer.ts`), clip gain and fades
-        (`envelopePoints` in `clip-envelope.ts`). Metronome and keyboard left out; an "Include click" toggle
-        (off by default) adds the metronome.
-  - [ ] Never clips: Normalize toggle (peak to −1 dBFS, on by default); with it off, the sheet warns when the
-        mix would clip.
-  - [ ] File named `<Idea name>.m4a` (optional "Add BPM to name", remembered), shared with `expo-sharing` (the
-        share sheet covers AirDrop, Messages, Save to Files, Drive, email). Progress with Cancel for long
-        renders; temp files cleaned up.
-  - [ ] Unit tests: range math, WAV encoder, file naming, the offline schedule matching playback's.
-- **Context:** `react-native-audio-api` has `OfflineAudioContext` but no encoder for a rendered buffer
-  (`AudioFileUtils` only concatenates and probes). WAV: a small JS encoder. M4A: a native encode function
-  (iOS `AVAudioFile`/`AVAssetWriter`, Android `MediaCodec` + `MediaMuxer`) in a local Expo module under
-  `modules/` (like `echo-canceller`). That and `expo-sharing` need a new dev build: tell the user before
-  coding. Takes are mono (stereo takes are Backlog); a mono mix file is fine.
-
-### T37 — Stems & batch export
-
-- **Status:** ready (after T36)
-- **Session:** Sonnet · high effort · plan mode off
-- **Goal:** Hand an idea to a DAW or a producer as separate tracks that line up, and export many ideas at once.
-- **Done when:**
-  - [ ] The export sheet gets Mix / **Stems**. Stems: one file per track, all starting at the range start and
-        all the same length, so they line up when dropped into any DAW. Named `01 Vocals.wav` (numbered by
-        track order, duplicate names kept distinct). "Apply track volume" toggle (on); muted tracks skipped
-        unless "Include muted" is on. Same formats as T36.
-  - [ ] Optional extras: a click-track stem, the mix itself, and **Tempo & markers (MIDI)**: a tiny Standard
-        MIDI File with tempo, time signature and the sections as markers, which Logic, Ableton and others
-        import to line up a session. Plus an `info.txt` (BPM, time signature, sample rate, sections with
-        times, the idea's notes).
-  - [ ] Delivered as one `<Idea> – stems.zip` (pure-JS zip such as `fflate`) or as separate files (toggle).
-  - [ ] Batch: in T19's select mode, Export puts the mixes of several ideas into one zip.
-  - [ ] Unit tests: stem alignment and length, the MIDI file's bytes, zip contents and names.
-- **Context:** Builds on T36's offline render and sheet.
 
 ### T38 — Inputs, outputs, Bluetooth & latency per route
 
@@ -176,6 +129,14 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 
 Run these with the next build on real phones (T7 needs one anyway, or before a release; see the `release`
 skill). Fix or ticket what fails, then delete the line.
+
+- Export (T36/T37), needs a new build (local module `audio-export`, expo-sharing): on an iPhone, send an M4A mix
+  by Messages and AirDrop, Save to Files, open it in another app; a stems zip opens in Files and its stems line
+  up dropped into GarageBand/Logic at bar 1 together with the `tempo.mid` (tempo, markers); "Separate files"
+  shares several at once. Listen: the export sounds like Play (fades, clip gain, mute/solo, section cuts don't
+  click). A long idea (3 min, 8 tracks): time it and watch memory. Android (never run; the Kotlin module only
+  compiled): M4A (MediaCodec) plays, the chooser for one and several files, the select-mode bar with three
+  actions.
 
 - Recently Deleted (T41): delete a folder holding ideas and a subfolder, restore it (contents come back); delete
   an idea out of a folder, then the folder, then restore the idea (lands at the root); Delete Now frees the audio
@@ -350,6 +311,26 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T37 — Stems & batch export — 2026-11-15 — export sheet Mix / Stems: one file per track over the same range
+  (`planExport` in `export-plan.ts`: numbered `01 Vocals.m4a`, de-duplicated names, muted skipped unless asked,
+  "Apply track volume"), extras click track / the mix / "Tempo & markers" (`tempo-midi.ts`: format 0 SMF,
+  tempo per quarter so x/8 converts, time signature, section markers) and an always-included `info.txt`; one
+  stored zip streamed to disk (`zip.ts`, fflate) or separate files through the module's `shareFiles`.
+  Normalize on stems = one gain for every file (measuring pass), so the balance stays. Batch: select mode gets
+  Export (picked ideas + ideas in picked folders) → `export-batch` sheet → each whole mix, one zip (`exportIdeas`).
+  iOS hides the tab bar in select mode (`tab-bar-store.ts`) so the three toolbar actions fit. Simulator light +
+  dark: stems zip (5 files, all 35.659 s), separate files share sheet, MIDI bytes, info.txt, batch; Android not
+  run
+- T36 — Export a mix — 2026-11-15 — "Export…" in the idea "⋯" menu, the row's swipe (first action) and long-press
+  menu → `export/[id]` sheet: range (whole idea to the last heard clip, loop region, any section), M4A (default)
+  / 24-bit WAV at the takes' rate, Include click, Normalize to −1 dBFS (off: rendered peak check warns when it
+  would clip), "Add BPM to name" (choices remembered in `export-settings-store.ts`), progress + Cancel, temp
+  files deleted after the share sheet closes and at launch. Rendering: `audio-graph.ts` holds the clip/envelope/
+  track-gain/click graph code that `play()` and `offline-render.ts` (`OfflineAudioContext`) both use, with a
+  5 ms fade where a range cuts a clip. WAV encoder in JS (`wav.ts`); M4A by the new local module
+  `modules/audio-export` (iOS `AVAudioFile`, Android `MediaCodec`+`MediaMuxer`); one file shared via
+  expo-sharing. New dev build made (iOS). Simulator: real M4A (AAC 48 kHz mono, 35.66 s, peak −1.0 dBFS) and a
+  section WAV (exactly 15.000 s, 24-bit) checked with afinfo; never heard on a phone
 - T41 — Recently Deleted — 2026-11-15 — soft delete (`deleted_at` on `projects` and `folders`, migration v13): `deleteItems`
   stamps a folder's whole subtree with one shared time; `recently-deleted.ts` (pure rules: nested vs top-level,
   restore destination, days left), `trash-repo.ts` (list, restore to the original folder or root, Delete Now,

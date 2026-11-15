@@ -53,7 +53,7 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   idea settings) needs a `Change` variant, `applyToProject` and `saveChanges` support.
 - **Arming**: a toggle, one armed track at a time (one phone mic would only record the same audio onto each
   track; arming several tracks for an audio interface's separate inputs is "Multi-input recording" in
-  Backlog, after T39). Nothing armed → Record grayed out.
+  Backlog). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
 
@@ -86,6 +86,36 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   folder must do that for every idea under it. Build select mode so it can be reused: T37 adds batch export
   to it and T41 (Recently Deleted) changes what Delete does.
 
+### T42 — Shelve Speaker mode
+
+- **Status:** ready
+- **Session:** Sonnet · medium effort · plan mode off
+- **Goal:** Speaker mode (T21's echo cancellation of takes recorded without headphones) was an iOS experiment
+  and is turned off for now on every platform, while staying easy to bring back.
+- **Done when:**
+  - [ ] One switch turns the feature on or off: a `SPEAKER_MODE_ENABLED = false` constant (e.g. in
+        `@/lib/echo-canceller`) with a comment saying it's shelved, not removed, and how to turn it back on.
+  - [ ] With it off: Settings → Recording no longer shows Speaker mode or its Cleanup strength
+        (`settings-screen.tsx`), and `useSpeakerRecording().clean` is always false
+        (`src/features/project/use-speaker-mode.ts`), so a persisted `speakerMode: true` from an earlier build
+        is ignored and no take is cleaned. The "Use Visual" hint (`visualHint` in `project-screen.tsx`) follows
+        from `clean` and disappears with it.
+  - [ ] Silent recording (T34) works exactly as before: it shares `speakerModeApplies` and
+        `useSpeakerRecording`, but not the new switch.
+  - [ ] Kept as is: `modules/echo-canceller` (C core, Swift wrapper, desktop tests), `@/lib/echo-canceller`,
+        `echo-reference.ts`, the cleaning path in `use-transport.ts` / `take-files.ts`, and the store fields
+        (`speakerMode`, `cleanupStrength`). Flipping the constant is all it takes to get it back on iOS.
+  - [ ] Future agents know: `AGENTS.md` (project map line for `modules/`), `docs/decisions.md` (Speaker mode
+        row) and the header of `@/lib/echo-canceller` say it's shelved and behind the switch. Remove the
+        Speaker mode Device checks line, and the "Use Visual" sentence in the Visual metronome line.
+        Add a Backlog line "Bring back Speaker mode" that keeps the Android plan: CMake builds
+        `cpp/echo_cancel.c` (`dr_wav.h` is header-only), a JNI function and a Kotlin `EchoCancellerModule`
+        with the same `cleanTake` as the Swift one, and `expo-module.config.json` lists `android`.
+  - [ ] Tests: the settings screen hides the section, and `clean` is false with the switch off even when
+        `speakerMode` is persisted true. Settings screenshot, light and dark.
+- **Context:** JS only, so a preview OTA update reaches the installed builds. The native module stays in the
+  build (it costs nothing when unused). Shelved on 2026-11-14 at the user's request.
+
 ### T36 — Export a mix
 
 - **Status:** ready (after T19)
@@ -112,7 +142,7 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   (`AudioFileUtils` only concatenates and probes). WAV: a small JS encoder. M4A: a native encode function
   (iOS `AVAudioFile`/`AVAssetWriter`, Android `MediaCodec` + `MediaMuxer`) in a local Expo module under
   `modules/` (like `echo-canceller`). That and `expo-sharing` need a new dev build: tell the user before
-  coding. Takes are mono today; T39 adds stereo takes, so keep the render's channel count general.
+  coding. Takes are mono (stereo takes are Backlog); a mono mix file is fine.
 
 ### T37 — Stems & batch export
 
@@ -133,17 +163,25 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   - [ ] Unit tests: stem alignment and length, the MIDI file's bytes, zip contents and names.
 - **Context:** Builds on T36's offline render and sheet.
 
-### T38 — Inputs, Bluetooth & latency per route
+### T38 — Inputs, outputs, Bluetooth & latency per route
 
 - **Status:** ready
 - **Session:** Opus · high effort · plan mode on
-- **Goal:** Record from whatever is plugged in or paired (built-in mic, headset, USB audio interface, AirPods),
-  see which input is in use, and keep levels and timing right on each.
+- **Goal:** Record from whatever is plugged in or paired (built-in mic, headset, USB audio interface, AirPods)
+  and listen on whatever output you choose. **One input at a time**: the user picks a source, the app doesn't
+  record several at once. Keep levels and timing right on each.
 - **Done when:**
   - [ ] The current input shows in Settings → Recording and as a small label by the meter while armed. A
         picker sheet lists inputs (`AudioManager.getDevicesInfo` / `setInputDevice`, which also switches
         mid-recording). The choice is remembered by device id and falls back to the default when that device
         is gone; route changes update the label live.
+  - [ ] Input channel: when the chosen input has 2+ channels (a two-input interface), pick which one the take
+        records (Input 1 / Input 2; remembered per device). Otherwise a guitar plugged into input 2 records
+        silence. Takes stay mono.
+  - [ ] Output: the current output shows next to the input (speaker, headphones, AirPods, interface). On iOS,
+        the system route button (`AVRoutePickerView`, a small native view) switches it. On Android, show what
+        the platform reports (the library's `currentOutputs` is empty there, so it may need `AudioManager`
+        device callbacks) and leave switching to the system.
   - [ ] Bluetooth: "Use the phone's mic with Bluetooth headphones" (on by default) keeps AirPods in
         high-quality playback (A2DP). Off: record with the headset's mic (call quality, `allowBluetoothHFP`),
         with a one-line explanation of the trade-off.
@@ -156,44 +194,24 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   - [ ] Recording bit depth: 16-bit / 24-bit (`bitDepth` in the recorder options).
   - [ ] Unit tests: route classification, offset lookup, the settings migration.
 - **Context:** The iOS session is set in `audio-engine.ts` (`setSystemOptions`: `playAndRecord`,
-  `defaultToSpeaker`, `allowBluetoothA2DP`). Native input gain needs a new dev build. Run the existing Device
-  checks for Bluetooth and overdub latency with it.
+  `defaultToSpeaker`, `allowBluetoothA2DP`). Native input gain and the route button need a new dev build. Run
+  the existing Device checks for Bluetooth and overdub latency with it. Recording several inputs at once, and
+  stereo takes, are Backlog (decided 2026-11-14: not needed for scratch ideas yet).
 
-### T39 — Hear yourself & stereo inputs
+### T39 — Hear yourself
 
 - **Status:** ready (after T38)
 - **Session:** Opus · high effort · plan mode on
-- **Goal:** Hear your own input in headphones while recording, and record stereo or one chosen channel from an
-  audio interface.
+- **Goal:** Hear your own input in headphones while recording (input monitoring), as an option.
 - **Done when:**
-  - [ ] "Hear yourself" toggle (status strip or the armed track's controls) with a level slider. Only offered
-        with headphones or an interface output, never on the speaker (feedback); a note to leave it off when
-        the interface does direct monitoring. Its latency is measured and shown.
-  - [ ] With a 2+ channel input: Mono (input 1), Mono (input 2) or Stereo (1+2) per armed track.
-        `takes.channels` (migration). Playback, the waveform (combined peaks), Speaker mode, split/trim and the
-        T36/T37 export all handle stereo takes.
-  - [ ] Device checks lines for both.
+  - [ ] "Hear yourself" toggle (status strip or the armed track's controls, off by default) with a level
+        slider. Only offered with headphones or an interface output, never on the speaker (feedback); a note to
+        leave it off when the interface does its own direct monitoring.
+  - [ ] Its latency is measured and shown; if it's too high to play along to, say so instead of offering it.
+  - [ ] What you hear never ends up in the take, and monitoring follows the input chosen in T38.
+  - [ ] A Device checks line (latency feel with wired headphones vs. Bluetooth, no feedback on the speaker).
 - **Context:** First check whether `react-native-audio-api` offers a low-latency live input node for
-  monitoring; if not, monitoring needs native work: say so before coding. Recording several interface inputs
-  onto several tracks in one pass stays in Backlog (Multi-input recording) and builds on this.
-
-### T40 — Import audio
-
-- **Status:** ready (after T39, so imports keep stereo)
-- **Session:** Opus · medium effort · plan mode on
-- **Goal:** Bring outside audio in: an old voice memo, a backing track, a beat someone sent.
-- **Done when:**
-  - [ ] Ideas "+" → Import Audio (a new idea named after the file). In an idea: import onto a new track at the
-        playhead. Files come from `expo-document-picker` (Files, iCloud Drive, Drive…).
-  - [ ] WAV, AIFF, M4A/AAC, MP3, FLAC and CAF decoded with `decodeAudioData` and written as a normal immutable
-        WAV take at the engine's sample rate (stereo kept). Progress for long files; a clear message for
-        unsupported ones.
-  - [ ] "Open in Audio Recorder" from other apps' share sheets: audio document types in `app.json` (iOS
-        document types, Android intent filters) import as a new idea.
-  - [ ] Unit tests for the import pipeline (naming, take rows, clip placement).
-- **Context:** Imported audio is just another take (`db.ts`), so clips, trim, fades and export work on it.
-  Native config → new build. A share extension (the app in the share sheet's app row, e.g. from Voice Memos)
-  is heavier and in Backlog.
+  monitoring; if not, monitoring needs native work: say so before coding.
 
 ### T41 — Recently Deleted
 
@@ -227,34 +245,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   verified in the generated native projects but never exercised on a device.
   `AudioRecorder.consumeLastRecordingResult()` recovers a recording the system stopped. iOS has no recording
   notification from the library (Live Activity idea is in Backlog).
-
-### T11 — Identity & store prep
-
-- **Status:** ready
-- **Session:** Sonnet · low effort · plan mode off
-- **Goal:** Final name, icon and store-facing details before the first store release.
-- **Done when:**
-  - [ ] Final display name (or confirm "Audio Recorder"); bundle ID `com.didrio.audiorecorder` confirmed (permanent
-        once on a store).
-  - [ ] Real app icon (`assets/app.icon` for iOS 26, Android adaptive icon + its `backgroundColor` in `app.json`),
-        splash image and colors — artwork from the user, not invented.
-  - [ ] Store listing text and screenshots plan (`docs/new-app-checklist.md`).
-- **Context:** All of these are still the base template's placeholders.
-
-### T32 — Speaker mode on Android
-
-- **Status:** blocked (Android paused, see the top of this file)
-- **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** The echo canceller from T21 on Android.
-- **Done when:**
-  - [ ] `modules/echo-canceller` gets an Android side: CMake builds `cpp/echo_cancel.c` (no other native
-        deps; `dr_wav.h` is header-only), a JNI function, and a Kotlin `EchoCancellerModule` with the same
-        `cleanTake` as the Swift one; `expo-module.config.json` lists `android`.
-  - [ ] Settings shows the Speaker mode switch on Android (it hides itself when the module is missing).
-  - [ ] Tested on the Android phone with the T21 checklist.
-- **Context:** The Swift wrapper (`modules/echo-canceller/ios/EchoCancellerModule.swift`) is the model;
-  everything platform-independent is in C already. `@/lib/echo-canceller` loads the module with
-  `requireOptionalNativeModule`.
 
 ## Device checks
 
@@ -379,12 +369,11 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 - Quantize clips to the tempo grid (T9 is done: `project.bpm`, `grid-math.ts`; clips only snap while dragging).
 - Pitch correction for vocal takes (the library's `createBufferSource({ pitchCorrection })` is for playback-rate
   changes, not tuning; would need a native DSP library).
-- Multi-input recording (after T39): with a multi-input audio interface, arm several tracks at once, each
-  recording its own input channel in one pass (a band or a mic'd guitar + vocal).
-- Output route picker (an AirPlay-style route button in the idea) and sending the click only to an
-  interface's headphone output.
-- Import from other apps' share row: a share extension so Voice Memos etc. can send straight to the app
-  (T40 covers Files and "Open in"); importing the audio track of a video.
+- Multi-input & stereo (decided 2026-11-14: not needed yet, T38 picks one input at a time): with a
+  multi-input audio interface, arm several tracks and record each input onto its own track in one pass (a
+  band, or a mic'd guitar + vocal); stereo takes (`takes.channels`; playback, waveform, split/trim and export
+  handle two channels) for stereo mics or a keyboard's L/R outputs; the click sent only to an interface's
+  headphone output. Revisit if users with interfaces ask.
 - Project file sharing (asked 2026-11-14: not now): an idea or folder as one file another phone running the
   app opens as an editable idea; the same format would give a library backup. Audio export is T36/T37.
 - Quick listen: play an idea from the Ideas list without opening it, with a scrubber under the row (reuse

@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T7 — Background recording & interruptions · Opus · high effort · plan mode on
+**Next:** T43 — Vertical timeline (experimental) · Opus · extra high effort · plan mode on
 
 ## In progress
 
@@ -24,6 +24,9 @@ releases, native dependency changes). See the `wrap` skill.
 **Android paused (since 2026-11-14, until the user says otherwise):** the user can't test on Android for now.
 Keep the code cross-platform, but publish preview OTA updates for iOS only (`--platform ios`), make no
 Android builds, and leave Android checks in the tickets / Device checks for later.
+**Device testing deferred (since 2026-11-15, the user's call):** no phone builds, installs or preview OTA
+updates per ticket while the remaining tickets are done. Real-device steps go into **Device checks**, and the
+whole list is tested in one pass at the end (a fresh dev or preview build on both phones then).
 
 **Editor design agreed with the user, used by the editor tickets:**
 
@@ -59,24 +62,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   Backlog). Nothing armed → Record grayed out.
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
-
-### T7 — Background recording & interruptions
-
-- **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** Recording survives the lock screen and app switching on both platforms and handles interruptions.
-- **Done when:**
-  - [ ] Verified on real devices: lock the screen mid-recording on iOS and Android, unlock, the take is complete.
-  - [ ] Android: recording notification via `RecordingNotificationManager` with a Stop action (the app has no
-        paused-recording state) while recording.
-  - [ ] Interruptions (phone call, Siri, alarm): `AudioManager.observeAudioInterruptions` → stop and save the take
-        cleanly; headphone plug/unplug doesn't crash or misroute.
-  - [ ] Decide `androidFSStopWithTask` (currently default `true`: swiping the app away ends the recording).
-- **Context:** Needs a fresh build on both phones, so run the **Device checks** below in the same session.
-  Plugin config is in `app.json` (`iosBackgroundMode`, foreground service types `microphone|mediaPlayback`);
-  verified in the generated native projects but never exercised on a device.
-  `AudioRecorder.consumeLastRecordingResult()` recovers a recording the system stopped. iOS has no recording
-  notification from the library (Live Activity idea is in Backlog).
 
 ### T43 — Vertical timeline (experimental)
 
@@ -128,6 +113,15 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 Run these with the next build on real phones (T7 needs one anyway, or before a release; see the `release`
 skill). Fix or ticket what fails, then delete the line.
 
+- Background & interruptions (T7, needs a new build; the iPhone dev build from 2026-11-15 has it, untested): arm a
+  track in an idea with a take. Lock the screen ~30 s mid-take, unlock, Stop: the take is complete, lined up,
+  full waveform. Same after switching to another app and back. A call (or FaceTime audio), Siri and a timer alarm
+  mid-take: recording stops with the "Recording stopped…" note, the take up to there is saved, Play works after.
+  Headphones and AirPods in/out mid-take: no crash, the take goes on. Siri during plain playback: it pauses, Play
+  restarts normally. Android (never run; needs a build with `POST_NOTIFICATIONS`): the notification permission
+  prompt on the first Record; the "Recording" notification with a timer and Stop while recording (Stop saves the
+  take, with a note); lock screen mid-take; a call takes audio focus → stop and save; swiping the app away ends
+  the recording (the take is lost, see Backlog).
 - Idea header and settings sheet (T44), on the phone: tap "Idea 1 ⌄" → menu; Rename / Move to… / Export… /
   Delete work; Settings button → Idea | Recording; Recording → Input opens the picker over the sheet. Android
   (never run): the title shows as text + drop-down arrow and opens a Material dropdown; Settings is a `tune`
@@ -260,6 +254,12 @@ skill). Fix or ticket what fails, then delete the line.
 
 Ideas that aren't ready to work on yet. Promote them to "Up next" with full detail when they are.
 
+- Recover a take cut off by the app being closed (from T7): swiping the app away mid-take (Android finalizes the
+  WAV natively, `stopWithTask: true`), the system killing it, or a crash leaves a file in the cache that's never
+  added to the idea. Persist the in-progress take's metadata at Record (take id, project, track, playback start,
+  punch, route; `recordingRef` in `use-transport.ts`) in `@/lib/storage`; on the next launch, if the WAV is in the
+  cache, offer to add it (alignment from the saved start without the measured latencies). An iOS WAV cut off
+  without finalizing has a wrong header length: repair it from the file size (`wav.ts`).
 - Folder polish (from T19, after trying it): a "⋯" in a folder's header to rename / move / delete the folder
   you're in; New Folder inside the Move sheet; Favorite / Unfavorite as a select-mode action. All in
   `projects-screen.tsx` / `move-to-screen.tsx`.
@@ -336,6 +336,14 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T7 — Background recording & interruptions — 2026-11-15 — a call, Siri, an alarm or another app taking audio
+  stops the take and saves it up to there with a note; playback pauses; nothing auto-resumes (iOS would restart
+  the recorder after a gap). Engine: `setInterruptionHandler`, interruptions observed only while playing or
+  recording (Android audio focus), recorder errors reported, `stop()` falls back to the library's stashed file
+  (`recording-result.ts`). Transport decides via `interruption.ts`. Android: "Recording" notification with timer +
+  Stop (foreground service), notification permission asked on first Record (`POST_NOTIFICATIONS`),
+  `androidFSStopWithTask: true` (swipe away = quit). Policy in `docs/decisions.md` (Interruptions). Not run on a
+  device yet (deferred; Device checks)
 - T44 — Settings within reach inside an idea — 2026-11-15 — the idea's "⋯" became a title menu ("Idea 1 ⌄":
   Rename, Favorite, Duplicate, Move to…, Export…, Delete; SwiftUI `Menu` in `idea-title-menu.tsx`, given an
   explicit frame because the native header gives a custom title no size) plus a Settings (sliders) header button

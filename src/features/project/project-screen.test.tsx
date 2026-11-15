@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, userEvent } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, userEvent } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -10,11 +10,13 @@ import {
   playbackAnchor,
   playbackPosition,
   setMetering,
+  setInterruptionHandler,
   setMetronome,
   setTrackGain,
   silenceOutput,
   startRecording,
   stopPlayback,
+  type InterruptionReason,
   type FinishedRecording,
 } from '@/features/audio/audio-engine';
 import { useAudioRouteStore } from '@/features/audio/audio-route-store';
@@ -110,6 +112,8 @@ jest.mock('./idea-title-menu', () => {
 
 jest.mock('@/features/audio/audio-engine', () => ({
   ensureRecordPermission: jest.fn(),
+  ensureNotificationPermission: jest.fn(() => Promise.resolve()),
+  setInterruptionHandler: jest.fn(),
   setMetering: jest.fn(() => Promise.resolve()),
   startRecording: jest.fn(),
   cutTrackAt: jest.fn(),
@@ -472,6 +476,39 @@ describe('ProjectScreen', () => {
     );
     // Back to where recording started.
     expect(screen.getByText('0:05.0')).toBeOnTheScreen();
+  });
+
+  it('stops and saves the take when a call or Siri interrupts the recording (T7)', async () => {
+    jest.mocked(getProject).mockResolvedValue(twoTracks);
+    mockRecording();
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await user.press(await screen.findByRole('button', { name: 'Arm Track 2' }));
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+    expect(startRecording).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notification: { title: 'Recording', text: expect.stringContaining('Track 2') },
+      }),
+    );
+    await screen.findByRole('button', { name: 'Stop recording' });
+    const handler = jest.mocked(setInterruptionHandler).mock.calls.at(-1)?.[0] as (
+      reason: InterruptionReason,
+    ) => void;
+    await act(async () => handler('interruption'));
+
+    expect(await screen.findByRole('button', { name: 'Record' })).toBeOnTheScreen();
+    expect(saveChanges).toHaveBeenCalledWith(
+      'p1',
+      [
+        expect.objectContaining({
+          table: 'clips',
+          after: expect.objectContaining({ trackId: 'track2' }),
+        }),
+      ],
+      expect.anything(),
+    );
+    expect(screen.getByText(/Recording stopped by another app or a call/)).toBeOnTheScreen();
   });
 
   it('records every channel of a two-input interface and keeps the chosen one, at the chosen bit depth', async () => {

@@ -70,9 +70,21 @@
  *   drops the adapter but leaves the recorder expecting one, so its next `start()` fails; the monitor
  *   is therefore disconnected after every stop and connected again before every start.
  *
+ * - Background & interruptions (T7): recording and playback keep going with the screen locked or
+ *   another app in front (iOS background audio; on Android the recording notification starts the
+ *   microphone foreground service, with a Stop button). The system interrupting audio (a call, Siri,
+ *   an alarm, another app taking audio focus), the notification's Stop and a recorder error reach
+ *   the one `setInterruptionHandler` handler; the transport stops and saves the take or pauses
+ *   playback. Nothing resumes by itself (iOS would resume the recorder after the interruption, a gap
+ *   out of step with the backing). Interruptions are observed only while playing or recording: on
+ *   Android observing requests audio focus, which would pause other apps' music while merely idle.
+ *   When the system already stopped the recorder, `stop()` takes the file it stashed
+ *   (`recording-result.ts`).
+ *
  * Needs a development build (not in Expo Go). Native config: the `react-native-audio-api` plugin in
  * `app.json` (microphone permission, background audio, Android foreground service).
  */
+import { Platform } from 'react-native';
 import {
   AudioContext,
   AudioManager,
@@ -81,6 +93,7 @@ import {
   FileDirectory,
   FileFormat,
   FilePreset,
+  RecordingNotificationManager,
   type AudioBuffer,
   type AudioBufferSourceNode,
   type AudioDevicesInfo,
@@ -101,6 +114,7 @@ import { currentInput, resolvePreferredInput, type DeviceRef } from './audio-rou
 import { seamlessEdges } from './clip-envelope';
 import { clipPieces, loopedPosition, loopSegments, type LoopRegion } from './loop-math';
 import { clicksBetween } from './metronome';
+import { pickRecordingResult } from './recording-result';
 import type { TakeAlignment } from './take-alignment';
 import { takeFilePath } from './take-files';
 import type { Meter } from './tempo';
@@ -344,6 +358,88 @@ export async function prepareAudioSession(): Promise<void> {
   await activateSession();
 }
 
+// Background & interruptions (T7).
+
+/** Why the system ended or interrupted audio: see `setInterruptionHandler`. */
+export type InterruptionReason =
+  /** A call, Siri, an alarm, or another app taking audio focus. */
+  | 'interruption'
+  /** Android: the recording notification's Stop button (the recorder is already stopped). */
+  | 'notificationStop'
+  /** The recorder failed (e.g. the input went away and couldn't be reopened). */
+  | 'recorderError';
+
+let interruptionHandler: ((reason: InterruptionReason) => void) | null = null;
+let interruptionListenersAdded = false;
+/** Whether interruptions are observed now (only while playing or recording). */
+let observingInterruptions = false;
+/** A recording is running (between a successful start and its stop). */
+let recordingActive = false;
+
+/**
+ * Called when the system interrupts audio or ends a recording; `null` removes it. The handler
+ * decides what to do (the engine only reports): interruptions that end are ignored.
+ */
+export function setInterruptionHandler(handler: ((reason: InterruptionReason) => void) | null) {
+  interruptionHandler = handler;
+  if (handler && !interruptionListenersAdded) {
+    interruptionListenersAdded = true;
+    AudioManager.addSystemEventListener('interruption', (event) => {
+      if (event.type === 'began') interruptionHandler?.('interruption');
+    });
+    if (Platform.OS === 'android') {
+      RecordingNotificationManager.addEventListener('recordingNotificationStop', () =>
+        interruptionHandler?.('notificationStop'),
+      );
+    }
+  }
+}
+
+/** Observes interruptions exactly while something plays or records. */
+function updateInterruptionWatch() {
+  const wanted = playback !== null || recordingActive;
+  if (wanted === observingInterruptions) return;
+  observingInterruptions = wanted;
+  try {
+    AudioManager.observeAudioInterruptions(wanted);
+  } catch {
+    // Not available: interruptions just aren't reported.
+  }
+}
+
+export type RecordingNotification = { title: string; text: string };
+
+/** Android: the ongoing recording notification (also what keeps the mic alive in the background). */
+async function showRecordingNotification(notification: RecordingNotification | undefined) {
+  if (Platform.OS !== 'android' || !notification) return;
+  await RecordingNotificationManager.show({
+    title: notification.title,
+    contentText: notification.text,
+    showStopAction: true,
+    usesChronometer: true,
+    dismissible: false,
+  }).catch(() => {});
+}
+
+async function hideRecordingNotification() {
+  if (Platform.OS !== 'android') return;
+  await RecordingNotificationManager.hide().catch(() => {});
+}
+
+/**
+ * Android 13+: asks once for permission to show the recording notification (with its Stop
+ * button). Recording in the background works either way; iOS has nothing to ask.
+ */
+export async function ensureNotificationPermission(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  try {
+    if ((await AudioManager.checkNotificationPermissions()) === 'Granted') return;
+    await AudioManager.requestNotificationPermissions();
+  } catch {
+    // No prompt available: the notification just stays hidden.
+  }
+}
+
 export async function ensureRecordPermission(): Promise<boolean> {
   if ((await AudioManager.checkRecordingPermissions()) === 'Granted') return true;
   return (await AudioManager.requestRecordingPermissions()) === 'Granted';
@@ -530,6 +626,8 @@ export async function startRecording(options: {
   input?: InputSelection;
   /** WAV bit depth of the take (default 24). */
   bitDepth?: 16 | 24;
+  /** Android: the ongoing notification while recording (with a Stop button). */
+  notification?: RecordingNotification;
 }): Promise<ActiveRecording> {
   const input = options.input ?? MONO_INPUT;
   // The meter uses the same recorder; close it before anything is scheduled.
@@ -581,6 +679,10 @@ export async function startRecording(options: {
     throw new Error(started.message);
   }
   resumeForMonitor();
+  recordingActive = true;
+  updateInterruptionWatch();
+  activeRecorder.onError(() => interruptionHandler?.('recorderError'));
+  void showRecordingNotification(options.notification);
 
   // Where the file's first sample sits on the context clock, and the input latency (only reported
   // while recording).
@@ -639,15 +741,21 @@ export async function startRecording(options: {
           }
         : null;
       stopPlayback();
-      const result = await activeRecorder.stop();
+      const stopped = await activeRecorder.stop();
+      // Consumed every time: the library stashes every stop, and a stale one must not linger.
+      const result = pickRecordingResult(stopped, AudioRecorder.consumeLastRecordingResult());
       activeRecorder.clearOnAudioReady();
+      activeRecorder.clearOnError();
       detachMonitor(activeRecorder);
-      if (result.status === 'error') throw new Error(result.message);
-      const path = result.paths[0];
+      recordingActive = false;
+      updateInterruptionWatch();
+      void hideRecordingNotification();
+      if (!result.ok) throw new Error(result.message);
+      const path = result.file.paths[0];
       if (!path) throw new Error('The recording produced no file.');
       return {
         path,
-        duration: result.duration,
+        duration: result.file.duration,
         sampleRate: RECORDING_PRESET.sampleRate,
         channels: input.channels,
         channel: Math.min(input.channel, input.channels - 1),
@@ -764,6 +872,7 @@ export async function play(
             () => {
               endPlayback(current);
               if (playback === current) playback = null;
+              updateInterruptionWatch();
               current.onEnded?.();
             },
             (end + SCHEDULE_AHEAD_SECONDS) * 1000,
@@ -785,6 +894,7 @@ export async function play(
     startedAtMs,
   };
   playback = current;
+  updateInterruptionWatch();
   tick(current);
 }
 
@@ -993,6 +1103,7 @@ export function stopPlayback() {
   }
   endPlayback(playback);
   playback = null;
+  updateInterruptionWatch();
 }
 
 // Pitch reference keyboard (T20).

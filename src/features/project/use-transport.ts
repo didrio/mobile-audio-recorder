@@ -1,15 +1,17 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { randomUUID } from 'expo-crypto';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
 
 import {
   cutTrackAt,
+  ensureNotificationPermission,
   ensureRecordPermission,
   peakLevel,
   play,
   playbackAnchor,
   playbackPosition,
+  setInterruptionHandler,
   setMetronome,
   silenceOutput,
   setTrackGain,
@@ -17,6 +19,7 @@ import {
   stopPlayback,
   type ActiveRecording,
   type FinishedRecording,
+  type InterruptionReason,
   type PlaybackAnchor,
   type PlayableClip,
   type RecordingPlayback,
@@ -55,6 +58,7 @@ import { extractChannel } from '@/lib/audio-input';
 import { cleanTake } from '@/lib/echo-canceller';
 
 import { recordTake, useEditorStore } from './editor-store';
+import { interruptionAction } from './interruption';
 import { hasSolo, trackOutputGain } from './mixer';
 import { toUiClock } from './ui-clock';
 
@@ -114,6 +118,10 @@ const TICK_MS = 100;
  *   display wrap with it (`loop-math.ts`). Toggling Loop or changing the region while playing
  *   continues from where playback is (`replay`). Recording ignores the loop: Record while a loop
  *   plays stops it and records from where it was, as Record from stopped would.
+ * - Background & interruptions (T7): recording and playback go on with the screen locked or another
+ *   app in front. A call, Siri, an alarm or another app taking audio (and on Android the
+ *   notification's Stop) stops and saves the take up to there, with a note, or pauses playback
+ *   (`interruption.ts`). Nothing resumes by itself.
  */
 export function useTransport(
   project: Project | null | undefined,
@@ -373,6 +381,8 @@ export function useTransport(
         setStatus(onTheFly ? 'playing' : 'idle');
         return;
       }
+      // Android: the recording notification and its Stop button (asked once; optional).
+      await ensureNotificationPermission();
       const takeId = randomUUID();
       const requested = onTheFly
         ? (playbackPosition() ?? playhead.get())
@@ -405,6 +415,7 @@ export function useTransport(
         playback,
         input: currentInputSelection(),
         bitDepth,
+        notification: { title: 'Recording', text: `${project.name} · ${track.name}` },
         onBuffer: (samples, sampleRate) => {
           const peak = peakLevel(samples);
           setLevel(peak);
@@ -556,6 +567,21 @@ export function useTransport(
     seek(0);
     revealPlayhead.set(revealPlayhead.get() + 1);
   };
+
+  // Interruptions (T7): stop and save a take, or pause playback.
+  const onInterruption = useEffectEvent((reason: InterruptionReason) => {
+    const action = interruptionAction(status, reason);
+    if (action.kind === 'stopRecording') {
+      setError(action.message);
+      void stopRecording();
+    } else if (action.kind === 'pausePlayback') {
+      stopPlaying();
+    }
+  });
+  useEffect(() => {
+    setInterruptionHandler((reason) => onInterruption(reason));
+    return () => setInterruptionHandler(null);
+  }, []);
 
   return {
     status,

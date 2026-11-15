@@ -24,6 +24,16 @@ describe('recording settings', () => {
     expect(state.bitDepth).toBe(24);
   });
 
+  it("keeps Hear yourself off by default, at 0 dB, with its level clamped to the faders' range", () => {
+    const state = useRecordingSettingsStore.getState();
+    expect(state.monitoring).toBe(false);
+    expect(state.monitorLevel).toBe(1);
+    state.setMonitorLevel(3);
+    expect(useRecordingSettingsStore.getState().monitorLevel).toBe(2);
+    state.setMonitorLevel(-1);
+    expect(useRecordingSettingsStore.getState().monitorLevel).toBe(0);
+  });
+
   it('keeps one latency offset per output route, clamped and rounded', () => {
     const { setLatencyOffsetMs } = useRecordingSettingsStore.getState();
     setLatencyOffsetMs('bluetooth', 10_000);

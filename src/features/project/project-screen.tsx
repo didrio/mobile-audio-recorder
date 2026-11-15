@@ -57,6 +57,7 @@ import { hasSolo, trackOutputGain } from './mixer';
 import { SECTION_NAME_MAX } from './sections';
 import { registerTransportLink } from './transport-link';
 import { useInputMeter } from './use-input-meter';
+import { useMonitoring } from './use-monitoring';
 import { useSpeakerRecording } from './use-speaker-mode';
 import { useTransport } from './use-transport';
 
@@ -117,9 +118,11 @@ export function ProjectScreen() {
   const isIdle = transport.status === 'idle';
 
   // The meter listens to the mic only while a track is armed and this screen is the one showing
-  // (the track sheet on top, or another screen, releases it); recording feeds the meter itself.
+  // (the track sheet on top, or another screen, releases it), stopped or playing (rehearse along,
+  // T39); recording feeds the meter itself. Hear yourself (T39) runs whenever the mic is open.
   const focused = useIsFocused();
-  const inputMeter = useInputMeter(!!armedTrack && isIdle && focused);
+  const inputMeter = useInputMeter(!!armedTrack && (isIdle || isPlaying) && focused);
+  useMonitoring(!!armedTrack && focused);
   const meterLevel = isRecording ? transport.level : inputMeter.level;
   // Red with a peak-hold mark at the end while the input clips (T38).
   const meterClipped = isRecording ? transport.clipped : inputMeter.clipped;

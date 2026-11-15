@@ -23,7 +23,12 @@ import {
   OUTPUT_ROUTE_LABELS,
   outputLabel,
 } from '@/features/audio/audio-route';
-import { currentOutputRoute, useAudioRouteStore } from '@/features/audio/audio-route-store';
+import {
+  currentOutputRoute,
+  useAudioRouteStore,
+  useMonitorStatus,
+} from '@/features/audio/audio-route-store';
+import { monitorNote } from '@/features/audio/monitoring';
 import { RoutePickerButton } from '@/features/audio/route-picker-button';
 import { recordingsSizeBytes } from '@/features/audio/take-files';
 import { formatBytes } from '@/features/projects/ideas-list';
@@ -114,6 +119,15 @@ export function SettingsScreen() {
   const preRollSeconds = useRecordingSettingsStore((state) => state.preRollSeconds);
   const setPreRollSeconds = useRecordingSettingsStore((state) => state.setPreRollSeconds);
   const preRollBars = useRecordingSettingsStore((state) => state.preRollBars);
+  const monitoring = useRecordingSettingsStore((state) => state.monitoring);
+  const setMonitoring = useRecordingSettingsStore((state) => state.setMonitoring);
+  const monitorLevel = useRecordingSettingsStore((state) => state.monitorLevel);
+  const setMonitorLevel = useRecordingSettingsStore((state) => state.setMonitorLevel);
+  const [draggedMonitorLevel, setDraggedMonitorLevel] = useState<number | null>(null);
+  const shownMonitorLevel = draggedMonitorLevel ?? monitorLevel;
+  const monitor = useMonitorStatus();
+  // Not offered on the speaker (feedback) or when the delay is too long to play along to.
+  const monitorOffered = monitor.status === 'on' || monitor.status === 'off';
   const setPreRollBars = useRecordingSettingsStore((state) => state.setPreRollBars);
   const keyboardVolume = useKeyboardSettingsStore((state) => state.keyboardVolume);
   const setKeyboardVolume = useKeyboardSettingsStore((state) => state.setKeyboardVolume);
@@ -181,6 +195,45 @@ export function SettingsScreen() {
             }}
           />
         </View>
+      </ListSection>
+
+      <ListSection
+        title="Hear yourself"
+        footer={monitorNote(monitor.status, monitor.route, monitor.latency)}>
+        <ListRow
+          title="Hear yourself"
+          subtitle="While a track is armed"
+          accessory={
+            <Switch
+              accessibilityLabel="Hear yourself"
+              value={monitoring && monitorOffered}
+              disabled={!monitorOffered}
+              accessibilityState={{
+                disabled: !monitorOffered,
+                checked: monitoring && monitorOffered,
+              }}
+              onValueChange={setMonitoring}
+              trackColor={{ true: theme.colors.primary }}
+            />
+          }
+        />
+        {monitoring && monitorOffered ? (
+          <View style={styles.volumeRow}>
+            <Text>Level</Text>
+            <VolumeSlider
+              label="Hear yourself level"
+              gain={shownMonitorLevel}
+              onDrag={setDraggedMonitorLevel}
+              onRelease={(level) => {
+                setDraggedMonitorLevel(null);
+                setMonitorLevel(level);
+              }}
+            />
+            <Text variant="footnote" color="textSecondary" style={styles.volumeValue}>
+              {formatDb(shownMonitorLevel)}
+            </Text>
+          </View>
+        ) : null}
       </ListSection>
 
       <ListSection

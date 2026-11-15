@@ -36,6 +36,7 @@ function route(options: {
       channelCount: options.channelCount ?? 1,
       gainSettable: options.gainSettable ?? false,
       gain: options.gain ?? 0.5,
+      latency: null,
     },
   });
 }

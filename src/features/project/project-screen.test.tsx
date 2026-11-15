@@ -129,6 +129,9 @@ jest.mock('@/features/audio/audio-engine', () => ({
   configureSession: jest.fn(),
   setInputPreference: jest.fn(() => Promise.resolve()),
   applyInputPreference: jest.fn(() => Promise.resolve(null)),
+  setMonitor: jest.fn(),
+  setMonitorLevel: jest.fn(),
+  liveMonitorLatency: jest.fn(() => null),
 }));
 
 // The Skia timeline can't render in Jest; a stand-in shows the project and exposes seeking, arming,
@@ -334,7 +337,7 @@ describe('ProjectScreen', () => {
     // The speaker playing, a plain mono mic (the root layout keeps this store fresh in the app).
     useAudioRouteStore.setState({
       devices: { availableInputs: [], availableOutputs: [], currentInputs: [], currentOutputs: [] },
-      inputInfo: { channelCount: 1, gainSettable: false, gain: 1 },
+      inputInfo: { channelCount: 1, gainSettable: false, gain: 1, latency: null },
     });
     useInputDevicesStore.setState({ preferredInput: null, channelByDevice: {}, gainByDevice: {} });
     jest.mocked(getProject).mockResolvedValue(project);
@@ -415,6 +418,20 @@ describe('ProjectScreen', () => {
     expect(setArmedTrack).toHaveBeenCalledWith('p1', null);
   });
 
+  it('keeps the mic open while playing with a track armed (meter and Hear yourself, T39)', async () => {
+    jest.mocked(play).mockResolvedValue();
+    const user = userEvent.setup();
+    await renderScreen();
+
+    await screen.findByText('Timeline of Chorus riff');
+    expect(setMetering).toHaveBeenLastCalledWith(expect.any(Function), { channels: 1, channel: 0 });
+    jest.mocked(setMetering).mockClear();
+
+    await user.press(screen.getByRole('button', { name: 'Play' }));
+    expect(await screen.findByRole('button', { name: 'Pause' })).toBeOnTheScreen();
+    expect(setMetering).not.toHaveBeenCalledWith(null);
+  });
+
   it('records onto the armed track at the playhead over the other tracks, lined up', async () => {
     jest.mocked(getProject).mockResolvedValue(twoTracks);
     mockRecording();
@@ -468,7 +485,7 @@ describe('ProjectScreen', () => {
         currentInputs: [scarlett],
         currentOutputs: [{ id: 'usb-out', name: 'Scarlett 2i2', category: 'USBAudio' }],
       },
-      inputInfo: { channelCount: 2, gainSettable: false, gain: 1 },
+      inputInfo: { channelCount: 2, gainSettable: false, gain: 1, latency: null },
     });
     useInputDevicesStore.setState({ channelByDevice: { 'USBAudio:Scarlett 2i2': 1 } });
     useRecordingSettingsStore.setState({ bitDepth: 16 });

@@ -73,6 +73,15 @@ type RecordingSettingsState = {
   /** The same for ideas with the grid on, in bars of the idea's tempo and time signature. */
   preRollBars: PreRollBars;
   setPreRollBars: (value: PreRollBars) => void;
+  /**
+   * Hear yourself (T39): the input plays in the headphones while a track is armed. Only applies where
+   * `monitorStatus` (`@/features/audio/monitoring`) allows it (never on the speaker).
+   */
+  monitoring: boolean;
+  setMonitoring: (value: boolean) => void;
+  /** How loud you hear yourself (linear gain, 1 = as it comes in; up to +6 dB like the faders). */
+  monitorLevel: number;
+  setMonitorLevel: (value: number) => void;
 };
 
 export const useRecordingSettingsStore = create<RecordingSettingsState>()(
@@ -110,6 +119,10 @@ export const useRecordingSettingsStore = create<RecordingSettingsState>()(
       setPreRollSeconds: (value) => set({ preRollSeconds: value }),
       preRollBars: 1,
       setPreRollBars: (value) => set({ preRollBars: value }),
+      monitoring: false,
+      setMonitoring: (value) => set({ monitoring: value }),
+      monitorLevel: 1,
+      setMonitorLevel: (value) => set({ monitorLevel: Math.min(2, Math.max(0, value)) }),
     }),
     {
       name: 'settings.recording',
@@ -128,6 +141,8 @@ export const useRecordingSettingsStore = create<RecordingSettingsState>()(
         cleanupStrength: state.cleanupStrength,
         preRollSeconds: state.preRollSeconds,
         preRollBars: state.preRollBars,
+        monitoring: state.monitoring,
+        monitorLevel: state.monitorLevel,
       }),
     },
   ),

@@ -9,8 +9,9 @@ public class AudioInputModule: Module {
   public func definition() -> ModuleDefinition {
     Name("AudioInput")
 
-    /// The current input's channel count and gain. Asks for all of the input's channels first, so a
-    /// two-input interface reports (and records) both.
+    /// The current input's channel count and gain, and the route's latencies (T39: the delay of
+    /// hearing yourself). Asks for all of the input's channels first, so a two-input interface reports
+    /// (and records) both.
     AsyncFunction("getInputInfo") { (_: String?) -> [String: Any] in
       let session = AVAudioSession.sharedInstance()
       let maximum = session.maximumInputNumberOfChannels
@@ -21,6 +22,9 @@ public class AudioInputModule: Module {
         "channelCount": max(1, session.inputNumberOfChannels),
         "gainSettable": session.isInputGainSettable,
         "gain": session.inputGain,
+        "inputLatency": session.inputLatency,
+        "outputLatency": session.outputLatency,
+        "sampleRate": session.sampleRate,
       ]
     }
 

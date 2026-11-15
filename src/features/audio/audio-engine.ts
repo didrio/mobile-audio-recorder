@@ -61,6 +61,14 @@
  *   activation and route change; the system default while the device is gone). A multi-channel input
  *   records all its channels (`InputSelection`; the recorder would average them into mono), the
  *   meter and live waveform read the chosen one, and the caller extracts it after Stop.
+ * - Hear yourself (T39): `setMonitor` plays the live input (the chosen channel) to the speakers' bus,
+ *   through its own gain straight to the destination, whenever the recorder runs (meter or take).
+ *   The recorder feeds a `RecorderAdapterNode` (same engine and clock as playback on iOS, so the
+ *   round trip is a few milliseconds plus the hardware). It never touches the file, a playback's
+ *   master, `BackingPlayed` or Export, so nothing you hear ends up in a take except through a mic
+ *   (which is why the caller only allows it on headphones, `monitoring.ts`). Library quirk: `stop()`
+ *   drops the adapter but leaves the recorder expecting one, so its next `start()` fails; the monitor
+ *   is therefore disconnected after every stop and connected again before every start.
  *
  * Needs a development build (not in Expo Go). Native config: the `react-native-audio-api` plugin in
  * `app.json` (microphone permission, background audio, Android foreground service).
@@ -378,11 +386,14 @@ async function beginMetering(
   if (activeRecorder.isRecording()) return;
   await activeRecorder.disableFileOutput();
   listenToInput(activeRecorder, input, onBuffer);
+  reattachMonitor(activeRecorder);
   const started = await activeRecorder.start();
   if (started.status === 'error') {
     activeRecorder.clearOnAudioReady();
+    detachMonitor(activeRecorder);
     throw new Error(started.message);
   }
+  resumeForMonitor();
   metering = true;
 }
 
@@ -408,6 +419,104 @@ async function endMetering() {
   metering = false;
   recorder.clearOnAudioReady();
   await recorder.stop();
+  detachMonitor(recorder);
+}
+
+// Hear yourself (T39).
+
+export type MonitorConfig = {
+  /** Linear gain of what you hear (1 = as it comes in). */
+  level: number;
+  /** The input the recorder opens and the channel you hear. */
+  input: InputSelection;
+};
+
+/** What the caller wants (`null`: off); applied whenever the recorder (re)starts. */
+let monitorWanted: MonitorConfig | null = null;
+/** The live monitor path while connected: `entry` is what the recorder feeds, `gain` its level. */
+let monitorGraph: { entry: AudioNode; gain: GainNode } | null = null;
+/** One render quantum: the hop from the recorder's buffer into the graph. */
+const RENDER_QUANTUM_FRAMES = 128;
+
+/**
+ * Turns hearing yourself on (with the input to hear) or off. Applies at once while the mic is open,
+ * otherwise with the next meter or recording. The caller decides when it's allowed (headphones only).
+ */
+export function setMonitor(config: MonitorConfig | null) {
+  const sameInput =
+    !!monitorWanted &&
+    !!config &&
+    monitorWanted.input.channels === config.input.channels &&
+    monitorWanted.input.channel === config.input.channel;
+  monitorWanted = config;
+  if (config && sameInput && monitorGraph) {
+    setMonitorLevel(config.level);
+    return;
+  }
+  if (!recorder?.isRecording()) return;
+  detachMonitor(recorder);
+  if (config) {
+    attachMonitor(recorder);
+    resumeForMonitor();
+  }
+}
+
+/** Changes how loud you hear yourself, live (short ramp, no zipper noise). */
+export function setMonitorLevel(level: number) {
+  if (monitorWanted) monitorWanted = { ...monitorWanted, level };
+  if (monitorGraph && context) {
+    monitorGraph.gain.gain.setTargetAtTime(level, context.currentTime, GAIN_RAMP_SECONDS);
+  }
+}
+
+/**
+ * The round trip of what you hear now, in seconds (input + output latency as the platform reports
+ * them, plus the hop into the graph); `null` when not monitoring or not reported.
+ */
+export function liveMonitorLatency(): number | null {
+  if (!monitorGraph || !context || !recorder?.isRecording()) return null;
+  const input = recorder.inputLatency;
+  const output = outputLatency(context);
+  if (!(Number.isFinite(input) && input > 0) || !(output > 0)) return null;
+  return input + output + RENDER_QUANTUM_FRAMES / context.sampleRate;
+}
+
+/** Builds the monitor path (chosen channel → level → destination) and feeds it from the recorder. */
+function attachMonitor(activeRecorder: AudioRecorder) {
+  if (!monitorWanted || monitorGraph) return;
+  const ctx = getContext();
+  const { channels, channel } = monitorWanted.input;
+  const gain = ctx.createGain();
+  gain.gain.value = monitorWanted.level;
+  gain.connect(ctx.destination);
+  let entry: AudioNode = gain;
+  if (channels > 1) {
+    const splitter = ctx.createChannelSplitter(channels);
+    splitter.connect(gain, Math.min(channel, channels - 1));
+    entry = splitter;
+  }
+  activeRecorder.connect(ctx, entry);
+  monitorGraph = { entry, gain };
+}
+
+/** Disconnects the recorder from the monitor path (after a stop, the library requires it). */
+function detachMonitor(activeRecorder: AudioRecorder) {
+  if (!monitorGraph) return;
+  activeRecorder.disconnect();
+  monitorGraph.gain.disconnect();
+  if (monitorGraph.entry !== monitorGraph.gain) monitorGraph.entry.disconnect();
+  monitorGraph = null;
+}
+
+/** Before a start: a fresh connection (or none when monitoring is off). */
+function reattachMonitor(activeRecorder: AudioRecorder) {
+  detachMonitor(activeRecorder);
+  attachMonitor(activeRecorder);
+}
+
+/** The recorder (or another app) can leave the context suspended; the monitor needs it running. */
+function resumeForMonitor() {
+  if (monitorGraph && context && context.state !== 'running') void context.resume();
 }
 
 export async function startRecording(options: {
@@ -462,13 +571,16 @@ export async function startRecording(options: {
   });
 
   if (options.onBuffer) listenToInput(activeRecorder, input, options.onBuffer);
+  reattachMonitor(activeRecorder);
 
   const started = await activeRecorder.start();
   if (started.status === 'error') {
     activeRecorder.clearOnAudioReady();
+    detachMonitor(activeRecorder);
     stopPlayback();
     throw new Error(started.message);
   }
+  resumeForMonitor();
 
   // Where the file's first sample sits on the context clock, and the input latency (only reported
   // while recording).
@@ -529,6 +641,7 @@ export async function startRecording(options: {
       stopPlayback();
       const result = await activeRecorder.stop();
       activeRecorder.clearOnAudioReady();
+      detachMonitor(activeRecorder);
       if (result.status === 'error') throw new Error(result.message);
       const path = result.paths[0];
       if (!path) throw new Error('The recording produced no file.');

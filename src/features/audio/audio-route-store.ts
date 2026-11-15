@@ -22,6 +22,7 @@ import {
   outputRouteOf,
   type OutputRoute,
 } from './audio-route';
+import { estimateMonitorLatency, monitorStatus, type MonitorStatus } from './monitoring';
 
 const NO_DEVICES: AudioDevicesInfo = {
   availableInputs: [],
@@ -35,6 +36,8 @@ type AudioRouteState = {
   devices: AudioDevicesInfo;
   /** The current input's channels and gain (`@/lib/audio-input`). */
   inputInfo: InputInfo;
+  /** Hear yourself's round trip as measured live (T39), for the output it was measured on. */
+  measuredMonitorLatency: { output: string; seconds: number } | null;
 };
 
 /**
@@ -43,7 +46,8 @@ type AudioRouteState = {
  */
 export const useAudioRouteStore = create<AudioRouteState>()(() => ({
   devices: NO_DEVICES,
-  inputInfo: { channelCount: 1, gainSettable: false, gain: 1 },
+  inputInfo: { channelCount: 1, gainSettable: false, gain: 1, latency: null },
+  measuredMonitorLatency: null,
 }));
 
 /** The output route playing now (for its latency offset). */
@@ -64,6 +68,39 @@ export function currentInputSelection(
   if (channelCount <= 1 || !input) return MONO_INPUT;
   const remembered = channelByDevice[deviceKey(input)];
   return { channels: channelCount, channel: inputChannel(remembered, channelCount) };
+}
+
+/** Key of the output playing now (`deviceKey`), or `null` when none is reported. */
+export function currentOutputKey(
+  state: AudioRouteState = useAudioRouteStore.getState(),
+): string | null {
+  const output = currentOutput(state.devices);
+  return output ? deviceKey(output) : null;
+}
+
+/**
+ * Hear yourself's round trip on the current output (T39): the live measurement when there is one for
+ * this output, else the estimate from what the system reports; `null` when neither is known.
+ */
+export function currentMonitorLatency(
+  state: AudioRouteState = useAudioRouteStore.getState(),
+): number | null {
+  const measured = state.measuredMonitorLatency;
+  if (measured && measured.output === currentOutputKey(state)) return measured.seconds;
+  return estimateMonitorLatency(state.inputInfo.latency);
+}
+
+/** Whether Hear yourself is offered and on, the delay, and the route (Settings and the editor). */
+export function useMonitorStatus(): {
+  status: MonitorStatus;
+  latency: number | null;
+  route: OutputRoute;
+} {
+  const enabled = useRecordingSettingsStore((state) => state.monitoring);
+  const headphones = useHeadphones();
+  const route = useAudioRouteStore((state) => currentOutputRoute(state));
+  const latency = useAudioRouteStore((state) => currentMonitorLatency(state));
+  return { status: monitorStatus({ enabled, headphones, route, latency }), latency, route };
 }
 
 /** Whether headphones are connected, re-checked whenever the audio route changes. */

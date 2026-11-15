@@ -107,7 +107,7 @@ assets/                   App icon (assets/app.icon = iOS 26 Icon Composer), And
 modules/                  Local Expo modules (native code). echo-canceller: Speaker mode's C core + Swift wrapper
                           (iOS only for now; SHELVED, off behind `SPEAKER_MODE_ENABLED` in `@/lib/echo-canceller`); desktop test: node modules/echo-canceller/cpp/tests/run.mjs
                           audio-export: M4A encoding + multi-file share for Export (T36/T37; iOS + Android)
-                          audio-input: input channels/gain, channel extraction, iOS route button (T38)
+                          audio-input: input channels/gain/route latency, channel extraction, iOS route button (T38, T39)
 .maestro/                 E2E flows (YAML) + subflows/
 scripts/                  doctor, setup-mac.sh, screenshot, e2e, ota-check, new-app, create-app, sync-base (Node, no deps);
                           lib/ (identity, devices), templates/TICKETS.md (fresh backlog for new apps)

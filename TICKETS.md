@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T39 — Hear yourself · Opus · high effort · plan mode on
+**Next:** T44 — Settings within reach inside an idea · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -57,23 +57,23 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
 
-### T39 — Hear yourself
+### T44 — Settings within reach inside an idea
 
 - **Status:** ready
 - **Session:** Opus · high effort · plan mode on
-- **Goal:** Hear your own input in headphones while recording (input monitoring), as an option.
+- **Goal:** App-level settings you change while working on a song (Hear yourself, Silent recording, the
+  Bluetooth mic, latency offset, input) are one tap away from inside an idea, without taking permanent screen
+  space, and in keeping with iOS 26's Liquid Glass.
 - **Done when:**
-  - [ ] "Hear yourself" toggle (status strip or the armed track's controls, off by default) with a level
-        slider. Only offered with headphones or an interface output, never on the speaker (feedback); a note to
-        leave it off when the interface does its own direct monitoring.
-  - [ ] Its latency is measured and shown; if it's too high to play along to, say so instead of offering it.
-  - [ ] What you hear never ends up in the take, and monitoring follows the input chosen in T38.
-  - [ ] A Device checks line (latency feel with wired headphones vs. Bluetooth, no feedback on the speaker).
-- **Context:** First check whether `react-native-audio-api` offers a low-latency live input node for
-  monitoring; if not, monitoring needs native work: say so before coding. From T38: the chosen input and
-  channel are `currentInputSelection()` in `src/features/audio/audio-route-store.ts` (a multi-channel input is
-  opened whole; pick `channel`), headphones vs speaker is `useHeadphones()` / `currentOutputRoute()` there, and
-  native input work can go in `modules/audio-input` (iOS `AVAudioSession`).
+  - [ ] A decided entry point from the editor (e.g. a header button or the "⋯" menu opening a sheet of quick
+        settings), reviewed with the user from simulator screenshots, light + dark.
+  - [ ] Hear yourself (T39) is the first one there; the others the user picks.
+  - [ ] A decided split between app settings (Settings tab) and idea settings (Idea settings sheet), with
+        nothing duplicated in a way that confuses which one wins.
+- **Context:** The user likes the Ideas/Settings tab bar on the main screen, but it disappears inside an idea and
+  the editor needs the room. T39 put Hear yourself in Settings → Hear yourself only (no in-idea UI) on purpose,
+  pending this. Settings: `src/features/settings/settings-screen.tsx`; idea settings:
+  `src/features/project/idea-settings-sheet.tsx`; the idea's header menu: `idea-menu-items.ts`.
 
 ### T7 — Background recording & interruptions
 
@@ -142,6 +142,16 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 
 Run these with the next build on real phones (T7 needs one anyway, or before a release; see the `release`
 skill). Fix or ticket what fails, then delete the line.
+
+- Hear yourself (T39), needs a new build (`getInputInfo` latency in `audio-input`): Settings → Hear yourself is
+  disabled on the speaker with the headphones note; with wired headphones it shows a small delay (~10 ms) and,
+  once switched on, a track armed in an idea plays your voice in the headphones, stopped, playing and recording
+  (a short gap when Record starts during playback). The feel: tight enough to sing along to? (tune
+  `MAX_MONITOR_LATENCY_S` in `monitoring.ts`). AirPods: refused with the Bluetooth note, nothing heard. Unplug
+  the headphones mid-take: no feedback burst from the speaker. Level slider changes the loudness. Listen to a
+  take recorded with it on: only the mic, no doubled monitor signal. Playback doesn't glitch when the mic opens
+  as Play starts with a track armed. Interface: input 2 chosen → you hear input 2 only, and the
+  direct-monitoring note shows. Android (never run): live latency measurement only, Bluetooth refused.
 
 - Inputs & outputs (T38), needs a new build (local module `audio-input`): Settings → Recording → Input lists the
   mic, a wired headset and a USB interface; picking the interface sticks after unplug/replug (Automatic records
@@ -337,6 +347,14 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T39 — Hear yourself — 2026-11-15 — input monitoring in Settings → Hear yourself (switch, level up to +6 dB,
+  delay, direct-monitoring note; the user's call: no editor UI until T44): `recorder.connect()` →
+  `RecorderAdapterNode` → chosen channel → own gain → destination (`setMonitor` in `audio-engine.ts`,
+  reconnected around every recorder stop/start: the library drops the adapter on stop and the next start fails).
+  Offered only on headphones/interface with ≤ 30 ms round trip (`monitoring.ts`; estimate from the new
+  `getInputInfo` latency on iOS, live measurement in `use-monitoring.ts`; Bluetooth refused). The mic now stays
+  open while playing with a track armed (meter too). `ListRow` accessories sit at the trailing edge. Needs a new
+  build; on-device checks are in Device checks.
 - T38 — Inputs, outputs, Bluetooth & latency per route — 2026-11-15 — everything in Settings (the user's call;
   the editor only gets a red clip hold on its meter, `clip-hold.ts`, no "Too loud" text): Recording → Input
   screen (`input-screen.tsx`: Automatic or a device, remembered by id then name+category in

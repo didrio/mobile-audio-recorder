@@ -87,14 +87,14 @@ export function ListRow({
     <>
       {icon ? <Icon name={icon} size={20} color={iconColor} /> : null}
       {subtitle ? (
-        <View style={styles.rowTexts}>
+        <View style={[styles.rowTexts, accessory != null && styles.rowGrow]}>
           <Text numberOfLines={1}>{title}</Text>
           <Text variant="footnote" color="textSecondary" numberOfLines={1}>
             {subtitle}
           </Text>
         </View>
       ) : (
-        <Text style={styles.rowTitle} numberOfLines={1}>
+        <Text style={[styles.rowTitle, accessory != null && styles.rowGrow]} numberOfLines={1}>
           {title}
         </Text>
       )}
@@ -166,5 +166,7 @@ const useStyles = makeStyles((t) => ({
   rowPressed: { backgroundColor: t.colors.surfacePressed },
   rowTitle: { flexShrink: 0 },
   rowTexts: { flexShrink: 1 },
+  // With a custom accessory (switch…), the texts take the room so it sits at the trailing edge.
+  rowGrow: { flex: 1 },
   rowValue: { flex: 1, textAlign: 'right' },
 }));

@@ -66,13 +66,16 @@ describe('SettingsScreen', () => {
     useAppearanceStore.setState({ preference: 'system' });
     useAudioRouteStore.setState({
       devices,
-      inputInfo: { channelCount: 1, gainSettable: false, gain: 1 },
+      inputInfo: { channelCount: 1, gainSettable: false, gain: 1, latency: null },
+      measuredMonitorLatency: null,
     });
     useInputDevicesStore.setState({ preferredInput: null, channelByDevice: {}, gainByDevice: {} });
     mockPush.mockClear();
     useRecordingSettingsStore.setState({
       latencyOffsetsMs: { speaker: 0, wired: 0, bluetooth: 0, usb: 0 },
       bluetoothPhoneMic: true,
+      monitoring: false,
+      monitorLevel: 1,
       bitDepth: 24,
       preRollSeconds: 2,
       preRollBars: 1,
@@ -145,7 +148,7 @@ describe('SettingsScreen', () => {
   it('shows the current input (with its channel) and output, and opens the input picker', async () => {
     useAudioRouteStore.setState({
       devices: { ...devices, currentInputs: [scarlett], currentOutputs: [airPods] },
-      inputInfo: { channelCount: 2, gainSettable: false, gain: 1 },
+      inputInfo: { channelCount: 2, gainSettable: false, gain: 1, latency: null },
     });
     useInputDevicesStore.setState({ channelByDevice: { 'USBAudio:Scarlett 2i2': 1 } });
     await render(<SettingsScreen />);
@@ -161,6 +164,54 @@ describe('SettingsScreen', () => {
     useInputDevicesStore.setState({ preferredInput: scarlett });
     await render(<SettingsScreen />);
     expect(screen.getByText('Scarlett 2i2')).toBeOnTheScreen();
+  });
+
+  it('does not offer Hear yourself on the speaker', async () => {
+    await render(<SettingsScreen />);
+    expect(screen.getByRole('switch', { name: 'Hear yourself' })).toBeDisabled();
+    expect(screen.getByText(/Needs headphones or an audio interface/)).toBeOnTheScreen();
+  });
+
+  it('offers Hear yourself on wired headphones with its delay, and a level once on', async () => {
+    const headphones = { id: 'wired', name: 'Headphones', category: 'Headphones' };
+    useAudioRouteStore.setState({
+      devices: { ...devices, currentOutputs: [headphones] },
+      inputInfo: {
+        channelCount: 1,
+        gainSettable: false,
+        gain: 1,
+        latency: { input: 0.001, output: 0.002, sampleRate: 48_000 },
+      },
+    });
+    await render(<SettingsScreen />);
+
+    expect(screen.getByText('Delay ~11 ms (Wired headphones).')).toBeOnTheScreen();
+    const toggle = screen.getByRole('switch', { name: 'Hear yourself' });
+    expect(toggle).toBeEnabled();
+    expect(toggle).not.toBeChecked();
+    expect(screen.queryByRole('adjustable', { name: 'Hear yourself level' })).toBeNull();
+
+    await fireEvent(toggle, 'valueChange', true);
+
+    expect(useRecordingSettingsStore.getState().monitoring).toBe(true);
+    expect(screen.getByRole('adjustable', { name: 'Hear yourself level' })).toBeOnTheScreen();
+  });
+
+  it('refuses Hear yourself on Bluetooth (too much delay)', async () => {
+    useAudioRouteStore.setState({ devices: { ...devices, currentOutputs: [airPods] } });
+    useRecordingSettingsStore.setState({ monitoring: true });
+    await render(<SettingsScreen />);
+
+    const toggle = screen.getByRole('switch', { name: 'Hear yourself' });
+    expect(toggle).toBeDisabled();
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByText(/Too much delay to play along to on Bluetooth/)).toBeOnTheScreen();
+  });
+
+  it('tells interface users about direct monitoring', async () => {
+    useAudioRouteStore.setState({ devices: { ...devices, currentOutputs: [scarlett] } });
+    await render(<SettingsScreen />);
+    expect(screen.getByText(/does its own direct monitoring\? Leave this off/)).toBeOnTheScreen();
   });
 
   it('switches the Bluetooth mic setting and explains the trade-off', async () => {

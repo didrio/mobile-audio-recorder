@@ -54,7 +54,9 @@ jest.mock('@/lib/audio-export', () => ({
 jest.mock('@/lib/audio-input', () => ({
   __esModule: true,
   isAudioInputAvailable: true,
-  getInputInfo: jest.fn(() => Promise.resolve({ channelCount: 1, gainSettable: false, gain: 1 })),
+  getInputInfo: jest.fn(() =>
+    Promise.resolve({ channelCount: 1, gainSettable: false, gain: 1, latency: null }),
+  ),
   setInputGain: jest.fn(() => Promise.resolve(false)),
   extractChannel: jest.fn(() => Promise.resolve()),
 }));

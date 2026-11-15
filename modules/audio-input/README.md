@@ -4,7 +4,8 @@ Inputs and outputs (T38). The audio library (`react-native-audio-api`) lists and
 adds what it doesn't expose. The app side is `src/lib/audio-input.ts` and
 `src/features/audio/route-picker-button.tsx`.
 
-- `getInputInfo(deviceId)`: the current input's channel count, whether its gain is settable, and the gain.
+- `getInputInfo(deviceId)`: the current input's channel count, whether its gain is settable, and the gain; on iOS
+  also the route's `inputLatency`, `outputLatency` and `sampleRate` (T39: the Hear yourself delay).
   iOS: `AVAudioSession` (`setPreferredInputNumberOfChannels(maximum)` first, so a two-input interface delivers
   both channels), `isInputGainSettable`, `inputGain`. Android: `AudioDeviceInfo.channelCounts` of the device
   with that id (the library's ids), or the built-in mic; gain is never settable.

@@ -63,6 +63,15 @@ export default function RootLayout() {
           }}
         />
         <Stack.Screen
+          name="input-picker"
+          options={{
+            presentation: 'formSheet',
+            // Over the settings sheet (T44), at its height, so it reads as a step inside it.
+            sheetAllowedDetents: [0.9],
+            sheetGrabberVisible: true,
+          }}
+        />
+        <Stack.Screen
           name="new-section"
           options={{
             presentation: 'formSheet',

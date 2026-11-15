@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, Switch, TextInput, View } from 'react-native';
 
@@ -24,11 +24,20 @@ import {
   TIME_SIGNATURES,
   timeSignatureLabel,
 } from '@/features/audio/tempo';
+import {
+  BluetoothSection,
+  HearYourselfSection,
+  InputRow,
+  LatencySection,
+  OutputRow,
+  SilentRecordingSection,
+} from '@/features/settings/recording-settings-rows';
 import { formatDb } from '@/features/timeline/fader-math';
 import { VolumeSlider } from '@/features/timeline/volume-slider';
 import { makeStyles, useTheme } from '@/theme';
 
 import { setIdeaSettings, useEditorStore } from './editor-store';
+import { useSettingsSheetStore, type SettingsSheetTab } from './settings-sheet-store';
 
 /** Tempo changes (steppers, tap tempo) are saved as one undo step once they stop for this long. */
 const COMMIT_DELAY_MS = 700;
@@ -38,6 +47,11 @@ const signatureOptions = TIME_SIGNATURES.map(({ beatsPerBar, beatUnit }) => ({
   label: timeSignatureLabel(beatsPerBar, beatUnit),
 }));
 
+const tabOptions: { value: SettingsSheetTab; label: string }[] = [
+  { value: 'idea', label: 'Idea' },
+  { value: 'recording', label: 'Recording' },
+];
+
 const outputOptions: { value: MetronomeOutput; label: string }[] = [
   { value: 'sound', label: 'Sound' },
   { value: 'visual', label: 'Visual' },
@@ -45,16 +59,55 @@ const outputOptions: { value: MetronomeOutput; label: string }[] = [
 ];
 
 /**
- * Idea settings, shown as a sheet over the open idea (editor store): name, tempo (stepper, typed
- * value or Tap tempo), time signature, the grid switch and the metronome's output (Sound / Visual /
- * Both: clicks, the beat display, or both) and volume (hidden for Visual). Every change is one
- * undo step from the idea's header (a volume drag is one step, heard live while it moves). Tempo changes made in quick succession become one step. Setting a different
- * tempo turns the grid on (`setIdeaSettingsEdit`).
+ * The settings sheet over an open idea (T44), opened from the header's sliders button, with two tabs:
+ * - Idea: this idea's settings (editor store): tempo (stepper, typed value or Tap tempo), time
+ *   signature, the grid switch and the metronome's output (Sound / Visual / Both: clicks, the beat
+ *   display, or both) and volume (hidden for Visual). Every change is one undo step from the idea's
+ *   header (a volume drag is one step, heard live while it moves). Tempo changes made in quick
+ *   succession become one step. Setting a different tempo turns the grid on (`setIdeaSettingsEdit`).
+ *   The name is changed from the title menu (Rename).
+ * - Recording: app-wide recording settings, the same ones (and stores) as the Settings tab.
+ * The last tab is remembered while the app runs.
  */
 export function IdeaSettingsSheet() {
+  const styles = useStyles();
   const params = useLocalSearchParams<{ id: string }>();
   const open = useEditorStore((state) => state.projectId === params.id && state.project != null);
-  return open ? <IdeaSettingsForm /> : null;
+  const tab = useSettingsSheetStore((state) => state.tab);
+  const setTab = useSettingsSheetStore((state) => state.setTab);
+  if (!open) return null;
+  return (
+    <Screen grouped contentContainerStyle={styles.content}>
+      <SegmentedControl
+        accessibilityLabel="Settings for"
+        options={tabOptions}
+        value={tab}
+        onChange={setTab}
+      />
+      {tab === 'idea' ? <IdeaSettingsForm /> : <RecordingSettings />}
+    </Screen>
+  );
+}
+
+/** App-wide recording settings, the ones you'd change while working on a song. */
+function RecordingSettings() {
+  const styles = useStyles();
+  const router = useRouter();
+  return (
+    <>
+      <Text variant="footnote" color="textSecondary" style={styles.footer}>
+        These apply to all your ideas, and are also in the Settings tab.
+      </Text>
+      <HearYourselfSection />
+      <ListSection title="Input & output">
+        <InputRow onPress={() => router.push('/input-picker')} />
+        <OutputRow />
+      </ListSection>
+      <SilentRecordingSection />
+      <BluetoothSection />
+      <LatencySection />
+    </>
+  );
 }
 
 function IdeaSettingsForm() {
@@ -62,7 +115,6 @@ function IdeaSettingsForm() {
   const theme = useTheme();
   const project = useEditorStore((state) => state.project)!;
 
-  const [name, setName] = useState(project.name);
   const [bpm, setBpm] = useState(project.bpm);
   const [bpmText, setBpmText] = useState(String(project.bpm));
   const pendingBpm = useRef<number | null>(null);
@@ -112,12 +164,6 @@ function IdeaSettingsForm() {
     timer.current = setTimeout(commitBpm, COMMIT_DELAY_MS);
   };
 
-  const saveName = () => {
-    const trimmed = name.trim();
-    if (trimmed) void setIdeaSettings({ name: trimmed });
-    else setName(project.name);
-  };
-
   const tapTempo = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     taps.current = addTap(taps.current, Date.now());
@@ -128,29 +174,7 @@ function IdeaSettingsForm() {
   const signature = timeSignatureLabel(project.beatsPerBar, project.beatUnit);
 
   return (
-    <Screen grouped contentContainerStyle={styles.content}>
-      <Text variant="headline" accessibilityRole="header" align="center">
-        Idea settings
-      </Text>
-
-      <ListSection title="Name">
-        <View style={styles.inputRow}>
-          <TextInput
-            accessibilityLabel="Idea name"
-            value={name}
-            onChangeText={setName}
-            onSubmitEditing={saveName}
-            onBlur={saveName}
-            returnKeyType="done"
-            autoCapitalize="words"
-            maxLength={60}
-            selectTextOnFocus
-            placeholderTextColor={theme.colors.textTertiary}
-            style={styles.input}
-          />
-        </View>
-      </ListSection>
-
+    <>
       <ListSection title="Tempo">
         <View style={styles.tempoRow}>
           <Text style={styles.tempoLabel}>BPM</Text>
@@ -260,7 +284,7 @@ function IdeaSettingsForm() {
         Changing the tempo moves only the grid, not the audio. In x/8 signatures a beat is an eighth
         note.
       </Text>
-    </Screen>
+    </>
   );
 }
 
@@ -299,8 +323,6 @@ function StepButton({
 
 const useStyles = makeStyles((t) => ({
   content: { paddingTop: t.spacing.xl, paddingBottom: t.spacing.xl, gap: t.spacing.lg },
-  inputRow: { paddingHorizontal: t.spacing.lg, paddingVertical: t.spacing.xs },
-  input: { ...t.typography.body, color: t.colors.text, paddingVertical: t.spacing.sm },
   tempoRow: {
     flexDirection: 'row',
     alignItems: 'center',

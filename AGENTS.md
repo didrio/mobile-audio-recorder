@@ -178,6 +178,10 @@ TICKETS.md                Ordered, living backlog; one ticket per session (/star
   (no SF Symbols, no text; only a dev warning). Give Android a `headerRight` with a Pressable + `Icon` instead.
   And Android's Material header is opaque: content padding for iOS 26's floating header (`useHeaderHeight()`)
   must be iOS-only, or Android gets a blank band under the header.
+- **SwiftUI in a native header title**: an `@expo/ui` `Host` with `matchContents` used as `headerTitle` renders
+  nothing on iOS 26 (the header gives a custom title no size from its content). Give the `Host` an explicit
+  `width`/`height` (e.g. the room between the back button and the right-hand items) and `alignment="leading"`.
+  Example: `src/features/project/idea-title-menu.tsx`.
 - **Variants**: `APP_VARIANT` = `development` (local scripts, `.dev` bundle ID, "<Name> Dev"), `preview`,
   `production` (default when unset). Switching variants for local native builds needs `npm run native:clean`.
 - **Base updates**: apps share the base's git history (`base` remote) and pull its improvements with

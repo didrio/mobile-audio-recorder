@@ -3,12 +3,18 @@ import { act } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import type { Project } from '@/features/projects/projects-repo';
+import { useRecordingSettingsStore } from '@/features/settings/recording-settings-store';
 
 import { testProject, testTrack } from './edit-test-data';
 import { openIdea, useEditorStore } from './editor-store';
 import { IdeaSettingsSheet } from './idea-settings-sheet';
+import { useSettingsSheetStore } from './settings-sheet-store';
 
-jest.mock('expo-router', () => ({ useLocalSearchParams: () => ({ id: 'p1' }) }));
+const mockPush = jest.fn();
+jest.mock('expo-router', () => ({
+  useLocalSearchParams: () => ({ id: 'p1' }),
+  useRouter: () => ({ push: mockPush }),
+}));
 
 jest.mock('@/features/audio/audio-engine', () => ({
   forgetTakes: jest.fn(),
@@ -56,31 +62,53 @@ describe('IdeaSettingsSheet', () => {
   beforeEach(() => {
     jest.useFakeTimers({ advanceTimers: true });
     jest.mocked(saveChanges).mockReset();
+    mockPush.mockClear();
+    useSettingsSheetStore.setState({ tab: 'idea' });
   });
   afterEach(() => {
     jest.useRealTimers();
   });
 
-  it('shows the idea name, tempo, time signature and grid', async () => {
+  it('opens on the Idea tab: tempo, time signature and grid (the name is in the title menu)', async () => {
     await openSheet();
 
-    expect(screen.getByLabelText('Idea name')).toHaveDisplayValue('Idea 1');
+    expect(screen.getByRole('radio', { name: 'Idea' })).toBeChecked();
+    expect(screen.queryByLabelText('Idea name')).not.toBeOnTheScreen();
     expect(screen.getByLabelText('Tempo in beats per minute')).toHaveDisplayValue('120');
     expect(screen.getByRole('radio', { name: '4/4' })).toBeChecked();
     expect(screen.getByLabelText('Grid')).toHaveProp('value', false);
     expect(screen.getByText(/moves only the grid, not the audio/)).toBeOnTheScreen();
   });
 
-  it('renames the idea as an undoable edit', async () => {
+  it('switches to the Recording tab: app-wide settings, remembered for next time', async () => {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
     await openSheet();
 
-    const input = screen.getByLabelText('Idea name');
-    await fireEvent.changeText(input, 'Verse demo');
-    await fireEvent(input, 'submitEditing');
+    await user.press(screen.getByRole('radio', { name: 'Recording' }));
 
-    expect(useEditorStore.getState().project?.name).toBe('Verse demo');
-    expect(useEditorStore.getState().history.past).toHaveLength(1);
-    expect(savedSettings()).toEqual([expect.objectContaining({ name: 'Verse demo' })]);
+    expect(screen.getByText(/apply to all your ideas/)).toBeOnTheScreen();
+    expect(screen.getByRole('switch', { name: 'Hear yourself' })).toBeOnTheScreen();
+    expect(screen.getByText('Output')).toBeOnTheScreen();
+    expect(screen.getByText('Latency offset')).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Tempo in beats per minute')).not.toBeOnTheScreen();
+    expect(useSettingsSheetStore.getState().tab).toBe('recording');
+
+    await fireEvent(
+      screen.getByRole('switch', { name: 'Silent while recording' }),
+      'valueChange',
+      !useRecordingSettingsStore.getState().silentRecording,
+    );
+    expect(useRecordingSettingsStore.getState().silentRecording).toBe(true);
+  });
+
+  it('opens the input picker from the Recording tab', async () => {
+    useSettingsSheetStore.setState({ tab: 'recording' });
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    await openSheet();
+
+    await user.press(screen.getByText('Input'));
+
+    expect(mockPush).toHaveBeenCalledWith('/input-picker');
   });
 
   it('changes the time signature straight away', async () => {

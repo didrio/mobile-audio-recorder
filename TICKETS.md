@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T44 — Settings within reach inside an idea · Opus · high effort · plan mode on
+**Next:** T45 — Settings where they're used · Sonnet · low effort · plan mode off
 
 ## In progress
 
@@ -42,10 +42,13 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   (T17) · Snap (T31) · meter). Compact transport. "+ New Track" is a row after the last lane, not a header
   button. Sheets over the idea that need the playhead (notes, clip options) reach the transport through
   `src/features/project/transport-link.ts`.
-- **Header of an idea**: Undo · Redo · "⋯" (Idea settings, Notes, Export… (T36), Duplicate, Delete, Favorite). The menu has disabled
-  placeholders: items in `src/features/project/idea-menu-items.ts`, iOS `Stack.Toolbar.Menu` in
-  `project-screen.tsx`, Android `@expo/ui` Compose dropdown via `src/components/android-header-menu.android.tsx`. Enable an item
-  by giving it an action in `project-screen.tsx` (`menuActions`; Duplicate and Delete are live from T10).
+- **Header of an idea** (T44): the title is the idea's menu ("Idea 1 ⌄": Rename, Favorite, Duplicate, Move to…,
+  Export… (T36), Delete); items in `src/features/project/idea-menu-items.ts`, iOS SwiftUI `Menu`
+  (`idea-title-menu.tsx`), Android Compose dropdown (`idea-title-menu.android.tsx` →
+  `src/components/android-header-menu.android.tsx`). Right: Undo · Redo · Settings (sliders), which opens the
+  settings sheet with Idea | Recording tabs (`idea-settings-sheet.tsx`; Recording = app-wide rows shared with
+  the Settings tab, `src/features/settings/recording-settings-rows.tsx`). Enable a menu item by giving it an
+  action in `project-screen.tsx` (`menuActions`). The tab bar stays hidden inside an idea.
 - **Undo/redo** covers every edit, in memory per open idea (100 steps), cleared when leaving the idea. A new
   edit is a pure builder in `src/features/project/edit-commands.ts` returning an `Edit` (before/after snapshots
   of the rows it touches, `edit-changes.ts`), applied with `executeEdit()` from `editor-store.ts`. One gesture =
@@ -57,23 +60,26 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 - **Ideas list**: sort options (no manual drag ordering), folders with unlimited depth, Favorites as a virtual
   folder.
 
-### T44 — Settings within reach inside an idea
+### T45 — Settings where they're used
 
 - **Status:** ready
-- **Session:** Opus · high effort · plan mode on
-- **Goal:** App-level settings you change while working on a song (Hear yourself, Silent recording, the
-  Bluetooth mic, latency offset, input) are one tap away from inside an idea, without taking permanent screen
-  space, and in keeping with iOS 26's Liquid Glass.
+- **Session:** Sonnet · low effort · plan mode off
+- **Goal:** The last two app settings you'd change while working in an idea sit where you use them, not only in
+  the Settings tab (follow-up to T44's "put each setting where it's used").
 - **Done when:**
-  - [ ] A decided entry point from the editor (e.g. a header button or the "⋯" menu opening a sheet of quick
-        settings), reviewed with the user from simulator screenshots, light + dark.
-  - [ ] Hear yourself (T39) is the first one there; the others the user picks.
-  - [ ] A decided split between app settings (Settings tab) and idea settings (Idea settings sheet), with
-        nothing duplicated in a way that confuses which one wins.
-- **Context:** The user likes the Ideas/Settings tab bar on the main screen, but it disappears inside an idea and
-  the editor needs the room. T39 put Hear yourself in Settings → Hear yourself only (no in-idea UI) on purpose,
-  pending this. Settings: `src/features/settings/settings-screen.tsx`; idea settings:
-  `src/features/project/idea-settings-sheet.tsx`; the idea's header menu: `idea-menu-items.ts`.
+  - [ ] The pitch keyboard sheet (`src/features/keyboard/pitch-keyboard-sheet.tsx`) has its own volume slider,
+        the same `useKeyboardSettingsStore` value as Settings → Pitch keyboard (one store, so they always agree).
+        Reuse `VolumeSlider` + `formatDb` like `settings-screen.tsx` (drag shows live, saved on release).
+  - [ ] Long-pressing the Pre-roll button above the transport (`preRollToggle` in
+        `src/features/project/project-screen.tsx`, a `StripToggle`) offers the pre-roll length: seconds when the
+        idea's grid is off (`PRE_ROLL_SECONDS_OPTIONS`), bars when it's on (`PRE_ROLL_BARS_OPTIONS`), checkmark on
+        the current one; tap still toggles. iOS: a native menu (the `@expo/ui` SwiftUI `Menu` with
+        `onPrimaryAction` = tap toggles, long-press = menu, like `idea-title-menu.tsx`) or `useActionMenu`
+        (`src/components/action-menu.tsx`); pick what looks native in a screenshot. Settings → Pre-roll stays.
+  - [ ] Tests for both (keyboard sheet test, project-screen test), `npm run check`, simulator light + dark.
+- **Context:** Agreed with the user in T44. Keep the Settings tab rows; these are extra entry points to the same
+  stores (`recording-settings-store.ts`, `keyboard-settings-store.ts`). Watch the SwiftUI-in-RN sizing gotcha
+  from T44: a SwiftUI `Host` placed in a native header needs an explicit size.
 
 ### T7 — Background recording & interruptions
 
@@ -143,6 +149,10 @@ Android builds, and leave Android checks in the tickets / Device checks for late
 Run these with the next build on real phones (T7 needs one anyway, or before a release; see the `release`
 skill). Fix or ticket what fails, then delete the line.
 
+- Idea header and settings sheet (T44), on the phone: tap "Idea 1 ⌄" → menu; Rename / Move to… / Export… /
+  Delete work; Settings button → Idea | Recording; Recording → Input opens the picker over the sheet. Android
+  (never run): the title shows as text + drop-down arrow and opens a Material dropdown; Settings is a `tune`
+  icon button.
 - Hear yourself (T39), needs a new build (`getInputInfo` latency in `audio-input`): Settings → Hear yourself is
   disabled on the speaker with the headphones note; with wired headphones it shows a small delay (~10 ms) and,
   once switched on, a track armed in an idea plays your voice in the headphones, stopped, playing and recording
@@ -347,6 +357,13 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T44 — Settings within reach inside an idea — 2026-11-15 — the idea's "⋯" became a title menu ("Idea 1 ⌄":
+  Rename, Favorite, Duplicate, Move to…, Export…, Delete; SwiftUI `Menu` in `idea-title-menu.tsx`, given an
+  explicit frame because the native header gives a custom title no size) plus a Settings (sliders) header button
+  → the settings sheet with Idea | Recording tabs (last tab remembered, `settings-sheet-store.ts`). Recording =
+  Hear yourself, Input (new `input-picker` sheet), Output, Silent recording, Bluetooth mic, Latency, from the
+  rows now shared with the Settings tab (`recording-settings-rows.tsx`). Name moved from Idea settings to
+  Rename. Tab bar stays hidden in an idea. Simulator light + dark; Android not run
 - T39 — Hear yourself — 2026-11-15 — input monitoring in Settings → Hear yourself (switch, level up to +6 dB,
   delay, direct-monitoring note; the user's call: no editor UI until T44): `recorder.connect()` →
   `RecorderAdapterNode` → chosen channel → own gain → destination (`setMonitor` in `audio-engine.ts`,
@@ -366,29 +383,3 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   extracted to mono after Stop by the new local module `modules/audio-input` (also channel count, gain, route
   button). New iOS dev build; simulator light + dark (Settings, Input picker, a take); Maestro skipped
   (NTKDaemon), Android not run
-- T37 — Stems & batch export — 2026-11-15 — export sheet Mix / Stems: one file per track over the same range
-  (`planExport` in `export-plan.ts`: numbered `01 Vocals.m4a`, de-duplicated names, muted skipped unless asked,
-  "Apply track volume"), extras click track / the mix / "Tempo & markers" (`tempo-midi.ts`: format 0 SMF,
-  tempo per quarter so x/8 converts, time signature, section markers) and an always-included `info.txt`; one
-  stored zip streamed to disk (`zip.ts`, fflate) or separate files through the module's `shareFiles`.
-  Normalize on stems = one gain for every file (measuring pass), so the balance stays. Batch: select mode gets
-  Export (picked ideas + ideas in picked folders) → `export-batch` sheet → each whole mix, one zip (`exportIdeas`).
-  iOS hides the tab bar in select mode (`tab-bar-store.ts`) so the three toolbar actions fit. Simulator light +
-  dark: stems zip (5 files, all 35.659 s), separate files share sheet, MIDI bytes, info.txt, batch; Android not
-  run
-- T36 — Export a mix — 2026-11-15 — "Export…" in the idea "⋯" menu, the row's swipe (first action) and long-press
-  menu → `export/[id]` sheet: range (whole idea to the last heard clip, loop region, any section), M4A (default)
-  / 24-bit WAV at the takes' rate, Include click, Normalize to −1 dBFS (off: rendered peak check warns when it
-  would clip), "Add BPM to name" (choices remembered in `export-settings-store.ts`), progress + Cancel, temp
-  files deleted after the share sheet closes and at launch. Rendering: `audio-graph.ts` holds the clip/envelope/
-  track-gain/click graph code that `play()` and `offline-render.ts` (`OfflineAudioContext`) both use, with a
-  5 ms fade where a range cuts a clip. WAV encoder in JS (`wav.ts`); M4A by the new local module
-  `modules/audio-export` (iOS `AVAudioFile`, Android `MediaCodec`+`MediaMuxer`); one file shared via
-  expo-sharing. New dev build made (iOS). Simulator: real M4A (AAC 48 kHz mono, 35.66 s, peak −1.0 dBFS) and a
-  section WAV (exactly 15.000 s, 24-bit) checked with afinfo; never heard on a phone
-- T41 — Recently Deleted — 2026-11-15 — soft delete (`deleted_at` on `projects` and `folders`, migration v13): `deleteItems`
-  stamps a folder's whole subtree with one shared time; `recently-deleted.ts` (pure rules: nested vs top-level,
-  restore destination, days left), `trash-repo.ts` (list, restore to the original folder or root, Delete Now,
-  `purgeExpired` at launch from `_layout.tsx`, deleted bytes); Recently Deleted screen with select mode and a root
-  row (shown only when non-empty); lists, search, Favorites and counts skip deleted items; Settings → Storage
-  counts them separately. Simulator: delete, row, screen, Restore (light); dark mode, folders and Android not seen

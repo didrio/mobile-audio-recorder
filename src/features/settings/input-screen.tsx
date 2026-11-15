@@ -33,9 +33,10 @@ const MAX_CHANNEL_CHOICES = 8;
 
 /**
  * Settings → Recording → Input (T38): which input records (or Automatic), which channel of a
- * multi-channel input the take keeps, and the input gain where the hardware allows it.
+ * multi-channel input the take keeps, and the input gain where the hardware allows it. With `sheet`, it's
+ * the sheet opened from an idea's settings (T44), with its own title instead of a header.
  */
-export function InputScreen() {
+export function InputScreen({ sheet = false }: { sheet?: boolean }) {
   const styles = useStyles();
   const devices = useAudioRouteStore((state) => state.devices);
   const inputInfo = useAudioRouteStore((state) => state.inputInfo);
@@ -75,7 +76,12 @@ export function InputScreen() {
   );
 
   return (
-    <Screen grouped>
+    <Screen grouped contentContainerStyle={sheet ? styles.sheetContent : undefined}>
+      {sheet ? (
+        <Text variant="headline" accessibilityRole="header" align="center">
+          Input
+        </Text>
+      ) : null}
       <ListSection
         title="Input"
         footer="Automatic lets the phone choose: headphones with a mic or an interface when one is plugged in. A picked input is remembered; while it's unplugged, Automatic records.">
@@ -162,6 +168,7 @@ export function InputScreen() {
 }
 
 const useStyles = makeStyles((t) => ({
+  sheetContent: { paddingTop: t.spacing.xl, paddingBottom: t.spacing.xl },
   segmentRow: { padding: t.spacing.md },
   check: { marginLeft: 'auto' },
   gainRow: {

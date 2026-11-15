@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AndroidHeaderMenu } from '@/components/android-header-menu';
 import { RenameDialog } from '@/components/rename-dialog';
 import { Icon, Text, type IconName } from '@/components/ui';
 import { setTrackGain } from '@/features/audio/audio-engine';
@@ -53,6 +52,7 @@ import {
 } from './editor-store';
 import { IDEA_MENU_ITEMS, type IdeaMenuItemId } from './idea-menu-items';
 import { hasNotes } from './idea-notes';
+import { IdeaTitleMenu } from './idea-title-menu';
 import { hasSolo, trackOutputGain } from './mixer';
 import { SECTION_NAME_MAX } from './sections';
 import { registerTransportLink } from './transport-link';
@@ -68,8 +68,9 @@ import { useTransport } from './use-transport';
  * playing punches in on the fly; with pre-roll on, Record starts with a run-up (`use-transport.ts`). The app is portrait-only
  * (`orientation` in app.json), so there is no landscape layout. One track is
  * armed: Record records onto it while the others play. Tracks are added from the timeline's
- * "+ New Track" row. The header has Undo, Redo (enabled only while idle) and "⋯" (Idea settings, Notes, Duplicate,
- * Favorite / Unfavorite (T19), Delete). The strip's Notes button (dot = has notes) opens the idea notes sheet (T24),
+ * "+ New Track" row. The header's title is the idea's menu (T44: Rename, Favorite / Unfavorite, Duplicate,
+ * Move to…, Export…, Delete; `idea-menu-items.ts`); on the right are Undo, Redo and Settings (the
+ * Idea | Recording sheet), enabled only while idle. The strip's Notes button (dot = has notes) opens the idea notes sheet (T24),
  * the keyboard button the pitch reference keyboard (T20). The idea itself lives in the editor store (`editor-store.ts`), open while this screen is.
  */
 export function ProjectScreen() {
@@ -171,9 +172,12 @@ export function ProjectScreen() {
       : item,
   );
   const openNotes = () => router.push({ pathname: '/idea-notes/[id]', params: { id: params.id } });
+  const openSettings = () =>
+    router.push({ pathname: '/idea-settings/[id]', params: { id: params.id } });
+  const [renamingIdea, setRenamingIdea] = useState(false);
   const menuActions: Partial<Record<IdeaMenuItemId, () => void>> = {
-    settings: () => router.push({ pathname: '/idea-settings/[id]', params: { id: params.id } }),
-    notes: openNotes,
+    rename: () => setRenamingIdea(true),
+    move: () => router.push({ pathname: '/move-to', params: { ideas: params.id } }),
     export: () => router.push({ pathname: '/export/[id]', params: { id: params.id } }),
     duplicate: () => {
       duplicateProject.mutate(params.id, {
@@ -191,9 +195,15 @@ export function ProjectScreen() {
       });
     },
   };
-  // Notes stay available while playing or recording (jot down what's happening, jump to a time).
-  const menuEnabled = (id: IdeaMenuItemId) =>
-    !!project && (isIdle || id === 'notes') && !!menuActions[id];
+  const menuEnabled = (id: IdeaMenuItemId) => !!project && isIdle && !!menuActions[id];
+  const titleMenuItems = menuItems.map((item) => ({
+    label: item.label,
+    icon: item.icon,
+    destructive: item.destructive,
+    disabled: !menuEnabled(item.id),
+    onPress: menuActions[item.id],
+  }));
+  const settingsDisabled = !project || !isIdle;
 
   const editTrack = (trackId: string) =>
     router.push({ pathname: '/track/[id]', params: { id: trackId, projectId: params.id } });
@@ -464,6 +474,8 @@ export function ProjectScreen() {
       <Stack.Screen
         options={{
           title: project?.name ?? '',
+          headerTitle: () =>
+            project ? <IdeaTitleMenu title={project.name} items={titleMenuItems} /> : null,
           ...(Platform.OS === 'android' && {
             headerRight: () => (
               <View style={styles.headerButtons}>
@@ -479,14 +491,11 @@ export function ProjectScreen() {
                   disabled={redoDisabled}
                   onPress={onRedo}
                 />
-                <AndroidHeaderMenu
-                  label="More"
-                  icon={{ ios: 'ellipsis', android: 'more_vert' }}
-                  items={menuItems.map((item) => ({
-                    label: item.label,
-                    disabled: !menuEnabled(item.id),
-                    onPress: menuActions[item.id],
-                  }))}
+                <HeaderIconButton
+                  label="Settings"
+                  icon={{ ios: 'slider.horizontal.3', android: 'tune' }}
+                  disabled={settingsDisabled}
+                  onPress={openSettings}
                 />
               </View>
             ),
@@ -509,18 +518,13 @@ export function ProjectScreen() {
             onPress={onRedo}>
             Redo
           </Stack.Toolbar.Button>
-          <Stack.Toolbar.Menu icon="ellipsis" accessibilityLabel="More">
-            {menuItems.map((item) => (
-              <Stack.Toolbar.MenuAction
-                key={item.id}
-                icon={item.icon.ios}
-                destructive={item.destructive}
-                disabled={!menuEnabled(item.id)}
-                onPress={menuActions[item.id]}>
-                {item.label}
-              </Stack.Toolbar.MenuAction>
-            ))}
-          </Stack.Toolbar.Menu>
+          <Stack.Toolbar.Button
+            icon="slider.horizontal.3"
+            accessibilityLabel="Settings"
+            disabled={settingsDisabled}
+            onPress={openSettings}>
+            Settings
+          </Stack.Toolbar.Button>
         </Stack.Toolbar>
       )}
 
@@ -529,6 +533,17 @@ export function ProjectScreen() {
       {visualHint}
       {errorText}
       <View style={styles.timeline}>{timeline}</View>
+      <RenameDialog
+        item={renamingIdea && project ? { id: project.id, name: project.name } : null}
+        title="Rename idea"
+        inputLabel="Idea name"
+        maxLength={IDEA_NAME_MAX}
+        onCancel={() => setRenamingIdea(false)}
+        onSubmit={(_id, name) => {
+          setRenamingIdea(false);
+          void setIdeaSettings({ name });
+        }}
+      />
       <RenameDialog
         item={renamingSection ?? null}
         title="Rename section"
@@ -717,6 +732,8 @@ function TransportButton({
 }
 
 const PLAY_BUTTON_SIZE = 60;
+/** As the old Name field in Idea settings allowed. */
+const IDEA_NAME_MAX = 60;
 const SIDE_BUTTON_SIZE = 44;
 /** The two slots flanking the transport buttons (the Loop and pre-roll toggles). */
 const SIDE_SLOT_WIDTH = 36;

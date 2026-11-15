@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, userEvent } from '@testing-library/react-native';
+import { fireEvent, render, screen, userEvent } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -67,41 +67,11 @@ jest.mock('expo-router', () => {
   Toolbar.Spacer = function Spacer() {
     return null;
   };
-  Toolbar.Menu = function Menu({
-    accessibilityLabel,
-    children,
-  }: {
-    accessibilityLabel: string;
-    children: ReactNode;
-  }) {
-    return (
-      <>
-        <Text>{accessibilityLabel}</Text>
-        {children}
-      </>
-    );
-  };
-  Toolbar.MenuAction = function MenuAction({
-    children,
-    disabled,
-    onPress,
-  }: {
-    children: string;
-    disabled?: boolean;
-    onPress?: () => void;
-  }) {
-    return (
-      <Pressable
-        accessibilityRole="menuitem"
-        accessibilityState={{ disabled }}
-        disabled={disabled}
-        onPress={onPress}>
-        <Text>{children}</Text>
-      </Pressable>
-    );
-  };
+  // Renders the header title (the idea's title menu).
+  const Screen = ({ options }: { options?: { headerTitle?: () => ReactNode } }) =>
+    options?.headerTitle?.() ?? null;
   return {
-    Stack: { Screen: () => null, Toolbar },
+    Stack: { Screen, Toolbar },
     useIsFocused: () => true,
     useLocalSearchParams: () => ({ id: 'p1' }),
     useRouter: () => ({ push: mockPush }),
@@ -109,6 +79,34 @@ jest.mock('expo-router', () => {
 });
 
 jest.mock('expo-router/react-navigation', () => ({ useHeaderHeight: () => 0 }));
+
+// The title menu is a SwiftUI Menu; its items show as plain menu items here.
+jest.mock('./idea-title-menu', () => {
+  const { Pressable, Text } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    IdeaTitleMenu: ({
+      title,
+      items,
+    }: {
+      title: string;
+      items: { label: string; disabled?: boolean; onPress?: () => void }[];
+    }) => (
+      <>
+        <Text>{`Title menu: ${title}`}</Text>
+        {items.map((item) => (
+          <Pressable
+            key={item.label}
+            accessibilityRole="menuitem"
+            accessibilityState={{ disabled: item.disabled }}
+            disabled={item.disabled}
+            onPress={item.onPress}>
+            <Text>{item.label}</Text>
+          </Pressable>
+        ))}
+      </>
+    ),
+  };
+});
 
 jest.mock('@/features/audio/audio-engine', () => ({
   ensureRecordPermission: jest.fn(),
@@ -1054,19 +1052,50 @@ describe('ProjectScreen', () => {
     expect(saveChanges).toHaveBeenCalledTimes(5);
   });
 
-  it('has a "More" menu: Idea settings, Duplicate, Favorite and Delete work', async () => {
+  it("has a title menu with the idea's file actions; Favorite works", async () => {
     jest.mocked(listProjects).mockResolvedValue([{ ...project, favorite: false }]);
     const user = userEvent.setup();
     await renderScreen();
 
     await screen.findByText('Timeline of Chorus riff');
-    expect(screen.getByText('More')).toBeOnTheScreen();
-    expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeEnabled();
-    expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeEnabled();
-    expect(screen.getByRole('menuitem', { name: 'Idea settings' })).toBeEnabled();
+    expect(screen.getByText('Title menu: Chorus riff')).toBeOnTheScreen();
+    for (const name of ['Rename', 'Duplicate', 'Move to…', 'Export…', 'Delete']) {
+      expect(screen.getByRole('menuitem', { name })).toBeEnabled();
+    }
+    expect(screen.queryByRole('menuitem', { name: 'Notes' })).not.toBeOnTheScreen();
 
     await user.press(await screen.findByRole('menuitem', { name: 'Favorite' }));
     expect(setFavorite).toHaveBeenCalledWith(['p1'], true);
+  });
+
+  it('renames the idea from the title menu as one undo step', async () => {
+    const user = userEvent.setup();
+    await renderScreen();
+    await screen.findByText('Timeline of Chorus riff');
+
+    await user.press(screen.getByRole('menuitem', { name: 'Rename' }));
+    const input = screen.getByLabelText('Idea name');
+    expect(input).toHaveDisplayValue('Chorus riff');
+    await fireEvent.changeText(input, 'Verse demo');
+    await user.press(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('Title menu: Verse demo')).toBeOnTheScreen();
+    expect(jest.mocked(saveChanges).mock.calls.at(-1)?.[1]).toEqual([
+      expect.objectContaining({
+        table: 'projects',
+        after: expect.objectContaining({ name: 'Verse demo' }),
+      }),
+    ]);
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+  });
+
+  it('moves the idea from the title menu', async () => {
+    await renderScreen();
+    await screen.findByText('Timeline of Chorus riff');
+
+    await userEvent.setup().press(screen.getByRole('menuitem', { name: 'Move to…' }));
+
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/move-to', params: { ideas: 'p1' } });
   });
 
   it('offers Unfavorite for a starred idea', async () => {
@@ -1078,11 +1107,11 @@ describe('ProjectScreen', () => {
     expect(setFavorite).toHaveBeenCalledWith(['p1'], false);
   });
 
-  it('opens the idea settings sheet from the menu', async () => {
+  it("opens the settings sheet from the header's Settings button", async () => {
     await renderScreen();
     await screen.findByText('Timeline of Chorus riff');
 
-    await userEvent.setup().press(screen.getByRole('menuitem', { name: 'Idea settings' }));
+    await userEvent.setup().press(screen.getByRole('button', { name: 'Settings' }));
 
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/idea-settings/[id]',
@@ -1090,7 +1119,7 @@ describe('ProjectScreen', () => {
     });
   });
 
-  it('opens the notes from the strip and the menu; a dot shows once the idea has notes', async () => {
+  it('opens the notes from the strip; a dot shows once the idea has notes', async () => {
     jest.mocked(getProject).mockResolvedValue({ ...project, notes: '[0:45] chorus: Fmaj7' });
     const user = userEvent.setup();
     await renderScreen();
@@ -1099,9 +1128,8 @@ describe('ProjectScreen', () => {
     const notesButton = screen.getByRole('button', { name: 'Notes' });
     expect(notesButton).toHaveAccessibilityValue({ text: 'Has content' });
     await user.press(notesButton);
-    await user.press(screen.getByRole('menuitem', { name: 'Notes' }));
 
-    expect(mockPush).toHaveBeenCalledTimes(2);
+    expect(mockPush).toHaveBeenCalledTimes(1);
     expect(mockPush).toHaveBeenLastCalledWith({
       pathname: '/idea-notes/[id]',
       params: { id: 'p1' },

@@ -9,7 +9,13 @@ export type HeaderMenuItem = {
   disabled?: boolean;
 };
 
-export type AndroidHeaderMenuProps = { label: string; icon: IconName; items: HeaderMenuItem[] };
+export type AndroidHeaderMenuProps = {
+  label: string;
+  /** An icon button, or with `title`, the title text and a drop-down arrow (an idea's title menu). */
+  icon?: IconName;
+  title?: string;
+  items: HeaderMenuItem[];
+};
 
 export function AndroidHeaderMenu(_props: AndroidHeaderMenuProps) {
   return null;

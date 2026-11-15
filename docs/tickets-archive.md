@@ -2,6 +2,32 @@
 
 Oldest finished tickets, moved out of `TICKETS.md` to keep it lean. Newest first.
 
+- T37 — Stems & batch export — 2026-11-15 — export sheet Mix / Stems: one file per track over the same range
+  (`planExport` in `export-plan.ts`: numbered `01 Vocals.m4a`, de-duplicated names, muted skipped unless asked,
+  "Apply track volume"), extras click track / the mix / "Tempo & markers" (`tempo-midi.ts`: format 0 SMF,
+  tempo per quarter so x/8 converts, time signature, section markers) and an always-included `info.txt`; one
+  stored zip streamed to disk (`zip.ts`, fflate) or separate files through the module's `shareFiles`.
+  Normalize on stems = one gain for every file (measuring pass), so the balance stays. Batch: select mode gets
+  Export (picked ideas + ideas in picked folders) → `export-batch` sheet → each whole mix, one zip (`exportIdeas`).
+  iOS hides the tab bar in select mode (`tab-bar-store.ts`) so the three toolbar actions fit. Simulator light +
+  dark: stems zip (5 files, all 35.659 s), separate files share sheet, MIDI bytes, info.txt, batch; Android not
+  run
+- T36 — Export a mix — 2026-11-15 — "Export…" in the idea "⋯" menu, the row's swipe (first action) and long-press
+  menu → `export/[id]` sheet: range (whole idea to the last heard clip, loop region, any section), M4A (default)
+  / 24-bit WAV at the takes' rate, Include click, Normalize to −1 dBFS (off: rendered peak check warns when it
+  would clip), "Add BPM to name" (choices remembered in `export-settings-store.ts`), progress + Cancel, temp
+  files deleted after the share sheet closes and at launch. Rendering: `audio-graph.ts` holds the clip/envelope/
+  track-gain/click graph code that `play()` and `offline-render.ts` (`OfflineAudioContext`) both use, with a
+  5 ms fade where a range cuts a clip. WAV encoder in JS (`wav.ts`); M4A by the new local module
+  `modules/audio-export` (iOS `AVAudioFile`, Android `MediaCodec`+`MediaMuxer`); one file shared via
+  expo-sharing. New dev build made (iOS). Simulator: real M4A (AAC 48 kHz mono, 35.66 s, peak −1.0 dBFS) and a
+  section WAV (exactly 15.000 s, 24-bit) checked with afinfo; never heard on a phone
+- T41 — Recently Deleted — 2026-11-15 — soft delete (`deleted_at` on `projects` and `folders`, migration v13): `deleteItems`
+  stamps a folder's whole subtree with one shared time; `recently-deleted.ts` (pure rules: nested vs top-level,
+  restore destination, days left), `trash-repo.ts` (list, restore to the original folder or root, Delete Now,
+  `purgeExpired` at launch from `_layout.tsx`, deleted bytes); Recently Deleted screen with select mode and a root
+  row (shown only when non-empty); lists, search, Favorites and counts skip deleted items; Settings → Storage
+  counts them separately. Simulator: delete, row, screen, Restore (light); dark mode, folders and Android not seen
 - T42 — Shelve Speaker mode — 2026-11-14 — `SPEAKER_MODE_ENABLED = false` in `@/lib/echo-canceller` hides the
   Settings section and forces `useSpeakerRecording().clean` false (saved `speakerMode: true` ignored); silent
   recording unaffected; code kept, docs and a Backlog line say how to bring it back. Unit tests only: the

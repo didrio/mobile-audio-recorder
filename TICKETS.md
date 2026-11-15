@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T46 — Device test pass · Opus · high effort · plan mode on
+**Next:** T47 — Speaker mode on Android, one strong setting · Opus · high effort · plan mode on
 
 ## In progress
 
@@ -68,6 +68,58 @@ whole list is tested in one pass at the end (a fresh dev or preview build on bot
   `pointOf`; text is the exception (`rulerLabel`, the rail's `text`). Sizes come from `timelineLayout` in
   `timeline-math.ts`; `TrackColumn`, `LaneOverlay` and `useReorderStyle` branch on `vertical`.
 
+### T47 — Speaker mode on Android, one strong setting
+
+- **Status:** ready
+- **Session:** Opus · high effort · plan mode on
+- **Goal:** Recording without headphones removes the backing (other tracks, the metronome) from the take on iOS
+  **and Android**, behind an experimental on/off switch in Settings → Experimental. No Light / Strong choice:
+  on means the most aggressive cleanup, tuned harder than today's Strong. The user's call (2026-11-15): push it
+  as hard as it goes first, then pull back only where takes sound bad.
+- **Done when:**
+  - [ ] Settings → Experimental (T43's section) gets a "Speaker mode" switch, off by default, with a footer
+        saying it cleans takes recorded without headphones and keeps the original. The old Speaker mode section
+        and its Cleanup (Light / Strong) control go away; `SPEAKER_MODE_ENABLED` is removed (or `true`).
+        `cleanupStrength` leaves `recording-settings-store.ts` (bump the persist version so old saved values are
+        dropped) and cleaning always runs the strongest settings.
+  - [ ] Android: `modules/echo-canceller` builds and works there. CMake builds `cpp/echo_cancel.c` (`dr_wav.h` is
+        header-only), a JNI function calls `ec_clean_take`, and a Kotlin `EchoCancellerModule` exposes the same
+        `cleanTake` as the Swift one (same arguments, result and error messages). `expo-module.config.json`
+        lists `android`, so `isEchoCancellerAvailable` is true on both platforms.
+  - [ ] Harder cleanup in the shared C core, tuned on the desktop first (`node
+modules/echo-canceller/cpp/tests/run.mjs`): start from the extreme end of the knobs below, note the
+        reduction in dB for each step, then settle the default with the user listening to takes recorded on the
+        phone.
+  - [ ] Unit tests for the settings change, the desktop C test passes, `npm run check`. Android at least compiles
+        (local `npm run android` build); trying it on a phone waits for Android testing to resume.
+  - [ ] A Device checks line for both platforms (new build needed: native code changed; T46's build includes
+        it), with the checks from before the shelving: clap test of a cleaned take, cleaning time on a 2–3
+        minute take, guitar as well as voice, headphones leave the take untouched, the "Use Visual" hint when
+        armed without headphones.
+- **Context:**
+  - Shelved in T42 (2026-11-14), not removed. `SPEAKER_MODE_ENABLED = false` in `src/lib/echo-canceller.ts` hides
+    the Settings section and forces `useSpeakerRecording().clean` false. The cleaning path is intact: after Stop
+    in `use-transport.ts`, when `use-speaker-mode.ts` says so (`speakerModeApplies` in `audio-route.ts`: no
+    headphones, not recording in silence). The raw take is kept as `.raw.wav`. The settings fields
+    (`speakerMode`, `cleanupStrength`) are in `recording-settings-store.ts`, the UI in `settings-screen.tsx`
+    (Speaker mode section, hidden). Design: `docs/decisions.md` (Speaker mode row; update it: un-shelved,
+    Android, one setting) and `modules/echo-canceller/README.md`.
+  - How the C core works (`cpp/echo_cancel.c`, plain C shared by both platforms): it mixes the reference from
+    the plan (clip windows and click waves), finds the real echo delay, estimates one fixed speaker → room →
+    mic filter per take (with a distortion model, `filter_ms` 85 by default) and subtracts it. Strong
+    (`residual_suppression = 1`) adds per-frequency residual suppression and harder click suppression.
+  - Knobs for "harder": `RESIDUAL = {frame 1024, share 0.1, spread 0, broadband 0, floor 0.2}` (lower the floor
+    toward ~0.03, raise the share, spread and broadband above 0 for what a distorting speaker adds);
+    `CLICKS_STRONG = {margin 3.0, floor 0.03}`; a longer `filter_ms`; more `ESTIMATE_ITERATIONS`. Expect the
+    voice to turn dull or watery as the floors drop: finding that line is the tuning.
+  - The user's report (2026-11-15): on iOS with Speaker mode on, the metronome and the other tracks are still
+    audible in the take, though better than with it off.
+  - Already tried and rejected in T21 (don't redo): the platforms' realtime voice processing (iOS voice
+    processing I/O; Android's equivalent is the same kind of call-audio processing: thin, gated) and SpeexDSP's
+    adaptive canceller (drifts while the performer plays).
+  - Android testing is paused (top of Up next): build and compile it, keep its device checks for later. Do this
+    ticket before T46 so the one fresh phone build has it.
+
 ### T46 — Device test pass
 
 - **Status:** ready
@@ -88,7 +140,7 @@ whole list is tested in one pass at the end (a fresh dev or preview build on bot
         this Mac; don't kill it, ask the user).
 - **Context:** Android stays paused unless the user says otherwise: its lines stay in Device checks. Several
   lines need native code newer than some installed builds (local modules `audio-input`, `audio-export`, T7's
-  background audio); the iPhone dev build from 2026-11-15 already has part of it, so first check what's installed
+  background audio, T47's echo canceller); the iPhone dev build from 2026-11-15 already has part of it, so first check what's installed
   (`node scripts/ota-check.mjs` compares fingerprints with the latest preview build) before building. Local
   native builds need a UTF-8 locale for CocoaPods and `--no-bundler` when Metro already runs (AGENTS.md
   Gotchas). The `run-app` and `release` skills have the steps. The vertical timeline (T43) is worth trying on
@@ -301,12 +353,6 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
     what you played or learning a part.
   - Quick capture from the lock screen, Control Center or a home-screen widget: start recording a new idea in
     one tap (native work, needs a dev build).
-- Bring back Speaker mode (shelved in T42): set `SPEAKER_MODE_ENABLED = true` in `@/lib/echo-canceller` for iOS
-  (then run the old checks: clap test of a cleaned take, cleaning time on a 2–3 minute take, Light vs Strong on
-  guitar, headphones leave the take untouched, the "Use Visual" hint when armed without headphones). Android
-  needs the module ported: CMake builds `cpp/echo_cancel.c` (`dr_wav.h` is header-only), a JNI function and a
-  Kotlin `EchoCancellerModule` with the same `cleanTake` as the Swift one, and `expo-module.config.json` lists
-  `android`.
 - Simple effects per track (reverb, EQ) via the audio graph.
 - Backup / sync (iCloud Drive, Google Drive) — the data model uses UUIDs and relative paths to make this possible.
 - iOS Live Activity while recording (lock screen timer + stop).

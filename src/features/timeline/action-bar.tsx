@@ -19,6 +19,7 @@ export function ActionBarButton({
   hint,
   icon,
   disabled = false,
+  dimmed = false,
   destructive = false,
   compact = false,
   onPress,
@@ -27,6 +28,8 @@ export function ActionBarButton({
   hint?: string;
   icon: IconName;
   disabled?: boolean;
+  /** Looks disabled but still responds to a tap (the caller says why it can't act). */
+  dimmed?: boolean;
   destructive?: boolean;
   /** Less padding, so four buttons fit a narrow time area. */
   compact?: boolean;
@@ -47,7 +50,7 @@ export function ActionBarButton({
         styles.action,
         compact && styles.compact,
         pressed && styles.pressed,
-        disabled && styles.disabled,
+        (disabled || dimmed) && styles.disabled,
       ]}>
       <Icon name={icon} size={18} color={color} />
       <Text variant="footnote" color={color}>

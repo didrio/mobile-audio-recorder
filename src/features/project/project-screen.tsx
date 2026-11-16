@@ -134,9 +134,20 @@ export function ProjectScreen() {
   const redoDisabled = !isIdle || !canRedo;
   const hasClips = tracks.some((t) => t.clips.length > 0);
 
+  // A short notice floating over the timeline: why a dimmed control didn't act (T51).
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => clearTimeout(noticeTimer.current ?? undefined), []);
+  const showNotice = (text: string) => {
+    clearTimeout(noticeTimer.current ?? undefined);
+    setNotice(text);
+    noticeTimer.current = setTimeout(() => setNotice(null), NOTICE_MS);
+  };
+
   const { record } = transport;
   const recordArmed = () => {
     if (armedTrack) void record(armedTrack.id);
+    else showNotice("Tap a track's name to choose where to record");
   };
 
   // Quick capture: opened from "Record new idea", start recording as soon as the project is loaded.
@@ -377,7 +388,8 @@ export function ProjectScreen() {
       size={SIDE_BUTTON_SIZE}
       kind="record"
       busy={isBusy}
-      disabled={isBusy || !armedTrack}
+      disabled={isBusy}
+      dimmed={!armedTrack}
       onPress={isRecording ? () => void transport.stopRecording() : recordArmed}
     />
   );
@@ -392,6 +404,7 @@ export function ProjectScreen() {
     onSplit: (clipId, at) => {
       if (splitClip(clipId, at)) transport.replay();
     },
+    onSplitUnavailable: () => showNotice('Move the playhead onto the clip to split it there'),
     onDuplicate: (clipId) => {
       const copyId = duplicateClip(clipId);
       if (copyId) transport.replay();
@@ -546,7 +559,21 @@ export function ProjectScreen() {
       {beatDisplay}
       {visualHint}
       {errorText}
-      <View style={styles.timeline}>{timeline}</View>
+      <View style={styles.timeline}>
+        {timeline}
+        {notice ? (
+          <View
+            pointerEvents="none"
+            // The vertical timeline's header row (grips, names) takes the top ~70 pt.
+            style={[styles.noticeSlot, verticalTimeline && styles.noticeSlotVertical]}>
+            <View style={styles.notice} accessibilityLiveRegion="polite">
+              <Text variant="footnote" align="center">
+                {notice}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+      </View>
       <RenameDialog
         item={renamingIdea && project ? { id: project.id, name: project.name } : null}
         title="Rename idea"
@@ -720,6 +747,7 @@ function TransportButton({
   kind,
   busy = false,
   disabled = false,
+  dimmed = false,
   onPress,
 }: {
   label: string;
@@ -728,6 +756,8 @@ function TransportButton({
   kind: 'play' | 'record' | 'secondary';
   busy?: boolean;
   disabled?: boolean;
+  /** Looks disabled but still responds to a tap (to say why it can't act). */
+  dimmed?: boolean;
   onPress: () => void;
 }) {
   const styles = useStyles();
@@ -747,7 +777,7 @@ function TransportButton({
         kind === 'record' && styles.recordButton,
         kind === 'play' && styles.playButton,
         kind === 'secondary' && styles.secondaryButton,
-        disabled && styles.disabled,
+        (disabled || dimmed) && styles.disabled,
         pressed && styles.pressed,
       ]}>
       <Icon
@@ -764,6 +794,10 @@ const PLAY_BUTTON_SIZE = 60;
 /** As the old Name field in Idea settings allowed. */
 const IDEA_NAME_MAX = 60;
 const SIDE_BUTTON_SIZE = 44;
+/** How long a notice stays over the timeline. */
+const NOTICE_MS = 3000;
+/** Where the notice sits in the vertical timeline: under its header row of track names. */
+const NOTICE_VERTICAL_TOP = 76;
 /** The two slots flanking the transport buttons (the Loop and pre-roll toggles). */
 const SIDE_SLOT_WIDTH = 52;
 
@@ -827,6 +861,23 @@ const useStyles = makeStyles((t) => ({
     backgroundColor: t.colors.danger,
   },
   timeline: { flex: 1 },
+  noticeSlot: {
+    position: 'absolute',
+    top: t.spacing.sm,
+    left: t.spacing.lg,
+    right: t.spacing.lg,
+    alignItems: 'center',
+  },
+  noticeSlotVertical: { top: NOTICE_VERTICAL_TOP },
+  notice: {
+    paddingHorizontal: t.spacing.md,
+    paddingVertical: t.spacing.sm,
+    borderRadius: t.radius.full,
+    backgroundColor: t.colors.surface,
+    borderWidth: 1,
+    borderColor: t.colors.border,
+    boxShadow: '0px 4px 16px rgba(0, 0, 0, 0.18)',
+  },
   message: { flex: 1, justifyContent: 'center', padding: t.spacing.lg },
   transport: {
     paddingTop: t.spacing.sm,

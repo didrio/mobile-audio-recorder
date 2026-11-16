@@ -402,7 +402,7 @@ describe('ProjectScreen', () => {
     });
   }
 
-  it('disarms on a second tap, which grays out Record and releases the mic', async () => {
+  it('disarms on a second tap, which dims Record and releases the mic', async () => {
     const user = userEvent.setup();
     await renderScreen();
 
@@ -415,9 +415,14 @@ describe('ProjectScreen', () => {
     await user.press(screen.getByRole('button', { name: 'Arm Track 1' }));
 
     expect(screen.getByRole('button', { name: 'Arm Track 1' })).not.toBeSelected();
-    expect(screen.getByRole('button', { name: 'Record' })).toBeDisabled();
     expect(setMetering).toHaveBeenLastCalledWith(null);
     expect(setArmedTrack).toHaveBeenCalledWith('p1', null);
+
+    // Dimmed but not dead: tapping it says what to do, and records nothing.
+    expect(screen.queryByText(/choose where to record/)).not.toBeOnTheScreen();
+    await user.press(screen.getByRole('button', { name: 'Record' }));
+    expect(screen.getByText("Tap a track's name to choose where to record")).toBeOnTheScreen();
+    expect(startRecording).not.toHaveBeenCalled();
   });
 
   it('keeps the mic open while playing with a track armed (meter and Hear yourself, T39)', async () => {

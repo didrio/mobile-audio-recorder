@@ -208,6 +208,8 @@ export type ClipEditing = {
   onPlace: (clipId: string, placement: ClipPlacement, label: string) => boolean;
   /** Split at timeline position `at`. */
   onSplit: (clipId: string, at: number) => void;
+  /** Split was tapped while the playhead is outside the selected clip. */
+  onSplitUnavailable: () => void;
   /** Copy it to right after itself; returns the copy's id (it gets selected). */
   onDuplicate: (clipId: string) => string | null;
   /** Open the clip's options (gain, fades, restore; T16). The clip stays selected. */
@@ -1703,6 +1705,8 @@ export function Timeline({
             armedTrackId={armedTrackId}
             armDisabled={isRecording}
             addTrackDisabled={addTrackDisabled}
+            editDisabled={isRecording}
+            onEditTrack={onEditTrack}
             onArm={onArm}
             onAddTrack={onAddTrack}
           />
@@ -1711,6 +1715,7 @@ export function Timeline({
               <ClipActionBar
                 canSplit={canSplit}
                 onSplit={() => clipEditing.onSplit(selected.id, playhead.get())}
+                onSplitUnavailable={clipEditing.onSplitUnavailable}
                 onDuplicate={() => {
                   const copyId = clipEditing.onDuplicate(selected.id);
                   if (copyId) selectClip(copyId);

@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T51 — No dead ends in the editor · Sonnet · medium effort · plan mode off
+**Next:** none queued. Promote something from Backlog (the small UI/UX items are the natural next pick) · Sonnet · low effort · plan mode off
 
 ## In progress
 
@@ -75,37 +75,6 @@ rest.
 Left alone on purpose: the Settings tab's structure, the Ideas list layout, the timeline's interaction model, the
 action bar being centred on the time area.
 
-### T51 — No dead ends in the editor
-
-- **Status:** ready
-- **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** A dimmed control says why when tapped, and a track can be renamed from its name.
-- **Done when:**
-  - [ ] Record with no track armed still looks dimmed but responds: a short notice "Tap a track's name to
-        choose where to record" appears and nothing is recorded. (Today: `disabled={isBusy || !armedTrack}` in
-        `project-screen.tsx`, reached by tapping the armed track's name pill.) While busy it stays truly disabled.
-  - [ ] Split with the playhead outside the selected clip still looks dimmed but responds with "Move the
-        playhead onto the clip to split it there". `ClipActionBar` (`src/features/timeline/clip-action-bar.tsx`)
-        gets an `onSplitUnavailable` callback, `ActionBarButton` (`action-bar.tsx`) a way to look disabled while
-        staying pressable, and the timeline passes it up through `ClipEditing`.
-  - [ ] One notice element in `project-screen.tsx`: a small pill floating at the top centre of the timeline
-        area (`pointerEvents="none"`, no layout shift), gone after about 3 s or when replaced, announced to
-        screen readers (`accessibilityLiveRegion="polite"`). Styled like `ActionBar` (surface, border, full
-        radius, `footnote` text). Its timer is cleared on unmount.
-  - [ ] Long-pressing a track's name pill opens the track sheet (rename, delete), with the same haptic as a
-        long-press in the Ideas list; a tap still arms. `LaneOverlay` (`src/features/timeline/lane-overlay.tsx`,
-        `NamePill`) gets `onEditTrack` and `editDisabled`, fed from the `onEditTrack` the timeline already gives
-        `TrackColumn`'s info button. The pill gets an accessibility hint or action for it.
-  - [ ] Tests: `project-screen.test.tsx` has "Record … toBeDisabled" when nothing is armed (around line 418):
-        change it to pressing Record, seeing the notice, and `record` not being called; add the Split notice and
-        the long-press (`lane-overlay.test.tsx`). `npm run check` passes.
-  - [ ] Looked at on the simulator: both notices, in light and dark, and the long-press in the horizontal and
-        the vertical timeline.
-- **Context:** Agreed design stays: one armed track, a tap on a clip never moves the playhead (TICKETS.md,
-  "Editor design"). The top of the timeline was chosen for the notice because the bottom holds the floating action
-  bar. Worklet gotchas in `AGENTS.md` apply if anything in `timeline.tsx` is called from a gesture
-  (`scheduleOnRN`). RNTL v14: read its `llm-guidelines.md` first.
-
 ## Device checks
 
 What's left after T46's iPhone pass: Android (when it's back), wired headphones and a USB interface (when at
@@ -174,6 +143,9 @@ delete the line.
 
 - Captions (T50) on a real 360 pt-wide phone / Android: the strip (clock, 4 captioned tools, meter) and the transport
   side slots shouldn't clip; check the horizontal timeline and dark mode too (only seen light + vertical).
+
+- Notices and long-press (T51): dark mode and the horizontal timeline (only seen light + vertical); on Android the
+  long-press on a name pill and the dimmed-but-pressable Record / Split.
 
 ## Backlog
 
@@ -253,6 +225,12 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   passed pills, or draw the lifted pill above; only if it bothers on a device.
 
 ## Done
+
+- T51 — No dead ends in the editor — 2026-11-15 — Record with no track armed and Split with the playhead off the clip
+  look dimmed but respond with a notice (one pill at the top of the timeline in `project-screen.tsx`, 3 s,
+  live region; below the header row when vertical; `dimmed` prop on `ActionBarButton` / `TransportButton`,
+  `onSplitUnavailable` in `ClipEditing`); long-press on a track's name pill opens the track sheet (medium haptic,
+  a11y action). Simulator light + vertical timeline only; dark and horizontal not looked at
 
 - T50 — Editor tools: captions and distinct icons — 2026-11-15 — status-strip tools have a caption under the icon
   (Notes, Keys, Metronome, Snap, "Input" under the meter), the transport's Loop and Count-in too (`caption2`; the

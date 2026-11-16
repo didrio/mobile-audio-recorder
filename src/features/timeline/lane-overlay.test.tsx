@@ -62,6 +62,28 @@ describe('LaneOverlay', () => {
     expect(onArm).toHaveBeenCalledWith('t1');
   });
 
+  it('opens the track sheet on a long-press of its name, a tap still arms', async () => {
+    const onEditTrack = jest.fn();
+    const { view, onArm } = renderOverlay({ onEditTrack });
+    await view;
+    const user = userEvent.setup();
+
+    await user.longPress(screen.getByRole('button', { name: 'Arm Track 2' }));
+
+    expect(onEditTrack).toHaveBeenCalledWith('t1');
+    expect(onArm).not.toHaveBeenCalled();
+  });
+
+  it('does not open the track sheet while editing is disabled', async () => {
+    const onEditTrack = jest.fn();
+    await renderOverlay({ onEditTrack, editDisabled: true }).view;
+    const user = userEvent.setup();
+
+    await user.longPress(screen.getByRole('button', { name: 'Arm Track 2' }));
+
+    expect(onEditTrack).not.toHaveBeenCalled();
+  });
+
   it('marks the armed track on its name button', async () => {
     await renderOverlay().view;
 

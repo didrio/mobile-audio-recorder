@@ -7,12 +7,15 @@ import { ActionBar, ActionBarButton } from './action-bar';
 export function ClipActionBar({
   canSplit,
   onSplit,
+  onSplitUnavailable,
   onDuplicate,
   onOptions,
   onDelete,
 }: {
   canSplit: boolean;
   onSplit: () => void;
+  /** Split was tapped while the playhead is outside the clip. */
+  onSplitUnavailable: () => void;
   onDuplicate: () => void;
   onOptions: () => void;
   onDelete: () => void;
@@ -23,9 +26,9 @@ export function ClipActionBar({
         label="Split"
         hint="Splits the clip at the playhead"
         icon={{ ios: 'scissors', android: 'content_cut' }}
-        disabled={!canSplit}
+        dimmed={!canSplit}
         compact
-        onPress={onSplit}
+        onPress={canSplit ? onSplit : onSplitUnavailable}
       />
       <ActionBarButton
         label="Duplicate"

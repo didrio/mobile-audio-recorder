@@ -58,6 +58,8 @@ export function LaneOverlay({
   armedTrackId,
   armDisabled,
   addTrackDisabled,
+  editDisabled = false,
+  onEditTrack,
   onArm,
   onAddTrack,
 }: {
@@ -84,6 +86,10 @@ export function LaneOverlay({
   /** While recording: arming can't change. */
   armDisabled: boolean;
   addTrackDisabled: boolean;
+  /** While recording: the track sheet can't be opened. */
+  editDisabled?: boolean;
+  /** A long-press on a name opens the track's sheet (rename, delete). */
+  onEditTrack?: (trackId: string) => void;
   onArm: (trackId: string) => void;
   onAddTrack: () => void;
 }) {
@@ -162,6 +168,8 @@ export function LaneOverlay({
             level={draft?.trackId === track.id ? formatDb(draft.gain) : null}
             armed={track.id === armedTrackId}
             armDisabled={armDisabled}
+            editDisabled={editDisabled}
+            onEdit={onEditTrack}
             onArm={onArm}
           />
         ))}
@@ -218,6 +226,8 @@ function NamePill({
   level,
   armed,
   armDisabled,
+  editDisabled,
+  onEdit,
   onArm,
 }: {
   track: Pick<Track, 'id' | 'name' | 'muted' | 'solo'>;
@@ -232,15 +242,23 @@ function NamePill({
   level: string | null;
   armed: boolean;
   armDisabled: boolean;
+  editDisabled: boolean;
+  onEdit?: (trackId: string) => void;
   onArm: (trackId: string) => void;
 }) {
   const styles = useStyles();
+  const canEdit = !!onEdit && !editDisabled;
   const reorder = useReorderStyle(index, trackIds, drag, lane, { axis: vertical ? 'x' : 'y' });
   return (
     <Animated.View pointerEvents="box-none" style={[styles.pillSlot, position, reorder]}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Arm ${track.name}`}
+        accessibilityHint={canEdit ? 'Long-press to rename or delete the track' : undefined}
+        accessibilityActions={canEdit ? [{ name: 'longpress', label: 'Edit track' }] : undefined}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'longpress') onEdit?.(track.id);
+        }}
         accessibilityState={{ selected: armed, disabled: armDisabled }}
         disabled={armDisabled}
         hitSlop={6}
@@ -248,6 +266,14 @@ function NamePill({
           void Haptics.selectionAsync();
           onArm(track.id);
         }}
+        onLongPress={
+          canEdit
+            ? () => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                onEdit?.(track.id);
+              }
+            : undefined
+        }
         style={({ pressed }) => [
           styles.name,
           armed && styles.nameArmed,

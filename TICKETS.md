@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T48 — Quick listen from the Ideas list · Sonnet · medium effort · plan mode off
+**Next:** none queued. Try T48 on the phone, then promote a Backlog item or add tickets with `/ticket`.
 
 ## In progress
 
@@ -65,42 +65,6 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   `pointOf`; text is the exception (`rulerLabel`, the rail's `text`). Sizes come from `timelineLayout` in
   `timeline-math.ts`; `TrackColumn`, `LaneOverlay` and `useReorderStyle` branch on `vertical`.
 
-### T48 — Quick listen from the Ideas list
-
-- **Status:** ready
-- **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** Play an idea straight from the Ideas list without opening it, to find the one you're after: a play
-  button on each idea row; while it plays, a thin scrubber under that row (position + drag to seek). One idea
-  plays at a time; tapping another row's play switches to it.
-- **Done when:**
-  - [ ] Play / Stop button on idea rows (`src/features/projects/idea-row.tsx`), `accessibilityRole="button"` and a
-        label ("Play Idea 1"); rows with no clips show no button (or a disabled one). Tapping the row itself still
-        opens the idea, swipe actions (`swipe-actions.tsx`) and select mode (`use-selection.ts`) still work (no
-        play button in select mode).
-  - [ ] It sounds like the idea's own Play from 0:00: same clips, clip gain and fades, track volume, mute/solo.
-        Metronome off, no loop.
-  - [ ] Scrubber under the playing row: progress follows the audio, drag or tap to seek, stops at the end and
-        resets.
-  - [ ] Playback stops when opening any idea, leaving the Ideas screen (tab switch, push), going to the
-        background, starting another quick listen, or deleting/moving the playing idea. An interruption (call,
-        Siri) stops it like in the editor (T7).
-  - [ ] Unit tests for the pure parts (clip list, state store); a screen test: play button shown, tap → engine
-        `play` called (engine mocked in `jest.setup.ts`), second tap stops. `npm run check`, simulator
-        screenshot light + dark (no sound in the simulator: the user listens on the phone via the preview OTA).
-- **Context:** `play(clips, { from, onEnded })` and `stopPlayback()` in `src/features/audio/audio-engine.ts`; the
-  position comes from `playbackPosition()`. Clips are built by `playableClips(project)` in
-  `src/features/project/use-transport.ts` (private, ~line 616): move it to a shared module (e.g.
-  `src/features/audio/playable-clips.ts`) and reuse it. Track gains are engine state set per track with
-  `setTrackGain(track.id, trackOutputGain(track, anySolo))` (`use-transport.ts` ~line 217): set them for the
-  listened idea before `play`, and remember the editor sets its own on open. The list rows hold summaries; load
-  the full project with the existing query/repo (`src/features/projects/queries.ts`, `projects-repo.ts`). Keep
-  the "who's playing" state small (zustand store in `src/features/projects/`, idea id + status). Interruptions:
-  `setInterruptionHandler` in the engine and `src/features/project/interruption.ts`. Search results and folder
-  contents use the same row, so it works there too.
-- **Pitfalls:** the editor and quick listen share one engine: stop quick listen before the idea screen's
-  transport starts (opening an idea). Don't open the mic or activate a recording session for listening. With
-  Speaker mode / Silent while recording nothing changes (they're recording-only).
-
 ## Device checks
 
 What's left after T46's iPhone pass: Android (when it's back), wired headphones and a USB interface (when at
@@ -156,6 +120,10 @@ delete the line.
   long-press alert.
 - Snap & grid (T31) on Android (passed on the iPhone in T46): the Snap and pre-roll icons.
 - Android: the old "Idea 1" clip drew without a waveform on the emulator (missing take file or peaks?).
+
+- Quick listen (T48) on the iPhone: Play from the Ideas list sounds like the editor's Play (levels, mute / solo);
+  scrubber follows and seeks by tap and drag without triggering the row's swipe actions; opening an idea, a tab
+  switch, locking the phone, or a call stops it; works in folders, Favorites and search results.
 
 ## Backlog
 
@@ -231,6 +199,13 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   passed pills, or draw the lifted pill above; only if it bothers on a device.
 
 ## Done
+
+- T48 — Quick listen from the Ideas list — 2026-11-15 — a Play / Stop button on idea rows (not in select mode or
+  on empty ideas) plays the idea from 0:00 like the editor's Play (clips, gain, fades, track volume, mute / solo;
+  no metronome, no loop), with a scrubber under the row (follows the audio, tap or drag to seek). State in
+  `quick-listen.ts`; stops on blur / tab switch / background / select mode / delete / interruption
+  (`use-quick-listen-guards.ts`); `playableClips` moved to `audio/playable-clips.ts`. Simulator dark + light, no
+  sound; sound, drag-seek vs. the row's swipe actions and interruptions need the phone (Device checks)
 
 - T46 — Device test pass — 2026-11-15 — fresh dev build (local) and preview build (EAS, iOS) on the iPhone Air;
   every iPhone line runnable with AirPods + guitar passed (Speaker mode, Silent recording, meter, Visual

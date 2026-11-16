@@ -2,6 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, userEvent, waitFor, within } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
 import { ActionSheetIOS, Alert } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
+import { play, stopPlayback, setTrackGain } from '@/features/audio/audio-engine';
 
 import type { IdeasScope } from './folder-tree';
 import { createFolder, deleteItems, listFolders, type Folder } from './folders-repo';
@@ -9,12 +12,14 @@ import { useIdeasSortStore } from './ideas-sort-store';
 import {
   createProject,
   duplicateProject,
+  getProject,
   listProjects,
   renameProject,
   setFavorite,
   type ProjectSummary,
 } from './projects-repo';
 import { IdeasListScreen } from './projects-screen';
+import { stopQuickListen, useQuickListenStore } from './quick-listen';
 import { listDeleted } from './trash-repo';
 
 const mockPush = jest.fn();
@@ -88,6 +93,8 @@ jest.mock('expo-router', () => {
     },
     useRouter: () => ({ push: mockPush }),
     useLocalSearchParams: () => ({}),
+    useFocusEffect: (effect: () => void | (() => void)) =>
+      jest.requireActual<typeof import('react')>('react').useEffect(effect, [effect]),
   };
 });
 
@@ -135,7 +142,15 @@ jest.mock('./trash-repo', () => ({
   restoreItems: jest.fn(),
   purgeItems: jest.fn(),
 }));
-jest.mock('@/features/audio/audio-engine', () => ({ forgetTakes: jest.fn() }));
+jest.mock('@/features/audio/audio-engine', () => ({
+  forgetTakes: jest.fn(),
+  play: jest.fn(() => Promise.resolve()),
+  stopPlayback: jest.fn(),
+  playbackPosition: jest.fn(() => null),
+  setTrackGain: jest.fn(),
+  setMetronome: jest.fn(),
+  setInterruptionHandler: jest.fn(),
+}));
 
 const mockedListProjects = jest.mocked(listProjects);
 const mockedListFolders = jest.mocked(listFolders);
@@ -148,7 +163,9 @@ function renderScreen(scope: IdeasScope = { kind: 'root' }) {
     },
   });
   const QueryProvider = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      <GestureHandlerRootView>{children}</GestureHandlerRootView>
+    </QueryClientProvider>
   );
   return render(<IdeasListScreen scope={scope} />, { wrapper: QueryProvider });
 }
@@ -192,6 +209,7 @@ describe('IdeasListScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     useIdeasSortStore.setState({ order: 'recent' });
+    stopQuickListen();
     mockedListFolders.mockResolvedValue([]);
     jest.mocked(listDeleted).mockResolvedValue({ folders: [], ideas: [] });
   });
@@ -498,6 +516,90 @@ describe('IdeasListScreen', () => {
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/export-batch',
       params: { ids: 'a,b,c' },
+    });
+  });
+
+  describe('quick listen', () => {
+    const song = (id: string, name: string) => idea({ id, name, duration: 30 });
+    const project = {
+      ...idea({ id: 'a', name: 'Chorus riff', duration: 30 }),
+      tracks: [
+        {
+          id: 't1',
+          volume: 0.5,
+          muted: false,
+          solo: false,
+          clips: [
+            {
+              takeId: 'k1',
+              start: 0,
+              offset: 0,
+              duration: 30,
+              gain: 1,
+              fadeIn: 0,
+              fadeOut: 0,
+            },
+          ],
+        },
+      ],
+      takes: { k1: { path: 'take.wav' } },
+    };
+
+    beforeEach(() => {
+      jest.mocked(getProject).mockResolvedValue(project as never);
+    });
+
+    it('shows a play button only on ideas with audio', async () => {
+      mockedListProjects.mockResolvedValue([
+        song('a', 'Chorus riff'),
+        idea({ id: 'b', name: 'Empty' }),
+      ]);
+      await renderScreen();
+      await screen.findByText('Chorus riff');
+
+      expect(screen.getByRole('button', { name: 'Play Chorus riff' })).toBeOnTheScreen();
+      expect(screen.queryByRole('button', { name: 'Play Empty' })).not.toBeOnTheScreen();
+    });
+
+    it('plays the idea from the start with its track volumes, then stops on a second tap', async () => {
+      mockedListProjects.mockResolvedValue([song('a', 'Chorus riff')]);
+      const user = userEvent.setup();
+      await renderScreen();
+      await screen.findByText('Chorus riff');
+
+      await user.press(screen.getByRole('button', { name: 'Play Chorus riff' }));
+
+      await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+      expect(setTrackGain).toHaveBeenCalledWith('t1', 0.5);
+      const [clips, options] = jest.mocked(play).mock.calls[0]!;
+      expect(clips).toEqual([expect.objectContaining({ takePath: 'take.wav', trackId: 't1' })]);
+      expect(options).toEqual(expect.objectContaining({ from: 0 }));
+      expect(
+        await screen.findByRole('adjustable', { name: 'Playback position' }),
+      ).toBeOnTheScreen();
+
+      await user.press(screen.getByRole('button', { name: 'Stop Chorus riff' }));
+      expect(stopPlayback).toHaveBeenCalled();
+      expect(screen.queryByRole('adjustable', { name: 'Playback position' })).not.toBeOnTheScreen();
+      expect(screen.getByRole('button', { name: 'Play Chorus riff' })).toBeOnTheScreen();
+    });
+
+    it('switches to another idea, and has no play buttons in select mode', async () => {
+      mockedListProjects.mockResolvedValue([song('a', 'Chorus riff'), song('b', 'Verse demo')]);
+      const user = userEvent.setup();
+      await renderScreen();
+      await screen.findByText('Chorus riff');
+
+      await user.press(screen.getByRole('button', { name: 'Play Chorus riff' }));
+      await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+      await user.press(screen.getByRole('button', { name: 'Play Verse demo' }));
+      await waitFor(() => expect(play).toHaveBeenCalledTimes(2));
+      expect(screen.getByRole('button', { name: 'Stop Verse demo' })).toBeOnTheScreen();
+      expect(screen.getByRole('button', { name: 'Play Chorus riff' })).toBeOnTheScreen();
+
+      await user.press(screen.getByRole('button', { name: 'Select' }));
+      expect(screen.queryByRole('button', { name: /^(Play|Stop) / })).not.toBeOnTheScreen();
+      expect(useQuickListenStore.getState().ideaId).toBeNull();
     });
   });
 });

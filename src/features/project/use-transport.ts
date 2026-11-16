@@ -21,7 +21,6 @@ import {
   type FinishedRecording,
   type InterruptionReason,
   type PlaybackAnchor,
-  type PlayableClip,
   type RecordingPlayback,
 } from '@/features/audio/audio-engine';
 import type { OutputRoute } from '@/features/audio/audio-route';
@@ -30,6 +29,7 @@ import { useClipHold } from '@/features/audio/clip-hold';
 import { echoPlan } from '@/features/audio/echo-reference';
 import { loopedPosition, loopStartPosition } from '@/features/audio/loop-math';
 import { clickVolume } from '@/features/audio/metronome';
+import { playableClips } from '@/features/audio/playable-clips';
 import {
   choosePunch,
   displayPosition,
@@ -610,32 +610,6 @@ export function useTransport(
     toStart,
     replay,
   };
-}
-
-/** The project's clips as the engine plays them, from the tracks that pass `include`. */
-function playableClips(
-  project: Project,
-  include: (track: Project['tracks'][number]) => boolean = () => true,
-): PlayableClip[] {
-  return project.tracks.filter(include).flatMap((track) =>
-    track.clips.flatMap((clip) => {
-      const take = project.takes[clip.takeId];
-      return take
-        ? [
-            {
-              takePath: take.path,
-              trackId: track.id,
-              start: clip.start,
-              offset: clip.offset,
-              duration: clip.duration,
-              gain: clip.gain,
-              fadeIn: clip.fadeIn,
-              fadeOut: clip.fadeOut,
-            },
-          ]
-        : [];
-    }),
-  );
 }
 
 /** The timeline position an anchor's playback has reached now. */

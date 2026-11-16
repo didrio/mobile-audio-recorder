@@ -45,6 +45,7 @@ import {
 } from './queries';
 import { topLevelDeleted } from './recently-deleted';
 import { SelectionBar, type SelectionAction } from './selection-bar';
+import { useQuickListenGuards } from './use-quick-listen-guards';
 import { useSelection } from './use-selection';
 
 /** The Ideas tab's root. */
@@ -94,6 +95,10 @@ export function IdeasListScreen({ scope }: { scope: IdeasScope }) {
 
   const folderId = scope.kind === 'folder' ? scope.id : null;
   const allIdeas = projects.data;
+  useQuickListenGuards(
+    allIdeas?.map((idea) => idea.id),
+    selection.selecting,
+  );
   const allFolders = foldersQuery.data;
   const loaded = allIdeas && allFolders;
   const folder = folderId ? allFolders?.find((candidate) => candidate.id === folderId) : undefined;

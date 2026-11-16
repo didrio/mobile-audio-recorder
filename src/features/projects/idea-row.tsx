@@ -11,6 +11,8 @@ import { makeStyles } from '@/theme';
 import { ROW_ACTIONS, type IdeaAction } from './idea-actions';
 import { formatIdeaDate } from './ideas-list';
 import type { ProjectSummary } from './projects-repo';
+import { startQuickListen, stopQuickListen, useQuickListenStore } from './quick-listen';
+import { QuickListenScrubber } from './quick-listen-scrubber';
 import { SwipeActions } from './swipe-actions';
 
 type Props = {
@@ -30,7 +32,8 @@ type Props = {
 
 /**
  * One idea in the list: tap to open, swipe left for Rename / Duplicate / Delete, swipe right to star it,
- * long-press for the full menu. A star by the length marks a favorite.
+ * long-press for the full menu. A star by the length marks a favorite. The play button listens to
+ * the idea without opening it (T48), with a scrubber under the row while it plays.
  */
 export function IdeaRow({
   idea,
@@ -47,6 +50,10 @@ export function IdeaRow({
   const date = formatIdeaDate(dateKind === 'created' ? idea.createdAt : idea.updatedAt);
   const subtitle = [date, path, match].filter(Boolean).join(' · ');
   const selecting = selected !== undefined;
+  const listening = useQuickListenStore((state) =>
+    state.ideaId === idea.id ? state.status : 'idle',
+  );
+  const canListen = !selecting && idea.duration > 0;
   const run = (action: IdeaAction) => {
     swipeable.current?.close();
     onAction(action);
@@ -84,33 +91,61 @@ export function IdeaRow({
       renderRightActions={() => (
         <SwipeActions name={idea.name} actions={ROW_ACTIONS} onAction={run} />
       )}>
-      <ListRow
-        title={idea.name}
-        subtitle={subtitle}
-        icon={
-          selecting
-            ? selected
-              ? { ios: 'checkmark.circle.fill', android: 'check_circle' }
-              : { ios: 'circle', android: 'radio_button_unchecked' }
-            : undefined
-        }
-        selected={selected}
-        accessory={
-          <View style={styles.trailing}>
-            {idea.favorite ? (
-              <Icon
-                name={{ ios: 'star.fill', android: 'star' }}
-                size={12}
-                color="favorite"
-                accessibilityLabel="Favorite"
-              />
-            ) : null}
-            <Text color="textSecondary">{formatDuration(idea.duration)}</Text>
+      <View>
+        <ListRow
+          title={idea.name}
+          subtitle={subtitle}
+          icon={
+            selecting
+              ? selected
+                ? { ios: 'checkmark.circle.fill', android: 'check_circle' }
+                : { ios: 'circle', android: 'radio_button_unchecked' }
+              : undefined
+          }
+          selected={selected}
+          accessory={
+            <View style={styles.trailing}>
+              {canListen ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${listening === 'idle' ? 'Play' : 'Stop'} ${idea.name}`}
+                  hitSlop={4}
+                  onPress={() => {
+                    if (listening === 'idle') void startQuickListen(idea.id);
+                    else stopQuickListen();
+                  }}
+                  style={styles.play}>
+                  <Icon
+                    name={
+                      listening === 'idle'
+                        ? { ios: 'play.fill', android: 'play_arrow' }
+                        : { ios: 'stop.fill', android: 'stop' }
+                    }
+                    size={14}
+                    color="onPrimary"
+                  />
+                </Pressable>
+              ) : null}
+              {idea.favorite ? (
+                <Icon
+                  name={{ ios: 'star.fill', android: 'star' }}
+                  size={12}
+                  color="favorite"
+                  accessibilityLabel="Favorite"
+                />
+              ) : null}
+              <Text color="textSecondary">{formatDuration(idea.duration)}</Text>
+            </View>
+          }
+          onPress={onOpen}
+          onLongPress={onLongPress}
+        />
+        {listening !== 'idle' && canListen ? (
+          <View style={styles.scrubber}>
+            <QuickListenScrubber duration={idea.duration} />
           </View>
-        }
-        onPress={onOpen}
-        onLongPress={onLongPress}
-      />
+        ) : null}
+      </View>
     </ReanimatedSwipeable>
   );
 }
@@ -124,6 +159,15 @@ const useStyles = makeStyles((t) => ({
     justifyContent: 'flex-end',
     gap: t.spacing.xs,
   },
+  play: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: t.colors.primary,
+  },
+  scrubber: { paddingHorizontal: t.spacing.lg, marginTop: -t.spacing.sm },
   favoriteAction: {
     width: 88,
     alignItems: 'center',

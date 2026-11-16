@@ -673,10 +673,10 @@ describe('ProjectScreen', () => {
     await renderScreen();
 
     await screen.findByText('Timeline of Chorus riff');
-    expect(screen.getByRole('switch', { name: 'Pre-roll' })).not.toBeChecked();
-    await user.press(screen.getByRole('switch', { name: 'Pre-roll' }));
+    expect(screen.getByRole('switch', { name: 'Count-in' })).not.toBeChecked();
+    await user.press(screen.getByRole('switch', { name: 'Count-in' }));
 
-    expect(screen.getByRole('switch', { name: 'Pre-roll' })).toBeChecked();
+    expect(screen.getByRole('switch', { name: 'Count-in' })).toBeChecked();
     expect(setPreRoll).toHaveBeenCalledWith('p1', true);
   });
 
@@ -888,7 +888,7 @@ describe('ProjectScreen', () => {
       }),
     );
     expect(cutTrackAt).toHaveBeenCalledWith('track1', 5);
-    expect(await screen.findByLabelText('Pre-roll time')).toHaveTextContent('0:03.0');
+    expect(await screen.findByLabelText('Count-in time')).toHaveTextContent('0:03.0');
     await user.press(screen.getByRole('button', { name: 'Stop recording' }));
 
     expect(await screen.findByRole('button', { name: 'Record' })).toBeOnTheScreen();

@@ -135,14 +135,14 @@ export function SettingsScreen() {
       <SilentRecordingSection />
 
       <ListSection
-        title="Pre-roll"
-        footer="With pre-roll on (the button above an idea's timeline), Record starts playback this long before the playhead and recording kicks in at the playhead. Ideas with the grid on use whole bars, so the punch lands on the beat.">
+        title="Count-in"
+        footer="With count-in on (the button next to Record in an idea), Record starts playback this long before the playhead and recording begins at the playhead. Ideas with the grid on use whole bars, so you come in on the beat.">
         <View style={styles.segmentRow}>
           <Text variant="footnote" color="textSecondary">
             Grid off
           </Text>
           <SegmentedControl
-            accessibilityLabel="Pre-roll length"
+            accessibilityLabel="Count-in length"
             options={preRollOptions}
             value={String(preRollSeconds)}
             onChange={(value) => {
@@ -156,7 +156,7 @@ export function SettingsScreen() {
             Grid on
           </Text>
           <SegmentedControl
-            accessibilityLabel="Pre-roll length with the grid on"
+            accessibilityLabel="Count-in length with the grid on"
             options={preRollBarOptions}
             value={String(preRollBars)}
             onChange={(value) => {
@@ -242,8 +242,12 @@ export function SettingsScreen() {
             appInfo.buildNumber ? `${appInfo.version} (${appInfo.buildNumber})` : appInfo.version
           }
         />
-        <ListRow title="Variant" value={appInfo.variant} />
-        <ListRow title="Runtime" value={runtimeLabels[appInfo.runtime]} />
+        {appInfo.variant !== 'production' ? (
+          <>
+            <ListRow title="Variant" value={appInfo.variant} />
+            <ListRow title="Runtime" value={runtimeLabels[appInfo.runtime]} />
+          </>
+        ) : null}
         {showUpdates ? <ListRow title="Update channel" value={updates.channel || '—'} /> : null}
         {showUpdates ? (
           <ListRow

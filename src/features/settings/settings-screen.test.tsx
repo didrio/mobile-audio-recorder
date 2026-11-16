@@ -5,6 +5,7 @@ import { Appearance } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { useAudioRouteStore } from '@/features/audio/audio-route-store';
+import { appInfo } from '@/lib/app-info';
 import * as echoCanceller from '@/lib/echo-canceller';
 import { storage } from '@/lib/storage';
 
@@ -256,7 +257,7 @@ describe('SettingsScreen', () => {
     expect(screen.queryByLabelText('Cleanup strength')).toBeNull();
   });
 
-  it('changes and persists the pre-roll length (2 s by default)', async () => {
+  it('changes and persists the count-in length (2 s by default)', async () => {
     await render(<SettingsScreen />);
     expect(screen.getByRole('radio', { name: '2 s' })).toBeChecked();
 
@@ -267,7 +268,7 @@ describe('SettingsScreen', () => {
     expect(storage.getString('settings.recording')).toContain('"preRollSeconds":4');
   });
 
-  it('changes and persists the pre-roll length for ideas with the grid on (1 bar by default)', async () => {
+  it('changes and persists the count-in length for ideas with the grid on (1 bar by default)', async () => {
     await render(<SettingsScreen />);
     expect(screen.getByRole('radio', { name: '1 bar' })).toBeChecked();
 
@@ -293,6 +294,14 @@ describe('SettingsScreen', () => {
   it('shows app version info', async () => {
     await render(<SettingsScreen />);
     expect(screen.getByText('Version')).toBeOnTheScreen();
+    expect(screen.queryByText('Variant')).toBeNull();
+    expect(screen.queryByText('Runtime')).toBeNull();
+  });
+
+  it('shows the variant and runtime rows outside production builds', async () => {
+    jest.replaceProperty(appInfo, 'variant', 'preview');
+    await render(<SettingsScreen />);
     expect(screen.getByText('Variant')).toBeOnTheScreen();
+    expect(screen.getByText('Runtime')).toBeOnTheScreen();
   });
 });

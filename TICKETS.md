@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T49 — Count-in wording and Settings cleanup · Sonnet · low effort · plan mode off
+**Next:** T50 — Editor tools: captions and distinct icons · Sonnet · medium effort · plan mode off
 
 ## In progress
 
@@ -75,32 +75,6 @@ rest.
 Left alone on purpose: the Settings tab's structure, the Ideas list layout, the timeline's interaction model, the
 action bar being centred on the time area.
 
-### T49 — Count-in wording and Settings cleanup
-
-- **Status:** ready
-- **Session:** Sonnet · low effort · plan mode off
-- **Goal:** Call pre-roll by the name a songwriter already knows, and stop showing developer facts and stale
-  directions in Settings.
-- **Done when:**
-  - [ ] Every user-facing "Pre-roll" reads "Count-in": the transport toggle's label and the clock's
-        "Pre-roll time" label (`src/features/project/project-screen.tsx`), the Settings section title, its two
-        segmented controls' accessibility labels and its footer (`src/features/settings/settings-screen.tsx`).
-        Find the rest with `grep -rni "pre-roll" src docs README.md`. Code names (`preRoll`, `togglePreRoll`,
-        `pre_roll`), comments and ticket history stay.
-  - [ ] The Settings footer no longer says the button is "above an idea's timeline" (it sits right of Record):
-        "With count-in on (the button next to Record in an idea), Record starts playback this long before the
-        playhead and recording begins at the playhead. Ideas with the grid on use whole bars, so you come in on
-        the beat."
-  - [ ] Settings → About hides the Variant and Runtime rows when `appInfo.variant === 'production'`
-        (`src/lib/app-info.ts`); development and preview builds still show them.
-  - [ ] Tests updated (`project-screen.test.tsx` queries the switch "Pre-roll" and the label "Pre-roll time";
-        `settings-screen.test.tsx` has the two pre-roll length tests) and one added for the About rows.
-        `npm run check` passes.
-- **Context:** The user approved the rename on 2026-11-15 (GarageBand calls this exact behaviour Count-in). Copy
-  only, no behaviour change, no native change. Read
-  `node_modules/@testing-library/react-native/docs/guides/llm-guidelines.md` before touching tests. A screenshot
-  of Settings (scrolled to Count-in and About) is enough to verify.
-
 ### T50 — Editor tools: captions and distinct icons
 
 - **Status:** ready
@@ -108,8 +82,7 @@ action bar being centred on the time area.
 - **Goal:** A newcomer can read what each tool in the editor is without tapping it.
 - **Done when:**
   - [ ] Each status-strip control has a word under its icon: Notes, Keys, Metronome, Snap; the level meter has
-        "Input" under its bar. The transport's two side toggles have Loop and Count-in ("Pre-roll" if T49 isn't
-        done yet). Use `<Text variant="caption2">` (11 pt, already in `src/theme/tokens.ts`), `textSecondary`,
+        "Input" under its bar. The transport's two side toggles have Loop and Count-in . Use `<Text variant="caption2">` (11 pt, already in `src/theme/tokens.ts`), `textSecondary`,
         and `text` while the toggle is on. The "on" pill stays around the icon only.
   - [ ] Captions add no new accessibility elements and existing labels are unchanged ("Notes", "Pitch
         keyboard", "Metronome", "Snap to grid", "Loop", the T49 name): each control is still one button / switch.
@@ -305,6 +278,10 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   passed pills, or draw the lifted pill above; only if it bothers on a device.
 
 ## Done
+
+- T49 — Count-in wording and Settings cleanup — 2026-11-15 — user-facing "Pre-roll" is now "Count-in" (toggle,
+  clock label, Settings section, footer reworded); About hides Variant / Runtime in production builds; tests updated
+  and one added. Simulator: footer and About rows seen (dev build)
 
 - UI/UX pass (no ticket) — 2026-11-15 — walked every screen, wrote T49–T51. Fixed: the Notes sheet drew its text
   over its header and Edit didn't respond (a scroll view nested in a form sheet is resized by

@@ -220,7 +220,7 @@ export function ProjectScreen() {
         variant="timecode"
         color={taking ? 'primary' : 'text'}
         accessibilityLabel={
-          transport.isPreRolling ? 'Pre-roll time' : isRecording ? 'Recording time' : 'Time'
+          transport.isPreRolling ? 'Count-in time' : isRecording ? 'Recording time' : 'Time'
         }>
         {formatTimecode(transport.position)}
       </Text>
@@ -350,7 +350,7 @@ export function ProjectScreen() {
   );
   const preRollToggle = (
     <StripToggle
-      label="Pre-roll"
+      label="Count-in"
       icon={{ ios: 'arrow.right.to.line', android: 'start' }}
       on={preRoll}
       disabled={isRecording || isBusy}

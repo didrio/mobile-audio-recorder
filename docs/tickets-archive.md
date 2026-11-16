@@ -2,6 +2,13 @@
 
 Oldest finished tickets, moved out of `TICKETS.md` to keep it lean. Newest first.
 
+- T44 — Settings within reach inside an idea — 2026-11-15 — the idea's "⋯" became a title menu ("Idea 1 ⌄":
+  Rename, Favorite, Duplicate, Move to…, Export…, Delete; SwiftUI `Menu` in `idea-title-menu.tsx`, given an
+  explicit frame because the native header gives a custom title no size) plus a Settings (sliders) header button
+  → the settings sheet with Idea | Recording tabs (last tab remembered, `settings-sheet-store.ts`). Recording =
+  Hear yourself, Input (new `input-picker` sheet), Output, Silent recording, Bluetooth mic, Latency, from the
+  rows now shared with the Settings tab (`recording-settings-rows.tsx`). Name moved from Idea settings to
+  Rename. Tab bar stays hidden in an idea. Simulator light + dark; Android not run
 - T39 — Hear yourself — 2026-11-15 — input monitoring in Settings → Hear yourself (switch, level up to +6 dB,
   delay, direct-monitoring note; the user's call: no editor UI until T44): `recorder.connect()` →
   `RecorderAdapterNode` → chosen channel → own gain → destination (`setMonitor` in `audio-engine.ts`,

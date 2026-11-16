@@ -1643,11 +1643,21 @@ export function Timeline({
               pressed && styles.pressed,
             ]}>
             <View style={vertical ? styles.cornerIconVertical : styles.cornerIcon}>
-              <Icon
-                name={{ ios: 'slider.horizontal.3', android: 'tune' }}
-                size={18}
-                color={mixerOpen ? 'text' : 'textSecondary'}
-              />
+              <View
+                style={[
+                  {
+                    paddingHorizontal: theme.spacing.sm,
+                    paddingVertical: theme.spacing.xxs,
+                    borderRadius: theme.radius.full,
+                  },
+                  mixerOpen && { backgroundColor: theme.colors.text },
+                ]}>
+                <Icon
+                  name={{ ios: 'slider.vertical.3', android: 'instant_mix' }}
+                  size={18}
+                  color={mixerOpen ? 'background' : 'textSecondary'}
+                />
+              </View>
             </View>
           </Pressable>
           <TrackColumn

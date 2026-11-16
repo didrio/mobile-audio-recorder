@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** T50 — Editor tools: captions and distinct icons · Sonnet · medium effort · plan mode off
+**Next:** T51 — No dead ends in the editor · Sonnet · medium effort · plan mode off
 
 ## In progress
 
@@ -74,34 +74,6 @@ itself when tapped**. The defects and the colour changes were done in that sessi
 rest.
 Left alone on purpose: the Settings tab's structure, the Ideas list layout, the timeline's interaction model, the
 action bar being centred on the time area.
-
-### T50 — Editor tools: captions and distinct icons
-
-- **Status:** ready
-- **Session:** Sonnet · medium effort · plan mode off
-- **Goal:** A newcomer can read what each tool in the editor is without tapping it.
-- **Done when:**
-  - [ ] Each status-strip control has a word under its icon: Notes, Keys, Metronome, Snap; the level meter has
-        "Input" under its bar. The transport's two side toggles have Loop and Count-in . Use `<Text variant="caption2">` (11 pt, already in `src/theme/tokens.ts`), `textSecondary`,
-        and `text` while the toggle is on. The "on" pill stays around the icon only.
-  - [ ] Captions add no new accessibility elements and existing labels are unchanged ("Notes", "Pitch
-        keyboard", "Metronome", "Snap to grid", "Loop", the T49 name): each control is still one button / switch.
-  - [ ] It fits a 360 pt-wide screen without clipping: the meter gives way first (it already has `flexShrink`
-        and `minWidth: 40`), then tighten the strip's `gap`. In the transport, widen `SIDE_SLOT_WIDTH` (36 → about 52) and, if needed, drop the buttons' `gap` from `xl` to `lg`; Play must stay centred.
-  - [ ] One glyph, one meaning: the header's Settings button is a gear (`gearshape` in the iOS `Stack.Toolbar`,
-        Material `settings` in the Android `HeaderIconButton`); the mixer toggle in the timeline's corner
-        (`src/features/timeline/timeline.tsx`, the Pressable labelled "Mixer") is vertical faders
-        (`slider.vertical.3` / Material `instant_mix`; check the name against the Icon component's set) and shows
-        the same "on" pill as the strip toggles while the mixer is open. A clip's Options keeps
-        `slider.horizontal.3`.
-  - [ ] Looked at on the simulator in light and dark, horizontal and Settings → Experimental → Vertical
-        timeline, with the mixer open and closed. `npm run check` passes.
-- **Context:** All in `StripToggle`, `StripButton`, the meter and the transport row of
-  `src/features/project/project-screen.tsx`, plus the one icon in `timeline.tsx`. Today `slider.horizontal.3`
-  is the header's Settings, the mixer toggle and clip Options at once. The strip grows about 12 pt; that's fine.
-  Before adding visible words, grep the tests for `getByText('Notes')` and the like, so a caption doesn't make a
-  query ambiguous. Drive the simulator with the built-in simulator tool (Maestro hangs on this Mac). Not
-  checkable here: Android, and a real 360 pt phone (say so).
 
 ### T51 — No dead ends in the editor
 
@@ -200,6 +172,9 @@ delete the line.
   scrubber follows and seeks by tap and drag without triggering the row's swipe actions; opening an idea, a tab
   switch, locking the phone, or a call stops it; works in folders, Favorites and search results.
 
+- Captions (T50) on a real 360 pt-wide phone / Android: the strip (clock, 4 captioned tools, meter) and the transport
+  side slots shouldn't clip; check the horizontal timeline and dark mode too (only seen light + vertical).
+
 ## Backlog
 
 Ideas that aren't ready to work on yet. Promote them to "Up next" with full detail when they are.
@@ -278,6 +253,12 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   passed pills, or draw the lifted pill above; only if it bothers on a device.
 
 ## Done
+
+- T50 — Editor tools: captions and distinct icons — 2026-11-15 — status-strip tools have a caption under the icon
+  (Notes, Keys, Metronome, Snap, "Input" under the meter), the transport's Loop and Count-in too (`caption2`; the
+  "on" pill stays around the icon; side slots 52 pt, button gap `lg`); header Settings is a gear, the mixer toggle is
+  faders (`slider.vertical.3` / `instant_mix`) with the "on" pill. Simulator light, vertical timeline, mixer open and
+  closed; dark and the horizontal timeline not looked at, 360 pt width and Android unchecked (Device checks)
 
 - T49 — Count-in wording and Settings cleanup — 2026-11-15 — user-facing "Pre-roll" is now "Count-in" (toggle,
   clock label, Settings section, footer reworded); About hides Variant / Runtime in production builds; tests updated

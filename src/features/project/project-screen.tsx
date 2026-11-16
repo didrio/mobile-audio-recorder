@@ -234,6 +234,7 @@ export function ProjectScreen() {
       />
       <StripButton
         label="Pitch keyboard"
+        caption="Keys"
         icon={{ ios: 'pianokeys', android: 'piano' }}
         badge={false}
         disabled={false}
@@ -248,20 +249,28 @@ export function ProjectScreen() {
       />
       <StripToggle
         label="Snap to grid"
+        caption="Snap"
         icon={{ ios: 'square.grid.3x3', android: 'grid_on' }}
         on={snap && !!project?.grid}
         disabled={!project?.grid}
         onPress={() => void toggleSnap()}
       />
-      <View style={styles.meter} accessibilityElementsHidden importantForAccessibility="no">
-        <View
-          style={[
-            styles.meterFill,
-            meterClipped && styles.meterFillClipped,
-            { width: `${Math.round(meterLevel * 100)}%` },
-          ]}
-        />
-        {meterClipped ? <View style={styles.meterClip} /> : null}
+      <View style={styles.meterItem} accessibilityElementsHidden importantForAccessibility="no">
+        <View style={styles.meterSlot}>
+          <View style={styles.meter}>
+            <View
+              style={[
+                styles.meterFill,
+                meterClipped && styles.meterFillClipped,
+                { width: `${Math.round(meterLevel * 100)}%` },
+              ]}
+            />
+            {meterClipped ? <View style={styles.meterClip} /> : null}
+          </View>
+        </View>
+        <Text variant="caption2" color="textSecondary" numberOfLines={1}>
+          Input
+        </Text>
       </View>
     </View>
   );
@@ -498,7 +507,7 @@ export function ProjectScreen() {
                 />
                 <HeaderIconButton
                   label="Settings"
-                  icon={{ ios: 'slider.horizontal.3', android: 'tune' }}
+                  icon={{ ios: 'gearshape', android: 'settings' }}
                   disabled={settingsDisabled}
                   onPress={openSettings}
                 />
@@ -524,7 +533,7 @@ export function ProjectScreen() {
             Redo
           </Stack.Toolbar.Button>
           <Stack.Toolbar.Button
-            icon="slider.horizontal.3"
+            icon="gearshape"
             accessibilityLabel="Settings"
             disabled={settingsDisabled}
             onPress={openSettings}>
@@ -616,12 +625,15 @@ function HeaderIconButton({
 /** An icon-only on/off switch in the status strip (filled when on). */
 function StripToggle({
   label,
+  caption,
   icon,
   on,
   disabled,
   onPress,
 }: {
   label: string;
+  /** The visible word under the icon; defaults to `label`. */
+  caption?: string;
   icon: IconName;
   on: boolean;
   disabled: boolean;
@@ -640,12 +652,16 @@ function StripToggle({
         onPress();
       }}
       style={({ pressed }) => [
-        styles.stripToggle,
-        on && styles.stripToggleOn,
+        styles.stripItem,
         disabled && styles.disabled,
         pressed && styles.pressed,
       ]}>
-      <Icon name={icon} size={16} color={on ? 'background' : 'textSecondary'} />
+      <View style={[styles.stripToggle, on && styles.stripToggleOn]}>
+        <Icon name={icon} size={16} color={on ? 'background' : 'textSecondary'} />
+      </View>
+      <Text variant="caption2" color={on ? 'text' : 'textSecondary'} numberOfLines={1}>
+        {caption ?? label}
+      </Text>
     </Pressable>
   );
 }
@@ -653,12 +669,15 @@ function StripToggle({
 /** An icon-only button in the status strip that opens something; `badge` adds a dot (e.g. "has notes"). */
 function StripButton({
   label,
+  caption,
   icon,
   badge,
   disabled,
   onPress,
 }: {
   label: string;
+  /** The visible word under the icon; defaults to `label`. */
+  caption?: string;
   icon: IconName;
   badge: boolean;
   disabled: boolean;
@@ -678,12 +697,17 @@ function StripButton({
         onPress();
       }}
       style={({ pressed }) => [
-        styles.stripToggle,
+        styles.stripItem,
         disabled && styles.disabled,
         pressed && styles.pressed,
       ]}>
-      <Icon name={icon} size={16} color="textSecondary" />
-      {badge ? <View style={styles.badge} /> : null}
+      <View style={styles.stripToggle}>
+        <Icon name={icon} size={16} color="textSecondary" />
+        {badge ? <View style={styles.badge} /> : null}
+      </View>
+      <Text variant="caption2" color="textSecondary" numberOfLines={1}>
+        {caption ?? label}
+      </Text>
     </Pressable>
   );
 }
@@ -741,14 +765,14 @@ const PLAY_BUTTON_SIZE = 60;
 const IDEA_NAME_MAX = 60;
 const SIDE_BUTTON_SIZE = 44;
 /** The two slots flanking the transport buttons (the Loop and pre-roll toggles). */
-const SIDE_SLOT_WIDTH = 36;
+const SIDE_SLOT_WIDTH = 52;
 
 const useStyles = makeStyles((t) => ({
   root: { flex: 1, backgroundColor: t.colors.background },
   strip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: t.spacing.md,
+    gap: t.spacing.sm,
     paddingHorizontal: t.spacing.lg,
     paddingVertical: t.spacing.xs,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -764,6 +788,8 @@ const useStyles = makeStyles((t) => ({
   },
   hintText: { flex: 1 },
   hintButton: { paddingVertical: t.spacing.xxs },
+  // An icon over its caption; the "on" pill (`stripToggle`) surrounds the icon only.
+  stripItem: { alignItems: 'center', gap: 1 },
   stripToggle: {
     paddingHorizontal: t.spacing.sm,
     paddingVertical: t.spacing.xxs,
@@ -780,10 +806,11 @@ const useStyles = makeStyles((t) => ({
     backgroundColor: t.colors.primary,
   },
   // Gives way first when the strip gets crowded (narrow phones).
+  meterItem: { width: 96, minWidth: 40, flexShrink: 1, alignItems: 'center', gap: 1 },
+  // As tall as the icons' pills, so the bar and "Input" line up with the other items.
+  meterSlot: { alignSelf: 'stretch', justifyContent: 'center', height: 16 + t.spacing.xxs * 2 },
   meter: {
-    width: 96,
-    minWidth: 40,
-    flexShrink: 1,
+    alignSelf: 'stretch',
     height: t.spacing.xs,
     borderRadius: t.radius.full,
     backgroundColor: t.colors.surfaceMuted,
@@ -812,7 +839,7 @@ const useStyles = makeStyles((t) => ({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: t.spacing.xl,
+    gap: t.spacing.lg,
   },
   sideSlot: { width: SIDE_SLOT_WIDTH, alignItems: 'center', justifyContent: 'center' },
   transportButton: {

@@ -175,6 +175,8 @@ export const typography = {
   subheadline: { fontSize: 15, lineHeight: 20, fontWeight: '400' },
   footnote: { fontSize: 13, lineHeight: 18, fontWeight: '400' },
   caption: { fontSize: 12, lineHeight: 16, fontWeight: '400' },
+  /** The word under an icon-only control (the editor's tools), like a tab bar label. */
+  caption2: { fontSize: 11, lineHeight: 13, fontWeight: '500' },
   mono: { fontSize: 13, lineHeight: 18, fontWeight: '400', fontFamily: fonts.mono },
   /** Transport clock in the editor's status strip. Monospaced so digits don't jitter. */
   timecode: { fontSize: 22, lineHeight: 28, fontWeight: '600', fontFamily: fonts.mono },

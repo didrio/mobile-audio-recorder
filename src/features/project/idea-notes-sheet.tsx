@@ -125,42 +125,42 @@ function NotesEditor({ initial }: { initial: string }) {
     );
   }
 
+  // The scroll view is the sheet's root: nested in a padded view, a form sheet lays its content out
+  // at the sheet's top-left corner, over the header (seen on iOS 27).
   return (
-    <View style={styles.root}>
+    <ScrollView style={styles.reader} contentContainerStyle={styles.readerContent}>
       {header}
-      <ScrollView style={styles.reader} contentContainerStyle={styles.readerContent}>
-        {/* Tapping the text edits it; not one accessibility element, so screen readers reach each
-            time link (and edit with the Edit button). */}
-        <Pressable accessible={false} onPress={startEditing}>
-          {hasNotes(text) ? (
-            <Text>
-              {splitTimeStamps(text).map((segment, index) =>
-                segment.time === null ? (
-                  segment.text
-                ) : (
-                  <Text
-                    // Segments never reorder, so the index is a stable key.
-                    key={index}
-                    accessibilityRole="link"
-                    accessibilityLabel={`Go to ${segment.text.slice(1, -1)}`}
-                    color="primary"
-                    style={styles.stamp}
-                    suppressHighlighting={false}
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      seekTo(segment.time ?? 0);
-                    }}>
-                    {segment.text}
-                  </Text>
-                ),
-              )}
-            </Text>
-          ) : (
-            <Text color="textTertiary">No notes yet. Tap to add some.</Text>
-          )}
-        </Pressable>
-      </ScrollView>
-    </View>
+      {/* Tapping the text edits it; not one accessibility element, so screen readers reach each
+          time link (and edit with the Edit button). */}
+      <Pressable accessible={false} onPress={startEditing}>
+        {hasNotes(text) ? (
+          <Text>
+            {splitTimeStamps(text).map((segment, index) =>
+              segment.time === null ? (
+                segment.text
+              ) : (
+                <Text
+                  // Segments never reorder, so the index is a stable key.
+                  key={index}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Go to ${segment.text.slice(1, -1)}`}
+                  color="primary"
+                  style={styles.stamp}
+                  suppressHighlighting={false}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    seekTo(segment.time ?? 0);
+                  }}>
+                  {segment.text}
+                </Text>
+              ),
+            )}
+          </Text>
+        ) : (
+          <Text color="textTertiary">No notes yet. Tap to add some.</Text>
+        )}
+      </Pressable>
+    </ScrollView>
   );
 }
 
@@ -211,7 +211,12 @@ const useStyles = makeStyles((t) => ({
     paddingBottom: t.spacing.sm,
   },
   reader: { flex: 1 },
-  readerContent: { paddingBottom: t.spacing.xl },
+  readerContent: {
+    padding: t.spacing.lg,
+    paddingTop: t.spacing.xl,
+    paddingBottom: t.spacing.xl,
+    gap: t.spacing.md,
+  },
   stamp: { fontWeight: '600' },
   pressed: { opacity: 0.7 },
 }));

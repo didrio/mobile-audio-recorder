@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, userEvent, waitFor } from '@testing-library/react-native';
-import { act } from 'react';
+import { act, type ReactNode } from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { testClip, testProject, testSection, testTrack } from '@/features/project/edit-test-data';
 import { useEditorStore } from '@/features/project/editor-store';
@@ -44,11 +45,20 @@ function song(): Project {
   };
 }
 
+// The pinned footer reads the bottom safe-area inset.
+const safeAreaMetrics = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 47, left: 0, right: 0, bottom: 34 },
+};
+const Providers = ({ children }: { children: ReactNode }) => (
+  <SafeAreaProvider initialMetrics={safeAreaMetrics}>{children}</SafeAreaProvider>
+);
+
 async function openSheet(project = song()) {
   act(() => {
     useEditorStore.setState({ projectId: 'p1', project, loopRegion: null });
   });
-  await render(<ExportSheet />);
+  await render(<ExportSheet />, { wrapper: Providers });
 }
 
 describe('ExportSheet', () => {

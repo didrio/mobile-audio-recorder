@@ -24,7 +24,7 @@ import {
   type RangeChoice,
   type Delivery,
 } from './export-plan';
-import { ExportFooter } from './export-progress';
+import { ExportFooter, ExportSheetLayout } from './export-progress';
 import { exportIdea, measurePeak } from './export-runner';
 import { useExportSettingsStore } from './export-settings-store';
 import { useExportRun } from './use-export-run';
@@ -119,7 +119,16 @@ function ExportForm({ project }: { project: Project }) {
   };
 
   return (
-    <Screen grouped contentContainerStyle={styles.content}>
+    <ExportSheetLayout
+      footer={
+        <ExportFooter
+          status={status}
+          summary={summaryOf(plan)}
+          disabled={!plan}
+          onExport={onExport}
+          onCancel={cancel}
+        />
+      }>
       <View style={styles.title}>
         <Text variant="headline" accessibilityRole="header" align="center">
           Export
@@ -137,6 +146,9 @@ function ExportForm({ project }: { project: Project }) {
             value={settings.kind}
             onChange={(kind) => settings.set({ kind })}
           />
+          <Text variant="footnote" color="textSecondary" align="center">
+            {stems ? 'One file per track, to mix elsewhere.' : 'One file of the whole idea.'}
+          </Text>
         </View>
 
         <RangeSection project={project} value={range} onChange={setRange} />
@@ -246,15 +258,7 @@ function ExportForm({ project }: { project: Project }) {
           </View>
         ) : null}
       </View>
-
-      <ExportFooter
-        status={status}
-        summary={summaryOf(plan)}
-        disabled={!plan}
-        onExport={onExport}
-        onCancel={cancel}
-      />
-    </Screen>
+    </ExportSheetLayout>
   );
 }
 
@@ -438,11 +442,11 @@ export function ToggleRow({
 }
 
 const useStyles = makeStyles((t) => ({
-  content: { paddingTop: t.spacing.xl, paddingBottom: t.spacing.xxl, gap: t.spacing.lg },
+  content: { paddingTop: t.spacing.xl, paddingBottom: t.spacing.xl, gap: t.spacing.lg },
   title: { gap: t.spacing.xs, paddingHorizontal: t.spacing.lg },
   options: { gap: t.spacing.lg },
   busy: { opacity: 0.5 },
-  segment: { padding: t.spacing.md },
+  segment: { padding: t.spacing.md, gap: t.spacing.sm },
   choice: {
     minHeight: 48,
     paddingHorizontal: t.spacing.lg,

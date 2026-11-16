@@ -178,6 +178,11 @@ TICKETS.md                Ordered, living backlog; one ticket per session (/star
   (no SF Symbols, no text; only a dev warning). Give Android a `headerRight` with a Pressable + `Icon` instead.
   And Android's Material header is opaque: content padding for iOS 26's floating header (`useHeaderHeight()`)
   must be iOS-only, or Android gets a blank band under the header.
+- **Scroll views in a form sheet** (iOS): react-native-screens resizes the first scroll view it finds in a
+  `formSheet` to cover the whole sheet. Nested under a header, it draws over the header and swallows its taps.
+  Make the scroll view the sheet's root (`Screen`), header inside it. For a pinned footer, put the footer
+  _first_ in a `column-reverse` view (with `collapsable={false}`), so the scroll view isn't on the first-child
+  path and keeps its laid-out size.
 - **SwiftUI in a native header title**: an `@expo/ui` `Host` with `matchContents` used as `headerTitle` renders
   nothing on iOS 26 (the header gives a custom title no size from its content). Give the `Host` an explicit
   `width`/`height` (e.g. the room between the back button and the right-hand items) and `alignment="leading"`.

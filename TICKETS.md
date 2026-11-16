@@ -4,7 +4,7 @@ Living, ordered backlog. One ticket per session: `/clear` → `/start Tn` → wo
 session updates this file and picks the next ticket, so each new session starts with a small, clear context.
 Rules: `.claude/skills/wrap/SKILL.md`. Capture ideas any time with `/ticket`.
 
-**Next:** none queued. Try T48 on the phone, then promote a Backlog item or add tickets with `/ticket`.
+**Next:** T49 — Count-in wording and Settings cleanup · Sonnet · low effort · plan mode off
 
 ## In progress
 
@@ -65,6 +65,102 @@ Android builds, and leave Android checks in the tickets / Device checks for late
   `pointOf`; text is the exception (`rulerLabel`, the rail's `text`). Sizes come from `timelineLayout` in
   `timeline-math.ts`; `TrackColumn`, `LaneOverlay` and `useReorderStyle` branch on `vertical`.
 
+**UI/UX pass (2026-11-15), the reasoning behind T49–T51:** a walk through every screen on the simulator found
+the structure sound (no onboarding, tutorial or Settings reorganisation wanted) and one real gap: the editor's
+power tools are small unlabelled grey glyphs, and two controls go grey without saying why. Rules that came out of
+it, to keep: **red means record** (Play buttons and destructive buttons are neutral; `Button`'s `destructive`
+variant is red text on the neutral fill), **one glyph, one meaning** on a screen, and **a dimmed control explains
+itself when tapped**. The defects and the colour changes were done in that session (see Done); T49–T51 are the
+rest.
+Left alone on purpose: the Settings tab's structure, the Ideas list layout, the timeline's interaction model, the
+action bar being centred on the time area.
+
+### T49 — Count-in wording and Settings cleanup
+
+- **Status:** ready
+- **Session:** Sonnet · low effort · plan mode off
+- **Goal:** Call pre-roll by the name a songwriter already knows, and stop showing developer facts and stale
+  directions in Settings.
+- **Done when:**
+  - [ ] Every user-facing "Pre-roll" reads "Count-in": the transport toggle's label and the clock's
+        "Pre-roll time" label (`src/features/project/project-screen.tsx`), the Settings section title, its two
+        segmented controls' accessibility labels and its footer (`src/features/settings/settings-screen.tsx`).
+        Find the rest with `grep -rni "pre-roll" src docs README.md`. Code names (`preRoll`, `togglePreRoll`,
+        `pre_roll`), comments and ticket history stay.
+  - [ ] The Settings footer no longer says the button is "above an idea's timeline" (it sits right of Record):
+        "With count-in on (the button next to Record in an idea), Record starts playback this long before the
+        playhead and recording begins at the playhead. Ideas with the grid on use whole bars, so you come in on
+        the beat."
+  - [ ] Settings → About hides the Variant and Runtime rows when `appInfo.variant === 'production'`
+        (`src/lib/app-info.ts`); development and preview builds still show them.
+  - [ ] Tests updated (`project-screen.test.tsx` queries the switch "Pre-roll" and the label "Pre-roll time";
+        `settings-screen.test.tsx` has the two pre-roll length tests) and one added for the About rows.
+        `npm run check` passes.
+- **Context:** The user approved the rename on 2026-11-15 (GarageBand calls this exact behaviour Count-in). Copy
+  only, no behaviour change, no native change. Read
+  `node_modules/@testing-library/react-native/docs/guides/llm-guidelines.md` before touching tests. A screenshot
+  of Settings (scrolled to Count-in and About) is enough to verify.
+
+### T50 — Editor tools: captions and distinct icons
+
+- **Status:** ready
+- **Session:** Sonnet · medium effort · plan mode off
+- **Goal:** A newcomer can read what each tool in the editor is without tapping it.
+- **Done when:**
+  - [ ] Each status-strip control has a word under its icon: Notes, Keys, Metronome, Snap; the level meter has
+        "Input" under its bar. The transport's two side toggles have Loop and Count-in ("Pre-roll" if T49 isn't
+        done yet). Use `<Text variant="caption2">` (11 pt, already in `src/theme/tokens.ts`), `textSecondary`,
+        and `text` while the toggle is on. The "on" pill stays around the icon only.
+  - [ ] Captions add no new accessibility elements and existing labels are unchanged ("Notes", "Pitch
+        keyboard", "Metronome", "Snap to grid", "Loop", the T49 name): each control is still one button / switch.
+  - [ ] It fits a 360 pt-wide screen without clipping: the meter gives way first (it already has `flexShrink`
+        and `minWidth: 40`), then tighten the strip's `gap`. In the transport, widen `SIDE_SLOT_WIDTH` (36 → about 52) and, if needed, drop the buttons' `gap` from `xl` to `lg`; Play must stay centred.
+  - [ ] One glyph, one meaning: the header's Settings button is a gear (`gearshape` in the iOS `Stack.Toolbar`,
+        Material `settings` in the Android `HeaderIconButton`); the mixer toggle in the timeline's corner
+        (`src/features/timeline/timeline.tsx`, the Pressable labelled "Mixer") is vertical faders
+        (`slider.vertical.3` / Material `instant_mix`; check the name against the Icon component's set) and shows
+        the same "on" pill as the strip toggles while the mixer is open. A clip's Options keeps
+        `slider.horizontal.3`.
+  - [ ] Looked at on the simulator in light and dark, horizontal and Settings → Experimental → Vertical
+        timeline, with the mixer open and closed. `npm run check` passes.
+- **Context:** All in `StripToggle`, `StripButton`, the meter and the transport row of
+  `src/features/project/project-screen.tsx`, plus the one icon in `timeline.tsx`. Today `slider.horizontal.3`
+  is the header's Settings, the mixer toggle and clip Options at once. The strip grows about 12 pt; that's fine.
+  Before adding visible words, grep the tests for `getByText('Notes')` and the like, so a caption doesn't make a
+  query ambiguous. Drive the simulator with the built-in simulator tool (Maestro hangs on this Mac). Not
+  checkable here: Android, and a real 360 pt phone (say so).
+
+### T51 — No dead ends in the editor
+
+- **Status:** ready
+- **Session:** Sonnet · medium effort · plan mode off
+- **Goal:** A dimmed control says why when tapped, and a track can be renamed from its name.
+- **Done when:**
+  - [ ] Record with no track armed still looks dimmed but responds: a short notice "Tap a track's name to
+        choose where to record" appears and nothing is recorded. (Today: `disabled={isBusy || !armedTrack}` in
+        `project-screen.tsx`, reached by tapping the armed track's name pill.) While busy it stays truly disabled.
+  - [ ] Split with the playhead outside the selected clip still looks dimmed but responds with "Move the
+        playhead onto the clip to split it there". `ClipActionBar` (`src/features/timeline/clip-action-bar.tsx`)
+        gets an `onSplitUnavailable` callback, `ActionBarButton` (`action-bar.tsx`) a way to look disabled while
+        staying pressable, and the timeline passes it up through `ClipEditing`.
+  - [ ] One notice element in `project-screen.tsx`: a small pill floating at the top centre of the timeline
+        area (`pointerEvents="none"`, no layout shift), gone after about 3 s or when replaced, announced to
+        screen readers (`accessibilityLiveRegion="polite"`). Styled like `ActionBar` (surface, border, full
+        radius, `footnote` text). Its timer is cleared on unmount.
+  - [ ] Long-pressing a track's name pill opens the track sheet (rename, delete), with the same haptic as a
+        long-press in the Ideas list; a tap still arms. `LaneOverlay` (`src/features/timeline/lane-overlay.tsx`,
+        `NamePill`) gets `onEditTrack` and `editDisabled`, fed from the `onEditTrack` the timeline already gives
+        `TrackColumn`'s info button. The pill gets an accessibility hint or action for it.
+  - [ ] Tests: `project-screen.test.tsx` has "Record … toBeDisabled" when nothing is armed (around line 418):
+        change it to pressing Record, seeing the notice, and `record` not being called; add the Split notice and
+        the long-press (`lane-overlay.test.tsx`). `npm run check` passes.
+  - [ ] Looked at on the simulator: both notices, in light and dark, and the long-press in the horizontal and
+        the vertical timeline.
+- **Context:** Agreed design stays: one armed track, a tap on a clip never moves the playhead (TICKETS.md,
+  "Editor design"). The top of the timeline was chosen for the notice because the bottom holds the floating action
+  bar. Worklet gotchas in `AGENTS.md` apply if anything in `timeline.tsx` is called from a gesture
+  (`scheduleOnRN`). RNTL v14: read its `llm-guidelines.md` first.
+
 ## Device checks
 
 What's left after T46's iPhone pass: Android (when it's back), wired headphones and a USB interface (when at
@@ -121,6 +217,12 @@ delete the line.
 - Snap & grid (T31) on Android (passed on the iPhone in T46): the Snap and pre-roll icons.
 - Android: the old "Idea 1" clip drew without a waveform on the emulator (missing take file or peaks?).
 
+- UI/UX pass (2026-11-15) on the iPhone (seen only on the simulator, iPhone 18 Pro, iOS 27.2): the Notes sheet
+  with saved notes shows the text under its "Notes" header at both heights, and Edit works; Export shows its
+  button without scrolling, the options scroll above it, and the progress bar with Cancel replaces it during an
+  export. Android (never run): the same two sheets (`ExportSheetLayout` puts the footer first in a
+  `column-reverse` view).
+
 - Quick listen (T48) on the iPhone: Play from the Ideas list sounds like the editor's Play (levels, mute / solo);
   scrubber follows and seeks by tap and drag without triggering the row's swipe actions; opening an idea, a tab
   switch, locking the phone, or a call stops it; works in folders, Favorites and search results.
@@ -145,6 +247,10 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   and again, keeping passes as alternate takes (badge + picker), comping one take from several passes, looping
   a clip or section directly, a punch-out end point. Clips are already windows onto immutable takes (`db.ts`),
   so alternates need no new files.
+- From the UI/UX pass (2026-11-15), small and not agreed: the clip sheet's "Restore" doesn't say what it restores
+  ("Restore length" wraps in the half-width button; a full-width row would fit it); the tempo is only visible in
+  the settings sheet (a BPM readout by the Metronome toggle?); in the vertical timeline the clip action bar nearly
+  touches the screen's right edge; the quick-listen Play button's fill vanishes while its row is pressed.
 - Track colors (picked in the track sheet, used for clips and the name pill).
 - Track column border weight (open, from T28): vertical edges are 1 pt (mixer toggle, each track cell in
   `track-column.tsx`), every horizontal divider is a hairline (lane separators in `timeline.tsx`, the "New
@@ -199,6 +305,14 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
   passed pills, or draw the lifted pill above; only if it bothers on a device.
 
 ## Done
+
+- UI/UX pass (no ticket) — 2026-11-15 — walked every screen, wrote T49–T51. Fixed: the Notes sheet drew its text
+  over its header and Edit didn't respond (a scroll view nested in a form sheet is resized by
+  react-native-screens to cover the sheet; now the sheet's root, gotcha in `AGENTS.md`); Export's button is pinned
+  under the scrolling options (`ExportSheetLayout`), with a line saying what Mix / Stems make. Red means record:
+  the quick-listen Play button is neutral, `Button`'s `destructive` variant is red text on the neutral fill.
+  `caption2` type token added for T50. Simulator light (Notes, Export, clip sheet, list) and dark (list, Export);
+  the iPhone and Android are in Device checks
 
 - T48 — Quick listen from the Ideas list — 2026-11-15 — a Play / Stop button on idea rows (not in select mode or
   on empty ideas) plays the idea from 0:00 like the editor's Play (clips, gain, fades, track volume, mute / solo;

@@ -122,7 +122,7 @@ export function IdeaRow({
                         : { ios: 'stop.fill', android: 'stop' }
                     }
                     size={14}
-                    color="onPrimary"
+                    color="text"
                   />
                 </Pressable>
               ) : null}
@@ -165,7 +165,8 @@ const useStyles = makeStyles((t) => ({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: t.colors.primary,
+    // Neutral, like the editor's Play: red is kept for recording.
+    backgroundColor: t.colors.surfacePressed,
   },
   scrubber: { paddingHorizontal: t.spacing.lg, marginTop: -t.spacing.sm },
   favoriteAction: {

@@ -1,9 +1,38 @@
-import { View } from 'react-native';
+import type { ReactNode } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Text } from '@/components/ui';
-import { makeStyles } from '@/theme';
+import { Button, Screen, Text } from '@/components/ui';
+import { makeStyles, useTheme } from '@/theme';
 
 import type { ExportRunStatus } from './use-export-run';
+
+/**
+ * An export sheet's layout: the options scroll, and `ExportFooter` stays pinned under them so Export
+ * is always in reach.
+ *
+ * The footer comes first in the tree (and `column-reverse` puts it at the bottom) on purpose: in a
+ * form sheet react-native-screens resizes the scroll view it finds down the first-child chain to
+ * cover the whole sheet (`applyFrameCorrectionForDescendantScrollView`), which would put the options
+ * under the footer, or nowhere. Not first, the scroll view is left to its laid-out size.
+ */
+export function ExportSheetLayout({
+  footer,
+  children,
+}: {
+  footer: ReactNode;
+  children: ReactNode;
+}) {
+  const styles = useStyles();
+  return (
+    <View style={styles.root} collapsable={false}>
+      {footer}
+      <Screen grouped contentContainerStyle={styles.content}>
+        {children}
+      </Screen>
+    </View>
+  );
+}
 
 /**
  * The bottom of an export sheet: the Export button with what it makes underneath, the progress bar
@@ -24,12 +53,15 @@ export function ExportFooter({
   onCancel: () => void;
 }) {
   const styles = useStyles();
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const bar = [styles.footer, { paddingBottom: Math.max(insets.bottom, theme.spacing.lg) }];
 
   if (status.kind === 'running') {
     const { done, total, label } = status.progress;
     const fraction = total > 0 ? Math.min(1, done / total) : 0;
     return (
-      <View style={styles.footer}>
+      <View style={bar}>
         <View
           style={styles.track}
           accessibilityRole="progressbar"
@@ -46,7 +78,7 @@ export function ExportFooter({
   }
 
   return (
-    <View style={styles.footer}>
+    <View style={bar}>
       {status.kind === 'error' ? (
         <Text variant="footnote" color="danger" align="center">
           {status.message}
@@ -67,7 +99,20 @@ export function ExportFooter({
 }
 
 const useStyles = makeStyles((t) => ({
-  footer: { gap: t.spacing.md, paddingHorizontal: t.spacing.lg },
+  root: {
+    flex: 1,
+    flexDirection: 'column-reverse',
+    backgroundColor: t.colors.backgroundGrouped,
+  },
+  content: { paddingTop: t.spacing.xl, paddingBottom: t.spacing.xl, gap: t.spacing.lg },
+  footer: {
+    gap: t.spacing.sm,
+    paddingTop: t.spacing.md,
+    paddingHorizontal: t.spacing.xl,
+    backgroundColor: t.colors.backgroundGrouped,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: t.colors.border,
+  },
   track: {
     height: 6,
     borderRadius: t.radius.full,

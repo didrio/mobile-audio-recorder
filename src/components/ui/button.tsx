@@ -27,7 +27,7 @@ export type ButtonProps = Omit<PressableProps, 'children' | 'style'> & {
 
 const foreground: Record<ButtonVariant, ColorName> = {
   primary: 'onPrimary',
-  destructive: 'onPrimary',
+  destructive: 'danger',
   secondary: 'primary',
   plain: 'primary',
 };
@@ -92,7 +92,9 @@ const useStyles = makeStyles((t) => ({
     gap: t.spacing.sm,
   },
   primary: { backgroundColor: t.colors.primary },
-  destructive: { backgroundColor: t.colors.danger },
+  // Red text on the neutral fill: the brand color is red too, so a solid red button would read as
+  // the screen's main action.
+  destructive: { backgroundColor: t.colors.surfacePressed },
   secondary: { backgroundColor: t.colors.surfacePressed },
   plain: { backgroundColor: 'transparent', minHeight: 44, paddingHorizontal: t.spacing.md },
   pressed: { opacity: 0.75 },

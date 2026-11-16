@@ -2,13 +2,13 @@ import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams } from 'expo-router';
 import { View } from 'react-native';
 
-import { ListSection, Screen, SegmentedControl, Text } from '@/components/ui';
+import { ListSection, SegmentedControl, Text } from '@/components/ui';
 import { countLabel } from '@/features/projects/folder-tree';
 import { isAudioExportAvailable } from '@/lib/audio-export';
 import { makeStyles } from '@/theme';
 
 import type { ExportFormat } from './export-plan';
-import { ExportFooter } from './export-progress';
+import { ExportFooter, ExportSheetLayout } from './export-progress';
 import { exportIdeas } from './export-runner';
 import { useExportSettingsStore } from './export-settings-store';
 import { formatOptions, ToggleRow } from './export-sheet';
@@ -35,7 +35,18 @@ export function BatchExportSheet() {
   };
 
   return (
-    <Screen grouped contentContainerStyle={styles.content}>
+    <ExportSheetLayout
+      footer={
+        <ExportFooter
+          status={status}
+          summary={
+            ids.length > 1 ? `One zip with ${countLabel(ids.length, 'idea')}` : 'One audio file'
+          }
+          disabled={ids.length === 0}
+          onExport={onExport}
+          onCancel={cancel}
+        />
+      }>
       <Text variant="headline" accessibilityRole="header" align="center">
         Export {countLabel(ids.length, 'idea')}
       </Text>
@@ -70,22 +81,11 @@ export function BatchExportSheet() {
           />
         </ListSection>
       </View>
-
-      <ExportFooter
-        status={status}
-        summary={
-          ids.length > 1 ? `One zip with ${countLabel(ids.length, 'idea')}` : 'One audio file'
-        }
-        disabled={ids.length === 0}
-        onExport={onExport}
-        onCancel={cancel}
-      />
-    </Screen>
+    </ExportSheetLayout>
   );
 }
 
 const useStyles = makeStyles((t) => ({
-  content: { paddingTop: t.spacing.xl, paddingBottom: t.spacing.xxl, gap: t.spacing.lg },
   options: { gap: t.spacing.lg },
   busy: { opacity: 0.5 },
   segment: { padding: t.spacing.md },

@@ -16,7 +16,7 @@ import type { PlayableClip } from './audio-engine';
 import { startClick, startClips, trackGainNode } from './audio-graph';
 import { seamlessEdges } from './clip-envelope';
 import { clicksBetween } from './metronome';
-import { takeFilePath } from './take-files';
+import { takeUri } from './take-files';
 import type { Meter } from './tempo';
 
 /** Short fade where the range cuts into sounding audio, so a section export doesn't click. */
@@ -32,7 +32,8 @@ export function createTakeCache(sampleRate: number): TakeCache {
 function decode(cache: TakeCache, takePath: string): Promise<AudioBuffer> {
   let buffer = cache.takes.get(takePath);
   if (!buffer) {
-    buffer = decodeAudioData(takeFilePath(takePath), cache.sampleRate);
+    // A file:// URI, not a plain path (see decodeTake in audio-engine).
+    buffer = decodeAudioData(takeUri(takePath), cache.sampleRate);
     cache.takes.set(takePath, buffer);
   }
   return buffer;

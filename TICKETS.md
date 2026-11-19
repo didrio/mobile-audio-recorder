@@ -81,8 +81,8 @@ What's left after T46's iPhone pass: Android (when it's back), wired headphones 
 hand), a fresh install. Run them then or before a release (`release` skill). Fix or ticket what fails, then
 delete the line.
 
-- T52 on the friend's Android (preview build): recording starts; Settings → Input may show Input 1 / Input 2 for
-  the built-in mic, both should record.
+- T52 + T53 on the friend's Android (preview build): recording starts; right after recording the take shows a
+  waveform and plays (T53); Settings → Input may show Input 1 / Input 2 for the built-in mic, both should record.
 - Speaker mode (T47) on Android (never run; the JNI path is only compiled; passed on the iPhone in T46: claps
   kept and lined up, backing and click gone, voice and guitar clean): Settings → Experimental → Speaker mode
   on, no headphones, an idea with a track and the metronome clicking; clap test, guitar and voice, time the
@@ -228,6 +228,11 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T53 — Android release: blank take and "Could not read asset bytes" — 2026-11-18 — after T52 the friend's takes
+  recorded but showed no waveform and wouldn't play. In Android release builds react-native-audio-api treats a
+  decode path without `file://` as a bundled asset name; `decodeTake` (audio-engine) and offline-render's
+  `decode` now pass `takeUri()` (a `file://` URI) instead of `takeFilePath()`. Only release Android was affected
+  (dev builds and iOS take the file path). Preview OTA to iOS and Android; not yet confirmed on his phone.
 - T52 — Android recording failed on 3+ channel mics — 2026-11-18 — a friend's Android phone reported its built-in
   mic with more than 2 channels and the recorder (mono/stereo files only) refused to start; the input's channel
   count is now capped at 2 where it enters the route store (`recordableChannelCount` in `audio-route.ts`), so

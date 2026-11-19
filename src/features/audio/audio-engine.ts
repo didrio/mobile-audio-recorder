@@ -116,7 +116,7 @@ import { clipPieces, loopedPosition, loopSegments, type LoopRegion } from './loo
 import { clicksBetween } from './metronome';
 import { pickRecordingResult } from './recording-result';
 import type { TakeAlignment } from './take-alignment';
-import { takeFilePath } from './take-files';
+import { takeUri } from './take-files';
 import type { Meter } from './tempo';
 
 const RECORDING_PRESET = FilePreset.Lossless;
@@ -780,7 +780,9 @@ export function peakLevel(samples: ArrayLike<number>): number {
 export function decodeTake(takePath: string): Promise<AudioBuffer> {
   let buffer = decodedTakes.get(takePath);
   if (!buffer) {
-    buffer = getContext().decodeAudioData(takeFilePath(takePath));
+    // A file:// URI, not a plain path: in Android release builds react-native-audio-api reads any
+    // other string as a bundled asset name ("Could not read asset bytes").
+    buffer = getContext().decodeAudioData(takeUri(takePath));
     buffer.catch(() => decodedTakes.delete(takePath));
     decodedTakes.set(takePath, buffer);
   }

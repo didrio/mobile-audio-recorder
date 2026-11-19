@@ -81,6 +81,8 @@ What's left after T46's iPhone pass: Android (when it's back), wired headphones 
 hand), a fresh install. Run them then or before a release (`release` skill). Fix or ticket what fails, then
 delete the line.
 
+- T52 on the friend's Android (preview build): recording starts; Settings → Input may show Input 1 / Input 2 for
+  the built-in mic, both should record.
 - Speaker mode (T47) on Android (never run; the JNI path is only compiled; passed on the iPhone in T46: claps
   kept and lined up, backing and click gone, voice and guitar clean): Settings → Experimental → Speaker mode
   on, no headphones, an idea with a track and the metronome clicking; clap test, guitar and voice, time the
@@ -226,6 +228,10 @@ Ideas that aren't ready to work on yet. Promote them to "Up next" with full deta
 
 ## Done
 
+- T52 — Android recording failed on 3+ channel mics — 2026-11-18 — a friend's Android phone reported its built-in
+  mic with more than 2 channels and the recorder (mono/stereo files only) refused to start; the input's channel
+  count is now capped at 2 where it enters the route store (`recordableChannelCount` in `audio-route.ts`), so
+  recording, meter and Input picker agree. Shipped as a preview OTA to iOS and Android; not yet confirmed on his phone.
 - T51 — No dead ends in the editor — 2026-11-15 — Record with no track armed and Split with the playhead off the clip
   look dimmed but respond with a notice (one pill at the top of the timeline in `project-screen.tsx`, 3 s,
   live region; below the header row when vertical; `dimmed` prop on `ActionBarButton` / `TransportButton`,

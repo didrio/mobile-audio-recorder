@@ -28,9 +28,6 @@ const GAIN_SCALE: SliderScale = {
   format: (gain) => `${Math.round(gain * 100)}%`,
 };
 
-/** At most this many channels are offered (Input 1…8); interfaces with more are rare on a phone. */
-const MAX_CHANNEL_CHOICES = 8;
-
 /**
  * Settings → Recording → Input (T38): which input records (or Automatic), which channel of a
  * multi-channel input the take keeps, and the input gain where the hardware allows it. With `sheet`, it's
@@ -62,7 +59,7 @@ export function InputScreen({ sheet = false }: { sheet?: boolean }) {
   const active = currentInput(devices);
   const picked = resolvePreferredInput(devices.availableInputs, preferredInput);
   const missing = preferredInput && !picked ? preferredInput : null;
-  const channelCount = Math.min(MAX_CHANNEL_CHOICES, inputInfo.channelCount);
+  const { channelCount } = inputInfo;
   const channel = active ? inputChannel(channelByDevice[deviceKey(active)], channelCount) : 0;
   const channelOptions = Array.from({ length: channelCount }, (_, index) => ({
     value: String(index),
@@ -125,7 +122,7 @@ export function InputScreen({ sheet = false }: { sheet?: boolean }) {
       {active && channelCount > 1 ? (
         <ListSection
           title="Channel"
-          footer={`${inputName(active)} has ${channelCount} inputs. The take records the one picked here (takes are mono); remembered for this device.`}>
+          footer={`The take records the input of ${inputName(active)} picked here (takes are mono); remembered for this device.`}>
           <View style={styles.segmentRow}>
             <SegmentedControl
               accessibilityLabel="Input channel"

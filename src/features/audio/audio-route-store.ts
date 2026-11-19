@@ -20,6 +20,7 @@ import {
   headphonesConnected,
   inputChannel,
   outputRouteOf,
+  recordableChannelCount,
   type OutputRoute,
 } from './audio-route';
 import { estimateMonitorLatency, monitorStatus, type MonitorStatus } from './monitoring';
@@ -113,7 +114,8 @@ export async function refreshAudioRoute(): Promise<void> {
   try {
     const devices = (await applyInputPreference()) ?? (await AudioManager.getDevicesInfo());
     const input = currentInput(devices);
-    const inputInfo = await getInputInfo(input?.id ?? null);
+    const reported = await getInputInfo(input?.id ?? null);
+    const inputInfo = { ...reported, channelCount: recordableChannelCount(reported.channelCount) };
     useAudioRouteStore.setState({ devices, inputInfo });
 
     const output = currentOutput(devices);

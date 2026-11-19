@@ -172,6 +172,17 @@ export function pickableInputs(
   return available.filter((device) => !bluetoothPhoneMic || !isBluetoothInput(device.category));
 }
 
+/**
+ * The recorder writes mono or stereo files only, so an input reporting more channels (an Android
+ * mic array, a 4-input interface) is opened as its first two.
+ */
+export const MAX_RECORD_CHANNELS = 2;
+
+/** How many of the input's channels can be opened and picked from: at least 1, at most 2. */
+export function recordableChannelCount(channelCount: number): number {
+  return Math.max(1, Math.min(MAX_RECORD_CHANNELS, Math.floor(channelCount) || 1));
+}
+
 /** The input channel to record (0-based), or the first when the input has fewer channels. */
 export function inputChannel(channel: number | undefined, channelCount: number): number {
   return channel !== undefined && channel >= 0 && channel < channelCount ? channel : 0;

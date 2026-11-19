@@ -11,6 +11,7 @@ import {
   pickableInputs,
   resolvePreferredInput,
   speakerModeApplies,
+  recordableChannelCount,
 } from './audio-route';
 
 const device = (category: string) => ({ id: category, name: category, category });
@@ -172,5 +173,15 @@ describe('inputs', () => {
       'AirPods Pro',
     );
     expect(outputLabel(null)).toBe('Speaker');
+  });
+});
+
+describe('recordableChannelCount', () => {
+  it('opens at most two channels, since takes are written as mono or stereo files', () => {
+    expect(recordableChannelCount(1)).toBe(1);
+    expect(recordableChannelCount(2)).toBe(2);
+    expect(recordableChannelCount(4)).toBe(2);
+    expect(recordableChannelCount(0)).toBe(1);
+    expect(recordableChannelCount(Number.NaN)).toBe(1);
   });
 });
